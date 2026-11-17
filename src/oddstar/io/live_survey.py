@@ -750,8 +750,26 @@ def _safe_float(val: Any) -> float | None:
     return f
 
 
-def _enrich_optical_timeseries(out: dict[str, Any], cache: RawCache) -> list[ManifestRecord]:
-    """Attach TESS QLP/TESScut pairs and ZTF + ASAS-SN seasonal photometry used by light-curve vetting."""
+def _enrich_optical_timeseries(out: dict[str, Any], cache: RawCache, cfg: PipelineConfig | None = None) -> list[ManifestRecord]:
+    """Attach the vetting-only optical time series: TESS QLP/TESScut pairs (with background and centroid series),
+    Gaia neighbours inside the TESS aperture, SkyBoT queries at flagged TESS event times, and ZTF + ASAS-SN
+    seasonal photometry.
+
+    Every fetch records its outcome so checks can tell no coverage from a failed query: survey summaries carry
+    `status` in {ok, no_coverage, query_failed, client_unavailable} plus `query_log`; TESS sets
+    `lightcurves.tess_status`/`tess_query_log`; the Gaia cone sets `lightcurves.tess_neighbours.status`; SkyBoT
+    sets `lightcurves.sso_queries.status`. Only archive/network/parse errors are caught (by type, recorded);
+    programming errors propagate.
+    """
+    import zipfile
+
+    from oddstar.io.optical_timeseries import query_sso_at_events
+
+    # Archive, network and payload-parsing failures. AttributeError/TypeError cover malformed or stubbed HTTP responses
+    # and third-party client payloads; they are recorded as query_failed with their type in the note, never silent.
+    _OPTICAL_FETCH_ERRORS = (ArchiveAccessError, requests.RequestException, ValueError, KeyError, OSError, zipfile.BadZipFile,
+                             StopIteration, AttributeError, TypeError)
+
     ra = float(out["ra_deg"])
     dec = float(out["dec_deg"])
     pmra = float(out.get("pmra_mas_yr", 0.0) or 0.0)
@@ -760,13 +778,16 @@ def _enrich_optical_timeseries(out: dict[str, Any], cache: RawCache) -> list[Man
     lc = out.setdefault("lightcurves", {})
     surveys: dict[str, Any] = {}
     manifests: list[ManifestRecord] = []
+
+    def _failed(survey: str, exc: BaseException) -> dict[str, Any]:
+        return {"survey": survey, "n_epochs": 0, "status": "query_failed", "query_log": [f"{type(exc).__name__}: {str(exc)[:240]}"]}
+
     try:
         ztf, m = fetch_ztf_lightcurve(ra=ra, dec=dec, pmra=pmra, pmdec=pmdec, cache=cache)
         manifests.extend(m)
-        if ztf is not None:
-            surveys["ztf"] = ztf
-    except Exception as exc:
-        surveys["ztf"] = {"survey": "ZTF", "n_epochs": 0, "status": "query_failed", "query_log": [f"{type(exc).__name__}: {exc}"]}
+        surveys["ztf"] = ztf if ztf is not None else {"survey": "ZTF", "n_epochs": 0, "status": "query_failed", "query_log": ["no summary returned"]}
+    except _OPTICAL_FETCH_ERRORS as exc:
+        surveys["ztf"] = _failed("ZTF", exc)
     try:
         asn, m = fetch_asassn_lightcurve(ra=ra, dec=dec, pmra=pmra, pmdec=pmdec, cache=cache)
         manifests.extend(m)
@@ -774,18 +795,68 @@ def _enrich_optical_timeseries(out: dict[str, Any], cache: RawCache) -> list[Man
             "survey": "ASAS-SN", "n_epochs": 0, "status": "client_unavailable",
             "query_log": ["pyasassn (pip package 'skypatrol') not installed"],
         }
-    except Exception as exc:
-        surveys["asassn"] = {"survey": "ASAS-SN", "n_epochs": 0, "status": "query_failed", "query_log": [f"{type(exc).__name__}: {exc}"]}
+    except _OPTICAL_FETCH_ERRORS as exc:
+        surveys["asassn"] = _failed("ASAS-SN", exc)
     lc["optical_surveys"] = surveys
+
+    # Gaia DR3 sources inside the TESS aperture region (vetting.tess_neighbour_radius_px TESS pixels) for neighbour_signal
+    neighbours: list[dict[str, Any]] = []
+    if cfg is not None:
+        radius_arcsec = float(cfg.vetting["tess_neighbour_radius_px"]) * float(cfg.vetting["tess_pixel_arcsec"])
+        nb_info: dict[str, Any] = {"radius_arcsec": radius_arcsec, "sources": [], "status": "ok", "query_log": []}
+        try:
+            q_tn = (
+                f"SELECT source_id, ra, dec, pmra, pmdec, phot_g_mean_mag, phot_rp_mean_mag "
+                f"FROM gaiadr3.gaia_source WHERE 1=CONTAINS(POINT('ICRS', ra, dec), CIRCLE('ICRS', {ra:.6f}, {dec:.6f}, {radius_arcsec / 3600.0:.6f}))"
+            )
+            tn_rows, m_tn, _ = _tap_query_cached(urls=GAIA_TAP_URLS, query=q_tn, archive="gaia", release=cfg.gaia.release, cache=cache, timeout_s=25)
+            manifests.append(m_tn)
+            t_rp = next((_safe_float(r.get("phot_rp_mean_mag")) for r in tn_rows if str(r.get("source_id")) == sid), None)
+            if t_rp is None:
+                t_rp = _safe_float((out.get("mags") or {}).get("RP"))
+            for r in tn_rows:
+                if str(r.get("source_id")) == sid:
+                    continue
+                n_ra, n_dec, rp = _safe_float(r.get("ra")), _safe_float(r.get("dec")), _safe_float(r.get("phot_rp_mean_mag"))
+                if n_ra is None or n_dec is None:
+                    continue
+                ratio = None if (rp is None or t_rp is None) else round(10 ** (-0.4 * (rp - t_rp)), 5)
+                neighbours.append({"id": f"Gaia DR3 {r['source_id']}", "ra_deg": n_ra, "dec_deg": n_dec,
+                                   "pmra": _safe_float(r.get("pmra")) or 0.0, "pmdec": _safe_float(r.get("pmdec")) or 0.0,
+                                   "sep_arcsec": round(angular_separation_arcsec(ra, dec, n_ra, n_dec), 2),
+                                   "g_mag": _safe_float(r.get("phot_g_mean_mag")), "rp_mag": rp, "flux_ratio": ratio})
+            nb_info["sources"] = sorted(neighbours, key=lambda x: x["sep_arcsec"])
+            nb_info["query_log"].append(f"ok ({len(neighbours)} sources)")
+        except _OPTICAL_FETCH_ERRORS as exc:
+            nb_info.update({"status": "query_failed", "query_log": [f"{type(exc).__name__}: {str(exc)[:240]}"]})
+        lc["tess_neighbours"] = nb_info
+
     try:
-        tess, m = fetch_tess_pipeline_pair(ra=ra, dec=dec, pmra=pmra, pmdec=pmdec, gaia_id=sid, cache=cache)
+        tess, m = fetch_tess_pipeline_pair(ra=ra, dec=dec, pmra=pmra, pmdec=pmdec, gaia_id=sid, cache=cache, neighbours=neighbours)
         manifests.extend(m)
         if tess is not None:
             lc["tess_tic_id"] = tess.get("tic_id")
             lc["tess_sectors"] = tess.get("sectors", [])
             lc["tess_query_log"] = tess.get("query_log", [])
-    except Exception as exc:
-        lc["tess_query_log"] = [f"{type(exc).__name__}: {exc}"]
+            lc["tess_status"] = tess.get("status", "ok")
+    except _OPTICAL_FETCH_ERRORS as exc:
+        lc["tess_status"] = "query_failed"
+        lc["tess_query_log"] = [f"{type(exc).__name__}: {str(exc)[:240]}"]
+
+    # SkyBoT at the flagged TESS event times (deepest coincident bin per sector above optical_dips.min_dip_depth_frac)
+    if cfg is not None and lc.get("tess_sectors"):
+        from oddstar.vet.lc_checks import tess_dip_events
+
+        events, _ = tess_dip_events(lc, cfg)
+        if events:
+            radius = float(cfg.vetting["sso_tess_radius_px"]) * float(cfg.vetting["tess_pixel_arcsec"])
+            sso, m = query_sso_at_events(events, ra=ra, dec=dec, pmra=pmra, pmdec=pmdec, radius_arcsec=radius, cache=cache)
+            manifests.extend(m)
+            sts = {e["status"] for e in sso["events"]}
+            sso["status"] = "ok" if sts == {"ok"} else ("client_unavailable" if "client_unavailable" in sts else "query_failed")
+            lc["sso_queries"] = sso
+        else:
+            lc["sso_queries"] = {"status": "no_event", "events": []}
     return manifests
 
 
@@ -1026,9 +1097,15 @@ def enrich_star_live_for_vetting(
                 else:
                     bins[-1][1].append(item)
             v_mjd, v_w1, v_w2, v_e1, v_e2, pm_resids = [], [], [], [], [], []
+            v_dra: list[float | None] = []
+            v_ddec: list[float | None] = []
+            v_win: list[tuple[float, float]] = []
+            v_nfr: list[int] = []
             for _, grp in bins:
                 mjd_med = float(np.median([x[0] for x in grp]))
                 v_mjd.append(mjd_med)
+                v_win.append((float(grp[0][0]), float(grp[-1][0])))
+                v_nfr.append(len(grp))
                 f1s = [mag_to_flux_mjy("W1", x[1]) for x in grp]
                 f2s = [mag_to_flux_mjy("W2", x[2]) for x in grp]
                 m1 = float(np.median(f1s))
@@ -1042,10 +1119,44 @@ def enrich_star_live_for_vetting(
                 if ras_g and decs_g:
                     jyr = 2000.0 + (mjd_med - 51544.5) / 365.25
                     pra, pdec = propagate_position(ra, dec, pmra_v, pmdec_v, 2016.0, jyr)
-                    pm_resids.append(angular_separation_arcsec(float(np.median(ras_g)), float(np.median(decs_g)), pra, pdec))
+                    r_med, d_med = float(np.median(ras_g)), float(np.median(decs_g))
+                    pm_resids.append(angular_separation_arcsec(r_med, d_med, pra, pdec))
+                    # Per-visit residual vector from the Gaia PM track (RA*cos(Dec), Dec; arcsec) for neighbour_signal
+                    v_dra.append(round(((r_med - pra + 540.0) % 360.0 - 180.0) * math.cos(math.radians(pdec)) * 3600.0, 5))
+                    v_ddec.append(round((d_med - pdec) * 3600.0, 5))
+                else:
+                    v_dra.append(None)
+                    v_ddec.append(None)
             neo_dict: dict[str, Any] = {"mjd": v_mjd, "w1_mjy": v_w1, "w2_mjy": v_w2, "w1_err_mjy": v_e1, "w2_err_mjy": v_e2}
             if pm_resids:
                 neo_dict["median_pm_residual_arcsec"] = float(np.median(pm_resids))
+                neo_dict["pm_residual_ra_arcsec"] = v_dra
+                neo_dict["pm_residual_dec_arcsec"] = v_ddec
+            neo_dict["visit_n_frames"] = v_nfr
+            # Field-star ensemble on the same visit grid for systematics_window (vetting-only; channel inputs unchanged)
+            from oddstar.io.optical_timeseries import build_neowise_comparison
+
+            itd = cfg.channels["ir_timedomain"]
+            comp_r = float(itd["neowise_comparison_radius_arcsec"])
+            try:
+                c_rows, m_cmp, _ = _gator_cone_cached(
+                    catalog="neowiser_p1bs_psd", ra=ra, dec=dec, radius_arcsec=comp_r,
+                    archive="neowise", release="neowise_r_field", cache=cache, timeout_s=120,
+                )
+                manifests.append(m_cmp)
+                comp = build_neowise_comparison(
+                    c_rows, ra=ra, dec=dec, visit_windows=v_win,
+                    target_w1_mag=float(np.median([x[1] for x in pts])),
+                    exclude_arcsec=float(itd["neowise_comparison_exclude_arcsec"]),
+                    mag_window=float(itd["neowise_comparison_mag_window"]),
+                    min_stars=int(itd["neowise_comparison_min_stars"]),
+                    max_stars=int(itd["neowise_comparison_max_stars"]),
+                )
+                comp["query_log"] = [f"Gator neowiser_p1bs_psd {comp_r:.0f}\" cone: {len(c_rows)} rows"]
+            except (ArchiveAccessError, requests.RequestException, ValueError, KeyError, OSError) as exc:
+                comp = {"status": "query_failed", "n_stars": 0, "query_log": [f"{type(exc).__name__}: {str(exc)[:240]}"]}
+            comp["radius_arcsec"] = comp_r
+            neo_dict["comparison"] = comp
             out["neowise"] = neo_dict
 
     # 4. Second-instrument 18-25 um archival check (AKARI IRC/FIS, Spitzer SEIP)
@@ -1220,7 +1331,7 @@ def enrich_star_live_for_vetting(
     # 7. Optical time series for light-curve vetting only (pipeline_agreement, second_survey).
     #    Stored under lightcurves.tess_sectors / lightcurves.optical_surveys so channel inputs stay unchanged.
     if enrich_optical:
-        opt_mans = _enrich_optical_timeseries(out, cache)
+        opt_mans = _enrich_optical_timeseries(out, cache, cfg)
         manifests.extend(opt_mans)
 
     out["live_enriched"] = True

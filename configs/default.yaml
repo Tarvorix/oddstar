@@ -47,6 +47,26 @@ channels:
     jump_snr_threshold: 4.5
     optical_flat_max_chi2: 2.5
     design_point_amp_mag: 0.35
+    # Vetting-only (since 1.1.0): systematics_window NEOWISE field-star ensemble
+    neowise_comparison_radius_arcsec: 150.0
+    neowise_comparison_exclude_arcsec: 8.0
+    neowise_comparison_mag_window: 1.0
+    neowise_comparison_min_stars: 3
+    neowise_comparison_max_stars: 10
+    systematics_ensemble_corr: 0.7
+    systematics_ensemble_corr_min_amp_frac: 0.2
+    systematics_ensemble_amp_frac: 0.5
+    # Vetting-only (since 1.1.0): neighbour_signal NEOWISE PM-track residual tests
+    neighbour_blend_sigma: 3.0
+    neighbour_min_track_arcsec: 0.3
+    # Vetting-only (since 1.1.0): second_survey seasonal optical response to the IR variation
+    second_survey_min_season_nights: 5
+    second_survey_season_floor_mag: 0.005
+    second_survey_change_sigma: 5.0
+    second_survey_min_overlap_seasons: 4
+    second_survey_min_abs_corr: 0.6
+    second_survey_slope_sigma: 3.0
+    second_survey_comparable_frac: 0.5
 
   optical_dips:
     detrend_window_days: 5.0
@@ -57,6 +77,34 @@ channels:
     secular_fade_snr_threshold: 4.5
     periodic_bls_veto_snr: 8.0
     design_point_depth_frac: 0.15
+    # Vetting-only (since 1.1.0): pipeline_agreement (first three were literals in _depths_agree)
+    pipeline_quiet_depth_frac: 0.02
+    pipeline_depth_abs_tol_frac: 0.08
+    pipeline_depth_min_ratio: 0.5
+    pipeline_min_bin_fill_frac: 0.5
+    pipeline_min_binned_corr: 0.5
+    tess_segment_gap_days: 0.5
+    # Vetting-only (since 1.1.0): systematics_window TESS event tests
+    systematics_edge_margin_days: 0.5
+    systematics_bkg_sigma: 5.0
+    systematics_bkg_depth_frac: 0.25
+    systematics_centroid_jump_sigma: 5.0
+    systematics_centroid_jump_min_px: 0.05
+    # Vetting-only (since 1.1.0): neighbour_signal TESS difference-image centroid
+    neighbour_centroid_window_days: 2.0
+    neighbour_source_offset_sigma: 3.0
+    neighbour_source_offset_min_px: 0.3
+    # Vetting-only (since 1.1.0): known_variable (periodic_eb_min_depth_frac was a literal 0.85 flux floor)
+    periodic_eb_min_depth_frac: 0.15
+    rotation_min_period_days: 0.1
+    rotation_max_period_days: 13.0
+    rotation_fap_max: 0.001
+    rotation_period_match_frac: 0.1
+    # Vetting-only (since 1.1.0): second_survey simultaneous coverage of TESS dip events
+    second_survey_simultaneous_pad_days: 0.25
+    second_survey_simultaneous_min_depth_ratio: 0.5
+    second_survey_night_dip_sigma: 3.0
+    second_survey_min_dip_nights: 2
 
   radio_narrowband:
     max_abs_drift_hz_s: 4.0
@@ -116,6 +164,9 @@ vetting:
   binary_ruwe_max: 1.4
   extinction_disagreement_mag: 0.20
   tess_pixel_arcsec: 21.0
+  tess_neighbour_radius_px: 2.0
+  sso_tess_radius_px: 2.0
+  sso_min_flux_ratio_of_depth: 0.1
 
 validation:
   blind_recovery_min: 0.90
