@@ -3,8 +3,8 @@
   "gaia_release": "dr3",
   "split": "all",
   "config_hash": "dff37a1a3940",
-  "git_commit": "898eccf5bdbab78a0debc6977efbe6173a0de44a",
-  "timestamp_utc": "2026-11-17T23:25:18.096674+00:00",
+  "git_commit": "f4afb45e99aa862e428b5db9f7128af873a20d0c",
+  "timestamp_utc": "2026-11-17T23:30:20.379405+00:00",
   "passed": true,
   "blind_recovery_rate": 1.0,
   "blind_total": 3,
@@ -178,7 +178,7 @@
       "oddstar/dossier/plots.py": "dfa110bd1909df63c68c5f70e48faa791f731108cc2c7b388f67e0d17d52c0f0",
       "oddstar/errors.py": "6e2757f307284892a5d69bf8967ee111d49bcd4c4100bf82316d02d7fb09ed30",
       "oddstar/fuse/engine.py": "5f0a7a028b801f8eb314818735eac801eae6f9a07ed4fc8c000c96412e590b7d",
-      "oddstar/io/archive_http.py": "c9c3a03747f6931b57c0e270609d1a2a7f3eb7abbfeb1a9bad1725e270cbe0d7",
+      "oddstar/io/archive_http.py": "e33c678e4975fa13a236540103d3af1e1d5a5894fbad9be0a5fbcc956e134889",
       "oddstar/io/cache.py": "df4d0326b6aaa6c90027c32f6b557ba3543460881431be583fefbb35eebf53bb",
       "oddstar/io/cutouts.py": "300112d41e5736830a68a30c7016cf437a730dadcd13e2d174f81d0b551cfa78",
       "oddstar/io/fixtures_data.py": "a307d3d50d71d54f06d3ee8a9bc082414713e205763233c6c5511bf97db29ab4",
@@ -200,5 +200,5 @@
       "oddstar/vet/vanishing_checks.py": "6dc1a99d71d9d792aa581152313f874e4dd03d6487fcb3cd3b5d36bf77490128"
     }
   },
-  "code_fingerprint": "4d65db5a7a6eee5127adfefae39378d1a18cfbc6c28b11cc1c0de7be652b559c"
+  "code_fingerprint": "97dfcfeefa32b1706b4f194b4a54994347bdd7bc2d83a8319800de6e75058926"
 }
