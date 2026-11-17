@@ -92,8 +92,8 @@ class _IsolationForest:
         if node.split_feat is None:
             return depth + _c_factor(node.size)
         val = row[node.split_feat]
-        # A query outside the node's entire training interval would be isolated at this cut
-        if val < node.lo or val > node.hi:
+        # A query far outside the node's training interval (>1.5 MAD) is isolated at this cut
+        if val < node.lo - 1.5 or val > node.hi + 1.5:
             return float(depth) + 0.5
         if val < node.split_val:
             assert node.left is not None
