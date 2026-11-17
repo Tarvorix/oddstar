@@ -1,5 +1,7 @@
 {
   "channels_revalidated": 8,
+  "config_hash_dr3": "092bb769c315",
+  "config_hash_dr4": "161d4b805cfa",
   "open_case_parallax_snr_dr3": 119.22824659732167,
   "open_case_parallax_snr_dr4": 168.11182770222354,
   "snr_improvement_factor": 1.41,
@@ -57,7 +59,7 @@
       "dr3_far": 0.0,
       "dr4_far": 0.0,
       "dr3_inj_dp": 0.95,
-      "dr4_inj_dp": 1.0
+      "dr4_inj_dp": 0.95
     },
     {
       "channel": "generic_outlier",
@@ -66,8 +68,8 @@
       "dr3_blind_rate": 1.0,
       "dr4_blind_rate": 1.0,
       "dr3_far": 0.0,
-      "dr4_far": 0.0033333333333333335,
-      "dr3_inj_dp": 0.95,
+      "dr4_far": 0.006666666666666667,
+      "dr3_inj_dp": 1.0,
       "dr4_inj_dp": 1.0
     },
     {
