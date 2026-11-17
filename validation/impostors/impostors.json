@@ -1,0 +1,47 @@
+{
+  "ir_excess": [
+    {"source_id": "4418120359123456128", "name": "Hephaistos-A", "reference": "Ren et al. 2024 (arXiv:2405.14921)", "split": "dev", "expected_failed": ["radio_counterpart", "centroid_offset", "deep_imaging"]},
+    {"source_id": "1394205817392045184", "name": "Hephaistos-B", "reference": "Ren et al. 2024 (arXiv:2405.14921)", "split": "dev", "expected_failed": ["radio_counterpart", "deep_imaging"]},
+    {"source_id": "3141592653589793280", "name": "DOG-Blend-1", "reference": "Dust-obscured galaxy blend", "split": "dev", "expected_failed": ["neighbours", "centroid_offset", "deep_imaging"]},
+    {"source_id": "4129384756102938112", "name": "WISE-Artifact-1", "reference": "AllWISE diffraction spike & single-frame glitch", "split": "dev", "expected_failed": ["wise_quality", "single_frames"]},
+    {"source_id": "2059182736491028480", "name": "Hephaistos-G", "reference": "Ren et al. 2026 (arXiv:2607.03619)", "split": "holdout", "expected_failed": ["deep_imaging", "centroid_offset", "neighbours"]},
+    {"source_id": "5812938471029384960", "name": "Cirrus-Impostor-1", "reference": "Bright Galactic cirrus contamination", "split": "holdout", "expected_failed": ["cirrus", "wise_quality"]}
+  ],
+  "ir_timedomain": [
+    {"source_id": "711100000000000001", "name": "TD-Blend-1", "reference": "Bright W1/W2 neighbour blend", "split": "dev", "expected_failed": ["neighbour_signal"]},
+    {"source_id": "711100000000000002", "name": "TD-LPV-1", "reference": "Long-period variable", "split": "dev", "expected_failed": ["known_variable"]},
+    {"source_id": "711100000000000003", "name": "TD-Scan-1", "reference": "Scan-direction systematic", "split": "holdout", "expected_failed": ["systematics_window"]}
+  ],
+  "optical_dips": [
+    {"source_id": "722200000000000001", "name": "KEB-Impostor-1", "reference": "Kepler eclipsing binary", "split": "dev", "expected_failed": ["known_variable"]},
+    {"source_id": "722200000000000002", "name": "TESS-Scatter-1", "reference": "TESS scattered-light systematic", "split": "dev", "expected_failed": ["systematics_window", "pipeline_agreement"]},
+    {"source_id": "722200000000000003", "name": "Blend-EB-1", "reference": "Blended background eclipsing binary", "split": "holdout", "expected_failed": ["neighbour_signal"]}
+  ],
+  "radio_narrowband": [
+    {"source_id": "GBT_BLC1_PROXCEN", "name": "blc1", "reference": "Sheikh et al. 2021 (arXiv:2111.06350)", "split": "dev", "expected_failed": ["off_scan", "rfi_band", "multi_target"]}
+  ],
+  "underluminous": [
+    {"source_id": "733300000000000001", "name": "UL-Ext-1", "reference": "Dust-extinguished star (with extinction ON)", "split": "dev", "expected_failed": ["extinction"]},
+    {"source_id": "733300000000000004", "name": "UL-Subdwarf-1", "reference": "Metal-poor subdwarf", "split": "dev", "expected_failed": ["metallicity"]},
+    {"source_id": "733300000000000005", "name": "UL-HighRUWE-1", "reference": "High-RUWE unresolved binary", "split": "holdout", "expected_failed": ["astrometry", "companion"]}
+  ],
+  "spectral_lines": [
+    {"source_id": "744400000000000001", "name": "SL-ActiveMDwarf-1", "reference": "Active M dwarf H-alpha (veto ON)", "split": "dev", "expected_failed": ["stellar_emission"]},
+    {"source_id": "744400000000000003", "name": "SL-CosmicRay-1", "reference": "Lipman et al. 2019 cosmic ray", "split": "dev", "expected_failed": ["cosmic_ray", "repeat"]},
+    {"source_id": "744400000000000004", "name": "SL-Airglow-1", "reference": "Lipman et al. 2019 OH airglow", "split": "holdout", "expected_failed": ["sky_line"]}
+  ],
+  "vanishing": [
+    {"source_id": "755500000000000001", "name": "VAN-HighPM-1", "reference": "High proper motion (PM correction ON)", "split": "dev", "expected_failed": ["proper_motion"]},
+    {"source_id": "755500000000000005", "name": "VAN-LPV-1", "reference": "Large-amplitude Mira variable", "split": "dev", "expected_failed": ["known_variable"]},
+    {"source_id": "755500000000000006", "name": "VAN-PlateDefect-1", "reference": "Single-plate defect", "split": "holdout", "expected_failed": ["plate_defect"]}
+  ],
+  "generic_outlier": [
+    {"source_id": "4418120359123456128", "name": "Hephaistos-A", "reference": "IR excess impostor", "split": "dev", "expected_failed": ["radio_counterpart"]},
+    {"source_id": "722200000000000001", "name": "KEB-Impostor-1", "reference": "EB impostor", "split": "dev", "expected_failed": ["known_variable"]},
+    {"source_id": "744400000000000003", "name": "SL-CosmicRay-1", "reference": "Cosmic ray impostor", "split": "holdout", "expected_failed": ["cosmic_ray"]},
+    {"source_id": "755500000000000006", "name": "VAN-PlateDefect-1", "reference": "Plate defect impostor", "split": "holdout", "expected_failed": ["plate_defect"]}
+  ],
+  "extra_fixtures": [
+    {"source_id": "5391513322976037248", "name": "TYC 8241-2652-1", "reference": "Melis et al. 2012 (arXiv:1207.1162)", "note": "Strong earlier IRAS/AKARI 22um excess faded by WISE 2010 epoch"}
+  ]
+}

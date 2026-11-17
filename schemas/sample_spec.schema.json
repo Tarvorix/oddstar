@@ -1,0 +1,89 @@
+{
+  "$defs": {
+    "SampleCutStep": {
+      "properties": {
+        "count_after": {
+          "title": "Count After",
+          "type": "integer"
+        },
+        "count_before": {
+          "title": "Count Before",
+          "type": "integer"
+        },
+        "cut_name": {
+          "title": "Cut Name",
+          "type": "string"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        }
+      },
+      "required": [
+        "cut_name",
+        "description",
+        "count_before",
+        "count_after"
+      ],
+      "title": "SampleCutStep",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "channel": {
+      "title": "Channel",
+      "type": "string"
+    },
+    "config_hash": {
+      "title": "Config Hash",
+      "type": "string"
+    },
+    "cuts": {
+      "items": {
+        "$ref": "#/$defs/SampleCutStep"
+      },
+      "title": "Cuts",
+      "type": "array"
+    },
+    "gaia_release": {
+      "title": "Gaia Release",
+      "type": "string"
+    },
+    "healpix_cells": {
+      "items": {
+        "type": "integer"
+      },
+      "title": "Healpix Cells",
+      "type": "array"
+    },
+    "seed": {
+      "title": "Seed",
+      "type": "integer"
+    },
+    "source_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Source Ids",
+      "type": "array"
+    },
+    "table_path": {
+      "default": "",
+      "title": "Table Path",
+      "type": "string"
+    },
+    "total_count": {
+      "title": "Total Count",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "channel",
+    "gaia_release",
+    "config_hash",
+    "seed",
+    "total_count"
+  ],
+  "title": "SampleSpec",
+  "type": "object"
+}

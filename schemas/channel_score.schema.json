@@ -1,0 +1,87 @@
+{
+  "$defs": {
+    "EvidenceRef": {
+      "properties": {
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "kind": {
+          "title": "Kind",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "default": "",
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "path",
+        "description"
+      ],
+      "title": "EvidenceRef",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "channel": {
+      "title": "Channel",
+      "type": "string"
+    },
+    "evidence": {
+      "items": {
+        "$ref": "#/$defs/EvidenceRef"
+      },
+      "title": "Evidence",
+      "type": "array"
+    },
+    "false_alarm_prob": {
+      "title": "False Alarm Prob",
+      "type": "number"
+    },
+    "feature_contributions": {
+      "additionalProperties": {
+        "type": "number"
+      },
+      "title": "Feature Contributions",
+      "type": "object"
+    },
+    "flagged": {
+      "title": "Flagged",
+      "type": "boolean"
+    },
+    "rank_score": {
+      "title": "Rank Score",
+      "type": "number"
+    },
+    "raw_statistic": {
+      "title": "Raw Statistic",
+      "type": "number"
+    },
+    "source_id": {
+      "title": "Source Id",
+      "type": "string"
+    },
+    "summary": {
+      "title": "Summary",
+      "type": "string"
+    }
+  },
+  "required": [
+    "source_id",
+    "channel",
+    "raw_statistic",
+    "false_alarm_prob",
+    "flagged",
+    "rank_score",
+    "summary"
+  ],
+  "title": "ChannelScore",
+  "type": "object"
+}

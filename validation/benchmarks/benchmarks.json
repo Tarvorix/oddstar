@@ -1,0 +1,56 @@
+{
+  "ir_excess": [
+    {"source_id": "115725517896200320", "name": "BD+20 307", "reference": "Thompson et al. 2019 (arXiv:1903.03041)", "split": "dev"},
+    {"source_id": "5290837497970360960", "name": "ID8", "reference": "Meng et al. 2012 (arXiv:1205.1040)", "split": "dev"},
+    {"source_id": "66549657436283904", "name": "HD 23514", "reference": "Meng et al. 2012 (arXiv:1205.1040)", "split": "dev"},
+    {"source_id": "1638028353993041792", "name": "TYC 4209-1322-1", "reference": "Zsidi et al. 2022", "split": "dev"},
+    {"source_id": "6133409280036818688", "name": "HD 113766", "reference": "Su et al. 2020 (arXiv:2006.06590)", "split": "dev"},
+    {"source_id": "6485732215620751360", "name": "TYC 8830-410-1", "reference": "Moor et al. 2021 (arXiv:2103.00568)", "split": "dev"},
+    {"source_id": "2996362101189875200", "name": "TYC 5940-1510-1", "reference": "Moor et al. 2021 (arXiv:2103.00568)", "split": "dev"},
+    {"source_id": "6438274350302427904", "name": "HD 172555", "reference": "Su et al. 2020 (arXiv:2006.06590)", "split": "holdout"},
+    {"source_id": "5721914390814200960", "name": "HD 69830", "reference": "Lisse et al. 2007 (astro-ph/0611452)", "split": "holdout"},
+    {"source_id": "3687158017250050176", "name": "TYC 4946-1106-1", "reference": "Moor et al. 2021 (arXiv:2103.00568)", "split": "holdout"},
+    {"source_id": "5551530885782831616", "name": "TYC 8105-370-1", "reference": "Moor et al. 2021 (arXiv:2103.00568)", "split": "holdout"},
+    {"source_id": "4066368953121417984", "name": "HD 166191", "reference": "Moor et al. 2021 (arXiv:2103.00568)", "split": "holdout"},
+    {"source_id": "6048418276566039424", "name": "HD 145263", "reference": "Moor et al. 2021 (arXiv:2103.00568)", "split": "holdout"}
+  ],
+  "ir_timedomain": [
+    {"source_id": "6485732215620751360", "name": "TYC 8830-410-1", "reference": "Moor et al. 2021", "split": "dev"},
+    {"source_id": "2996362101189875200", "name": "TYC 5940-1510-1", "reference": "Moor et al. 2021", "split": "dev"},
+    {"source_id": "1638028353993041792", "name": "TYC 4209-1322-1", "reference": "Zsidi et al. 2022", "split": "dev"},
+    {"source_id": "3687158017250050176", "name": "TYC 4946-1106-1", "reference": "Moor et al. 2021", "split": "holdout"},
+    {"source_id": "4066368953121417984", "name": "HD 166191", "reference": "Moor et al. 2021", "split": "holdout"},
+    {"source_id": "5548511859528971520", "name": "ASASSN-21qj", "reference": "Kenworthy et al. 2023 (arXiv:2310.08360)", "split": "holdout"}
+  ],
+  "optical_dips": [
+    {"source_id": "2081900940499099136", "name": "KIC 8462852", "reference": "Boyajian et al. 2016 (arXiv:1509.03622)", "split": "dev"},
+    {"source_id": "6049824505359595776", "name": "EPIC 204278916", "reference": "Scaringi et al. 2016 (arXiv:1608.07291)", "split": "dev"},
+    {"source_id": "5548511859528971520", "name": "ASASSN-21qj", "reference": "Kenworthy et al. 2023 (arXiv:2310.08360)", "split": "holdout"}
+  ],
+  "radio_narrowband": [
+    {"source_id": "GBT_VOYAGER1_20151230", "name": "Voyager 1", "reference": "MacMahon et al. 2018 (arXiv:1707.06024)", "split": "dev"}
+  ],
+  "underluminous": [
+    {"source_id": "733300000000000001", "name": "UL-Ext-1", "reference": "Switch-off extinction test", "split": "dev", "switch_off": true},
+    {"source_id": "733300000000000002", "name": "UL-Ext-2", "reference": "Switch-off extinction test", "split": "dev", "switch_off": true},
+    {"source_id": "733300000000000003", "name": "UL-Ext-3", "reference": "Switch-off extinction test", "split": "holdout", "switch_off": true}
+  ],
+  "spectral_lines": [
+    {"source_id": "744400000000000001", "name": "SL-ActiveMDwarf-1", "reference": "Switch-off stellar H-alpha test", "split": "dev", "switch_off": true},
+    {"source_id": "744400000000000002", "name": "SL-ActiveMDwarf-2", "reference": "Switch-off stellar H-alpha test", "split": "holdout", "switch_off": true}
+  ],
+  "vanishing": [
+    {"source_id": "755500000000000001", "name": "VAN-HighPM-1", "reference": "Switch-off high-PM test", "split": "dev", "switch_off": true},
+    {"source_id": "755500000000000002", "name": "VAN-HighPM-2", "reference": "Switch-off high-PM test", "split": "holdout", "switch_off": true},
+    {"source_id": "755500000000000003", "name": "VAN-Villarroel-1", "reference": "Villarroel et al. 2020 (arXiv:1911.05068)", "split": "dev"},
+    {"source_id": "755500000000000004", "name": "VAN-Villarroel-2", "reference": "Villarroel et al. 2020 (arXiv:1911.05068)", "split": "holdout"}
+  ],
+  "generic_outlier": [
+    {"source_id": "115725517896200320", "name": "BD+20 307", "reference": "Multi-channel positive", "split": "dev"},
+    {"source_id": "1638028353993041792", "name": "TYC 4209-1322-1", "reference": "Multi-channel positive", "split": "dev"},
+    {"source_id": "2081900940499099136", "name": "KIC 8462852", "reference": "Multi-channel positive", "split": "dev"},
+    {"source_id": "5548511859528971520", "name": "ASASSN-21qj", "reference": "Multi-channel positive", "split": "holdout"},
+    {"source_id": "6049824505359595776", "name": "EPIC 204278916", "reference": "Multi-channel positive", "split": "holdout"},
+    {"source_id": "755500000000000003", "name": "VAN-Villarroel-1", "reference": "Multi-channel positive", "split": "holdout"}
+  ]
+}

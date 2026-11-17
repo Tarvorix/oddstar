@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "oddstar"
+version = "0.1.0"
+description = "Reproducible multi-channel astrophysical anomaly search and vetting pipeline"
+readme = "README.md"
+requires-python = ">=3.14"
+license = { text = "MIT" }
+authors = [{ name = "Kyle Bullock" }]
+dependencies = [
+    "numpy>=2.0",
+    "scipy>=1.14",
+    "pandas>=2.2",
+    "astropy>=7.0",
+    "astroquery>=0.4.7",
+    "pyvo>=1.5",
+    "matplotlib>=3.9",
+    "pydantic>=2.8",
+    "pyyaml>=6.0",
+    "requests>=2.31",
+    "pillow>=10.0",
+    "beautifulsoup4>=4.12",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+oddstar = "oddstar.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-m 'not network'"
+markers = [
+    "network: marks tests that require live network access to public sky archives",
+]

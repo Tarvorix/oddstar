@@ -1,0 +1,68 @@
+{
+  "properties": {
+    "archive": {
+      "title": "Archive",
+      "type": "string"
+    },
+    "blob_path": {
+      "title": "Blob Path",
+      "type": "string"
+    },
+    "byte_size": {
+      "title": "Byte Size",
+      "type": "integer"
+    },
+    "evicted": {
+      "default": false,
+      "title": "Evicted",
+      "type": "boolean"
+    },
+    "manifest_id": {
+      "title": "Manifest Id",
+      "type": "string"
+    },
+    "offline_fixture": {
+      "default": false,
+      "title": "Offline Fixture",
+      "type": "boolean"
+    },
+    "query_text": {
+      "title": "Query Text",
+      "type": "string"
+    },
+    "release": {
+      "title": "Release",
+      "type": "string"
+    },
+    "request_signature": {
+      "title": "Request Signature",
+      "type": "string"
+    },
+    "row_count": {
+      "title": "Row Count",
+      "type": "integer"
+    },
+    "sha256": {
+      "title": "Sha256",
+      "type": "string"
+    },
+    "utc_time": {
+      "title": "Utc Time",
+      "type": "string"
+    }
+  },
+  "required": [
+    "manifest_id",
+    "archive",
+    "release",
+    "request_signature",
+    "query_text",
+    "utc_time",
+    "row_count",
+    "byte_size",
+    "sha256",
+    "blob_path"
+  ],
+  "title": "ManifestRecord",
+  "type": "object"
+}

@@ -1,0 +1,133 @@
+{
+  "$defs": {
+    "CandidateFusionRow": {
+      "properties": {
+        "combined_fap": {
+          "title": "Combined Fap",
+          "type": "number"
+        },
+        "explained_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Explained Reason"
+        },
+        "flagged_channels": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Flagged Channels",
+          "type": "array"
+        },
+        "open_holes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Open Holes",
+          "type": "array"
+        },
+        "patterns": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Patterns",
+          "type": "array"
+        },
+        "rank_score": {
+          "title": "Rank Score",
+          "type": "number"
+        },
+        "source_id": {
+          "title": "Source Id",
+          "type": "string"
+        },
+        "tier": {
+          "enum": [
+            "A",
+            "B",
+            "C",
+            "Explained",
+            "Rejected"
+          ],
+          "title": "Tier",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_id",
+        "tier",
+        "rank_score",
+        "combined_fap"
+      ],
+      "title": "CandidateFusionRow",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "candidates": {
+      "items": {
+        "$ref": "#/$defs/CandidateFusionRow"
+      },
+      "title": "Candidates",
+      "type": "array"
+    },
+    "config_hash": {
+      "title": "Config Hash",
+      "type": "string"
+    },
+    "consistent_with_noise": {
+      "title": "Consistent With Noise",
+      "type": "boolean"
+    },
+    "cross_channel_patterns": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Cross Channel Patterns",
+      "type": "array"
+    },
+    "expected_false_positives": {
+      "title": "Expected False Positives",
+      "type": "number"
+    },
+    "git_commit": {
+      "title": "Git Commit",
+      "type": "string"
+    },
+    "n_stars_total": {
+      "title": "N Stars Total",
+      "type": "integer"
+    },
+    "n_trials_total": {
+      "title": "N Trials Total",
+      "type": "integer"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "timestamp_utc": {
+      "title": "Timestamp Utc",
+      "type": "string"
+    }
+  },
+  "required": [
+    "run_id",
+    "timestamp_utc",
+    "config_hash",
+    "git_commit",
+    "n_stars_total",
+    "n_trials_total",
+    "expected_false_positives",
+    "consistent_with_noise"
+  ],
+  "title": "FusionResult",
+  "type": "object"
+}

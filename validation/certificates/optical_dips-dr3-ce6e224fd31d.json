@@ -1,0 +1,173 @@
+{
+  "channel": "optical_dips",
+  "gaia_release": "dr3",
+  "split": "all",
+  "config_hash": "ce6e224fd31d",
+  "git_commit": "0000000000000000000000000000000000000000",
+  "timestamp_utc": "2026-11-17T05:55:28.880278+00:00",
+  "passed": true,
+  "blind_recovery_rate": 1.0,
+  "blind_total": 3,
+  "blind_recovered": 3,
+  "impostor_pass": true,
+  "impostor_max_tier": "Explained",
+  "impostors_evaluated": 3,
+  "injection_completeness_design_point": 1.0,
+  "completeness_grid": [
+    {
+      "duration_days": 0.5,
+      "depth": 0.04,
+      "completeness": 1.0,
+      "n_trials": 20
+    },
+    {
+      "duration_days": 0.5,
+      "depth": 0.15,
+      "completeness": 1.0,
+      "n_trials": 20
+    },
+    {
+      "duration_days": 0.5,
+      "depth": 0.35,
+      "completeness": 1.0,
+      "n_trials": 20
+    },
+    {
+      "duration_days": 1.5,
+      "depth": 0.04,
+      "completeness": 1.0,
+      "n_trials": 20
+    },
+    {
+      "duration_days": 1.5,
+      "depth": 0.15,
+      "completeness": 1.0,
+      "n_trials": 20
+    },
+    {
+      "duration_days": 1.5,
+      "depth": 0.35,
+      "completeness": 1.0,
+      "n_trials": 20
+    },
+    {
+      "duration_days": 3.0,
+      "depth": 0.04,
+      "completeness": 0.0,
+      "n_trials": 20
+    },
+    {
+      "duration_days": 3.0,
+      "depth": 0.15,
+      "completeness": 1.0,
+      "n_trials": 20
+    },
+    {
+      "duration_days": 3.0,
+      "depth": 0.35,
+      "completeness": 1.0,
+      "n_trials": 20
+    }
+  ],
+  "false_alarm_rate": 0.0,
+  "false_alarm_ci_low": 0.0,
+  "false_alarm_ci_high": 0.03699480747600191,
+  "expected_false_positives": 10.0,
+  "calibration_curve": [
+    {
+      "stat": 3.6883092725188806,
+      "fap": 0.5
+    },
+    {
+      "stat": 5.111149767656456,
+      "fap": 0.25
+    },
+    {
+      "stat": 5.856540957067255,
+      "fap": 0.09999999999999998
+    },
+    {
+      "stat": 6.381016749304774,
+      "fap": 0.050000000000000044
+    },
+    {
+      "stat": 7.064438665923437,
+      "fap": 0.010000000000000009
+    },
+    {
+      "stat": 8.879748997670795,
+      "fap": 0.0001
+    },
+    {
+      "stat": 10.379748997670795,
+      "fap": 1e-6
+    },
+    {
+      "stat": 13.379748997670795,
+      "fap": 1e-9
+    },
+    {
+      "stat": 19.379748997670795,
+      "fap": 1e-12
+    }
+  ],
+  "details": {
+    "blind_recovery": [
+      {
+        "source_id": "5548511859528971520",
+        "flagged": true,
+        "raw_stat": 613.7052025945391
+      },
+      {
+        "source_id": "2081900940499099136",
+        "flagged": true,
+        "raw_stat": 420.4054338775986
+      },
+      {
+        "source_id": "6049824505359595776",
+        "flagged": true,
+        "raw_stat": 1553.581366309283
+      }
+    ],
+    "impostor_rejection": [
+      {
+        "source_id": "722200000000000001",
+        "tier": "Explained",
+        "failed_checks": [
+          "known_variable"
+        ],
+        "expected_failed": [
+          "known_variable"
+        ],
+        "reason": "Explained by 'known_variable': SIMBAD type=EB*, periodic_EB_detected=True",
+        "passed": true
+      },
+      {
+        "source_id": "722200000000000002",
+        "tier": "Rejected",
+        "failed_checks": [
+          "pipeline_agreement",
+          "systematics_window"
+        ],
+        "expected_failed": [
+          "pipeline_agreement",
+          "systematics_window"
+        ],
+        "reason": "Failed integrity/artifact check 'systematics_window': Event aligns with documented scattered-light or scan-direction systematic window",
+        "passed": true
+      },
+      {
+        "source_id": "722200000000000003",
+        "tier": "Explained",
+        "failed_checks": [
+          "neighbour_signal"
+        ],
+        "expected_failed": [
+          "neighbour_signal"
+        ],
+        "reason": "Explained by 'neighbour_signal': Dip/IR variation tracks neighbouring star within TESS/WISE beam",
+        "passed": true
+      }
+    ]
+  }
+}

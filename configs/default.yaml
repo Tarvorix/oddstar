@@ -1,0 +1,226 @@
+version: "1.0.0"
+
+storage:
+  max_cache_gb: 10.0
+  healpix_nside: 16
+  raw_dir: "data/raw"
+  tables_dir: "data/tables"
+  runs_dir: "runs"
+  dossiers_dir: "dossiers"
+  registry_dir: "registry"
+
+gaia:
+  release: "dr3"
+
+sample:
+  seed: 20261116
+  field_sample_size: 10000
+  max_distance_pc: 300.0
+  min_abs_gal_lat_deg: 10.0
+  min_parallax_snr: 10.0
+  max_ruwe: 1.4
+  require_unique_allwise_xmatch: true
+  require_clean_2mass: true
+
+channels:
+  ir_excess:
+    chi_w3_threshold: 5.0
+    chi_w4_threshold: 5.0
+    min_flux_ratio_w4: 2.0
+    min_flux_ratio_w3: 1.5
+    cal_uncertainty_frac: 0.05
+    require_both_predictors: true
+    blackbody_t_min_k: 80.0
+    blackbody_t_max_k: 1200.0
+    shell_gamma_grid: [0.001, 0.003, 0.01, 0.03, 0.1, 0.3, 0.5]
+    shell_temp_grid_k: [100.0, 150.0, 200.0, 250.0, 300.0, 400.0, 500.0, 650.0]
+    design_point_temp_k: 250.0
+    design_point_frac_lum: 0.01
+    chi_distribution_mean_tol: 0.15
+    chi_distribution_std_tol: 0.20
+
+  ir_timedomain:
+    visit_bin_days: 180.0
+    min_visits: 6
+    reduced_chi2_threshold: 5.0
+    slope_snr_threshold: 4.0
+    jump_snr_threshold: 4.5
+    optical_flat_max_chi2: 2.5
+    design_point_amp_mag: 0.35
+
+  optical_dips:
+    detrend_window_days: 5.0
+    dip_snr_threshold: 6.0
+    min_dip_depth_frac: 0.03
+    min_duration_hours: 6.0
+    asymmetry_threshold: 0.15
+    secular_fade_snr_threshold: 4.5
+    periodic_bls_veto_snr: 8.0
+    design_point_depth_frac: 0.15
+
+  radio_narrowband:
+    max_abs_drift_hz_s: 4.0
+    min_drift_abs_hz_s: 0.05
+    min_snr: 10.0
+    freq_match_tol_hz: 500.0
+    require_all_on_scans: true
+    require_zero_off_scans: true
+    design_point_snr: 20.0
+
+  underluminous:
+    delta_m_sigma_threshold: 4.5
+    min_delta_mag: 0.35
+    require_two_param_sources: true
+    max_ruwe: 1.4
+    min_parallax_snr: 10.0
+    design_point_dimming_frac: 0.40
+
+  generic_outlier:
+    iforest_n_trees: 100
+    iforest_subsample_size: 256
+    lof_k_neighbors: 20
+    top_fraction: 0.01
+    min_combined_quantile: 0.99
+    seed: 20261116
+    design_point_zscore: 4.5
+
+  spectral_lines:
+    lsf_max_width_kms: 15.0
+    residual_snr_threshold: 6.0
+    min_exposures_repeat: 2
+    sky_line_exclusion_angstrom: 1.5
+    stellar_line_exclusion_angstrom: 1.5
+    design_point_flux_snr: 12.0
+
+  vanishing:
+    min_early_plates: 2
+    min_depth_margin_mag: 2.0
+    match_radius_arcsec: 3.0
+    max_pm_residual_arcsec: 1.5
+    design_point_mag_diff: 3.0
+
+vetting:
+  centroid_offset_max_beam_frac: 0.35
+  w3_beam_arcsec: 6.5
+  w4_beam_arcsec: 12.0
+  radio_search_radius_arcsec: 10.0
+  neighbour_blend_flux_frac: 0.25
+  cirrus_ebv_max: 0.25
+  cirrus_bg_rms_max_mjy: 5.0
+  single_frame_min_fraction: 0.75
+  sso_match_radius_arcsec: 15.0
+  extragalactic_w1_w2_min: 0.7
+  extragalactic_w2_w3_min: 2.5
+  youth_uv_excess_mag: 1.5
+  evolved_mg_bright_limit: 0.5
+  binary_ruwe_max: 1.4
+  extinction_disagreement_mag: 0.20
+  tess_pixel_arcsec: 21.0
+
+validation:
+  blind_recovery_min: 0.90
+  impostor_max_tier: "C"
+  injection_completeness_min: 0.90
+  false_alarm_confidence_level: 0.95
+  field_sample_size: 10000
+  injection_trials_per_cell: 20
+
+fusion:
+  tier_a_min_channels: 2
+  tier_a_max_fap: 0.0001
+  tier_b_max_fap: 0.001
+
+archives:
+  gaia:
+    enabled: true
+    release: "dr3"
+    rate_limit_rps: 5.0
+  2mass:
+    enabled: true
+    release: "allsky"
+    rate_limit_rps: 5.0
+  allwise:
+    enabled: true
+    release: "allwise"
+    rate_limit_rps: 5.0
+  wise_single_exposure:
+    enabled: true
+    release: "cryo_2010"
+    rate_limit_rps: 2.0
+  neowise:
+    enabled: true
+    release: "neowise_r_2024"
+    rate_limit_rps: 2.0
+  tess:
+    enabled: true
+    release: "qlp_tesscut"
+    rate_limit_rps: 3.0
+  kepler:
+    enabled: true
+    release: "dr25"
+    rate_limit_rps: 3.0
+  ztf:
+    enabled: true
+    release: "dr22"
+    rate_limit_rps: 2.0
+  asassn:
+    enabled: true
+    release: "skypatrol_v2"
+    rate_limit_rps: 2.0
+  simbad:
+    enabled: true
+    release: "live"
+    rate_limit_rps: 5.0
+  vizier:
+    enabled: true
+    release: "live"
+    rate_limit_rps: 5.0
+  radio_continuum:
+    enabled: true
+    release: "vlass_nvss_first_racs_lotss_tgss_sumss"
+    rate_limit_rps: 2.0
+  deep_optical:
+    enabled: true
+    release: "ps1_dr2_ls_dr10_sdss_dr17"
+    rate_limit_rps: 2.0
+  high_energy:
+    enabled: true
+    release: "galex_rosat_erosita_xmm_chandra"
+    rate_limit_rps: 2.0
+  mid_far_ir:
+    enabled: true
+    release: "spitzer_akari_iras_herschel"
+    rate_limit_rps: 2.0
+  spherex:
+    enabled: true
+    release: "qr1"
+    rate_limit_rps: 2.0
+  dustmaps:
+    enabled: true
+    release: "sfd_planck_bayestar"
+    rate_limit_rps: 5.0
+  ephemeris:
+    enabled: true
+    release: "irsa_most_skybot"
+    rate_limit_rps: 2.0
+  breakthrough_listen:
+    enabled: true
+    release: "opendata_v2"
+    rate_limit_rps: 1.0
+  survey_spectra:
+    enabled: true
+    release: "sdss_lamost_galah_apogee_rvs_apf"
+    rate_limit_rps: 2.0
+  usnob1:
+    enabled: true
+    release: "usnob1"
+    rate_limit_rps: 2.0
+  historical_plates:
+    enabled: true
+    release: "dasch_dss"
+    rate_limit_rps: 1.0
+  hsc_ssp:
+    enabled: false
+    release: "pdr3"
+    rate_limit_rps: 1.0
+    requires_registration: true

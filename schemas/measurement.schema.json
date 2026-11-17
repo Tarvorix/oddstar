@@ -1,0 +1,51 @@
+{
+  "properties": {
+    "caveats": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Caveats",
+      "type": "array"
+    },
+    "channel": {
+      "title": "Channel",
+      "type": "string"
+    },
+    "epochs": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Epochs",
+      "type": "array"
+    },
+    "extra": {
+      "additionalProperties": true,
+      "title": "Extra",
+      "type": "object"
+    },
+    "source_id": {
+      "title": "Source Id",
+      "type": "string"
+    },
+    "uncertainties": {
+      "additionalProperties": {
+        "type": "number"
+      },
+      "title": "Uncertainties",
+      "type": "object"
+    },
+    "values": {
+      "additionalProperties": {
+        "type": "number"
+      },
+      "title": "Values",
+      "type": "object"
+    }
+  },
+  "required": [
+    "source_id",
+    "channel"
+  ],
+  "title": "Measurement",
+  "type": "object"
+}

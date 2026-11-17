@@ -1,0 +1,42 @@
+{
+  "properties": {
+    "artifacts": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Artifacts",
+      "type": "array"
+    },
+    "data": {
+      "additionalProperties": true,
+      "title": "Data",
+      "type": "object"
+    },
+    "next": {
+      "default": "",
+      "title": "Next",
+      "type": "string"
+    },
+    "ok": {
+      "default": true,
+      "title": "Ok",
+      "type": "boolean"
+    },
+    "summary": {
+      "title": "Summary",
+      "type": "string"
+    },
+    "warnings": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Warnings",
+      "type": "array"
+    }
+  },
+  "required": [
+    "summary"
+  ],
+  "title": "CLIResponse",
+  "type": "object"
+}

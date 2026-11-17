@@ -1,0 +1,70 @@
+{
+  "properties": {
+    "artifacts": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Artifacts",
+      "type": "array"
+    },
+    "channel": {
+      "title": "Channel",
+      "type": "string"
+    },
+    "config_hash": {
+      "title": "Config Hash",
+      "type": "string"
+    },
+    "gaia_release": {
+      "title": "Gaia Release",
+      "type": "string"
+    },
+    "git_commit": {
+      "title": "Git Commit",
+      "type": "string"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "seed": {
+      "title": "Seed",
+      "type": "integer"
+    },
+    "stage": {
+      "title": "Stage",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "completed",
+        "failed",
+        "dry_run"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "summary": {
+      "additionalProperties": true,
+      "title": "Summary",
+      "type": "object"
+    },
+    "timestamp_utc": {
+      "title": "Timestamp Utc",
+      "type": "string"
+    }
+  },
+  "required": [
+    "run_id",
+    "stage",
+    "channel",
+    "gaia_release",
+    "config_hash",
+    "git_commit",
+    "seed",
+    "status",
+    "timestamp_utc"
+  ],
+  "title": "RunState",
+  "type": "object"
+}

@@ -1,0 +1,126 @@
+{
+  "properties": {
+    "blind_recovered": {
+      "title": "Blind Recovered",
+      "type": "integer"
+    },
+    "blind_recovery_rate": {
+      "title": "Blind Recovery Rate",
+      "type": "number"
+    },
+    "blind_total": {
+      "title": "Blind Total",
+      "type": "integer"
+    },
+    "calibration_curve": {
+      "items": {
+        "additionalProperties": {
+          "type": "number"
+        },
+        "type": "object"
+      },
+      "title": "Calibration Curve",
+      "type": "array"
+    },
+    "channel": {
+      "title": "Channel",
+      "type": "string"
+    },
+    "completeness_grid": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Completeness Grid",
+      "type": "array"
+    },
+    "config_hash": {
+      "title": "Config Hash",
+      "type": "string"
+    },
+    "details": {
+      "additionalProperties": true,
+      "title": "Details",
+      "type": "object"
+    },
+    "expected_false_positives": {
+      "title": "Expected False Positives",
+      "type": "number"
+    },
+    "false_alarm_ci_high": {
+      "title": "False Alarm Ci High",
+      "type": "number"
+    },
+    "false_alarm_ci_low": {
+      "title": "False Alarm Ci Low",
+      "type": "number"
+    },
+    "false_alarm_rate": {
+      "title": "False Alarm Rate",
+      "type": "number"
+    },
+    "gaia_release": {
+      "title": "Gaia Release",
+      "type": "string"
+    },
+    "git_commit": {
+      "title": "Git Commit",
+      "type": "string"
+    },
+    "impostor_max_tier": {
+      "title": "Impostor Max Tier",
+      "type": "string"
+    },
+    "impostor_pass": {
+      "title": "Impostor Pass",
+      "type": "boolean"
+    },
+    "impostors_evaluated": {
+      "title": "Impostors Evaluated",
+      "type": "integer"
+    },
+    "injection_completeness_design_point": {
+      "title": "Injection Completeness Design Point",
+      "type": "number"
+    },
+    "passed": {
+      "title": "Passed",
+      "type": "boolean"
+    },
+    "split": {
+      "enum": [
+        "dev",
+        "holdout",
+        "all"
+      ],
+      "title": "Split",
+      "type": "string"
+    },
+    "timestamp_utc": {
+      "title": "Timestamp Utc",
+      "type": "string"
+    }
+  },
+  "required": [
+    "channel",
+    "gaia_release",
+    "split",
+    "config_hash",
+    "git_commit",
+    "timestamp_utc",
+    "passed",
+    "blind_recovery_rate",
+    "blind_total",
+    "blind_recovered",
+    "impostor_pass",
+    "impostor_max_tier",
+    "impostors_evaluated",
+    "injection_completeness_design_point",
+    "false_alarm_rate",
+    "false_alarm_ci_low",
+    "false_alarm_ci_high",
+    "expected_false_positives"
+  ],
+  "title": "ValidationCertificate",
+  "type": "object"
+}

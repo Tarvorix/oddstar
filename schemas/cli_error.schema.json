@@ -1,0 +1,33 @@
+{
+  "properties": {
+    "code": {
+      "title": "Code",
+      "type": "string"
+    },
+    "hint": {
+      "default": "",
+      "title": "Hint",
+      "type": "string"
+    },
+    "message": {
+      "title": "Message",
+      "type": "string"
+    },
+    "ok": {
+      "default": false,
+      "title": "Ok",
+      "type": "boolean"
+    },
+    "retryable": {
+      "default": false,
+      "title": "Retryable",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "code",
+    "message"
+  ],
+  "title": "CLIError",
+  "type": "object"
+}

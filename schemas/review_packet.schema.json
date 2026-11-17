@@ -1,0 +1,82 @@
+{
+  "$defs": {
+    "ReviewPacketTarget": {
+      "properties": {
+        "claim": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Claim"
+        },
+        "dec_deg": {
+          "title": "Dec Deg",
+          "type": "number"
+        },
+        "packet_target_id": {
+          "title": "Packet Target Id",
+          "type": "string"
+        },
+        "ra_deg": {
+          "title": "Ra Deg",
+          "type": "number"
+        },
+        "source_id": {
+          "title": "Source Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "packet_target_id",
+        "source_id",
+        "ra_deg",
+        "dec_deg"
+      ],
+      "title": "ReviewPacketTarget",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "created_at_utc": {
+      "title": "Created At Utc",
+      "type": "string"
+    },
+    "packet_id": {
+      "title": "Packet Id",
+      "type": "string"
+    },
+    "prompt_template_path": {
+      "title": "Prompt Template Path",
+      "type": "string"
+    },
+    "prompt_text": {
+      "title": "Prompt Text",
+      "type": "string"
+    },
+    "round": {
+      "title": "Round",
+      "type": "integer"
+    },
+    "targets": {
+      "items": {
+        "$ref": "#/$defs/ReviewPacketTarget"
+      },
+      "title": "Targets",
+      "type": "array"
+    }
+  },
+  "required": [
+    "packet_id",
+    "round",
+    "created_at_utc",
+    "prompt_template_path",
+    "prompt_text"
+  ],
+  "title": "ReviewPacket",
+  "type": "object"
+}

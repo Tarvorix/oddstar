@@ -1,0 +1,150 @@
+{
+  "channel": "spectral_lines",
+  "gaia_release": "dr3",
+  "split": "all",
+  "config_hash": "ce6e224fd31d",
+  "git_commit": "0000000000000000000000000000000000000000",
+  "timestamp_utc": "2026-11-17T05:55:42.271019+00:00",
+  "passed": true,
+  "blind_recovery_rate": 1.0,
+  "blind_total": 2,
+  "blind_recovered": 2,
+  "impostor_pass": true,
+  "impostor_max_tier": "Explained",
+  "impostors_evaluated": 3,
+  "injection_completeness_design_point": 1.0,
+  "completeness_grid": [
+    {
+      "wavelength_a": 6530.0,
+      "injected_snr": 5.0,
+      "completeness": 0.7,
+      "n_trials": 20
+    },
+    {
+      "wavelength_a": 6530.0,
+      "injected_snr": 12.0,
+      "completeness": 1.0,
+      "n_trials": 20
+    },
+    {
+      "wavelength_a": 6530.0,
+      "injected_snr": 22.0,
+      "completeness": 1.0,
+      "n_trials": 20
+    },
+    {
+      "wavelength_a": 6615.0,
+      "injected_snr": 5.0,
+      "completeness": 0.65,
+      "n_trials": 20
+    },
+    {
+      "wavelength_a": 6615.0,
+      "injected_snr": 12.0,
+      "completeness": 1.0,
+      "n_trials": 20
+    },
+    {
+      "wavelength_a": 6615.0,
+      "injected_snr": 22.0,
+      "completeness": 1.0,
+      "n_trials": 20
+    }
+  ],
+  "false_alarm_rate": 0.0,
+  "false_alarm_ci_low": 0.0,
+  "false_alarm_ci_high": 0.02497113914571871,
+  "expected_false_positives": 6.666666666666666,
+  "calibration_curve": [
+    {
+      "stat": 2.7045984588578733,
+      "fap": 0.5
+    },
+    {
+      "stat": 2.905284741350343,
+      "fap": 0.25
+    },
+    {
+      "stat": 3.0919355446974186,
+      "fap": 0.09999999999999998
+    },
+    {
+      "stat": 3.2716463854323448,
+      "fap": 0.050000000000000044
+    },
+    {
+      "stat": 3.54756064089769,
+      "fap": 0.010000000000000009
+    },
+    {
+      "stat": 5.110584413575016,
+      "fap": 0.0001
+    },
+    {
+      "stat": 6.610584413575016,
+      "fap": 1e-6
+    },
+    {
+      "stat": 9.610584413575015,
+      "fap": 1e-9
+    },
+    {
+      "stat": 15.610584413575015,
+      "fap": 1e-12
+    }
+  ],
+  "details": {
+    "blind_recovery": [
+      {
+        "source_id": "744400000000000002",
+        "flagged": true,
+        "raw_stat": 47.146053279717734
+      },
+      {
+        "source_id": "744400000000000001",
+        "flagged": true,
+        "raw_stat": 52.97263317958715
+      }
+    ],
+    "impostor_rejection": [
+      {
+        "source_id": "744400000000000001",
+        "tier": "Explained",
+        "failed_checks": [
+          "stellar_emission"
+        ],
+        "expected_failed": [
+          "stellar_emission"
+        ],
+        "reason": "Explained by 'stellar_emission': Peak at 6562.85 A (matches chromospheric stellar line)",
+        "passed": true
+      },
+      {
+        "source_id": "744400000000000003",
+        "tier": "Rejected",
+        "failed_checks": [
+          "cosmic_ray",
+          "repeat"
+        ],
+        "expected_failed": [
+          "cosmic_ray",
+          "repeat"
+        ],
+        "reason": "Failed integrity/artifact check 'cosmic_ray': Single-exposure sub-LSF spike detected (width=0.25A < LSF 0.45A)",
+        "passed": true
+      },
+      {
+        "source_id": "744400000000000004",
+        "tier": "Explained",
+        "failed_checks": [
+          "sky_line"
+        ],
+        "expected_failed": [
+          "sky_line"
+        ],
+        "reason": "Explained by 'sky_line': Emission feature coincides with sky-spectrum airglow line",
+        "passed": true
+      }
+    ]
+  }
+}

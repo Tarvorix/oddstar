@@ -1,0 +1,70 @@
+{
+  "properties": {
+    "added_to_impostors": {
+      "default": false,
+      "title": "Added To Impostors",
+      "type": "boolean"
+    },
+    "automated_check": {
+      "title": "Automated Check",
+      "type": "string"
+    },
+    "commit_sha": {
+      "default": "",
+      "title": "Commit Sha",
+      "type": "string"
+    },
+    "finding_id": {
+      "title": "Finding Id",
+      "type": "string"
+    },
+    "generic_lesson": {
+      "title": "Generic Lesson",
+      "type": "string"
+    },
+    "lesson_id": {
+      "title": "Lesson Id",
+      "type": "string"
+    },
+    "linked_test": {
+      "title": "Linked Test",
+      "type": "string"
+    },
+    "skill_updated": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Skill Updated"
+    },
+    "source_id": {
+      "title": "Source Id",
+      "type": "string"
+    },
+    "title": {
+      "title": "Title",
+      "type": "string"
+    },
+    "what_happened": {
+      "title": "What Happened",
+      "type": "string"
+    }
+  },
+  "required": [
+    "lesson_id",
+    "finding_id",
+    "source_id",
+    "title",
+    "what_happened",
+    "generic_lesson",
+    "automated_check",
+    "linked_test"
+  ],
+  "title": "LessonRecord",
+  "type": "object"
+}

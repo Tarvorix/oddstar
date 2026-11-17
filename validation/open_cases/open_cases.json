@@ -1,0 +1,16 @@
+{
+  "open_cases": [
+    {
+      "source_id": "4582145718700356096",
+      "name": "Gaia DR3 4582145718700356096",
+      "claim": "Sun-like and stable in visible light with ~60x excess at 22 um in March 2010 WISE (~1.3% L_star re-radiated near Mars distance)",
+      "note": "Workflow verification target with no settled answer; never used for tuning."
+    },
+    {
+      "source_id": "6256050602424290048",
+      "name": "HD 139139",
+      "claim": "28 aperiodic optical dips in K2 (Rappaport et al. 2019), none detected in CHEOPS follow-up (Alonso et al. 2023)",
+      "note": "Workflow verification target with no settled answer; never used for tuning."
+    }
+  ]
+}

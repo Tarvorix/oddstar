@@ -1,0 +1,49 @@
+{
+  "properties": {
+    "evidence": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Evidence",
+      "type": "array"
+    },
+    "name": {
+      "enum": [
+        "instrument_artifact",
+        "catalog_mismatch",
+        "blend_neighbouring_star",
+        "background_galaxy",
+        "galactic_cirrus",
+        "solar_system_object",
+        "young_star_disk",
+        "collision_debris",
+        "stellar_companion",
+        "evolved_star_mass_loss",
+        "known_variable_class",
+        "unexplained"
+      ],
+      "title": "Name",
+      "type": "string"
+    },
+    "note": {
+      "default": "",
+      "title": "Note",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "disfavoured",
+        "consistent",
+        "untested"
+      ],
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "name",
+    "status"
+  ],
+  "title": "HypothesisRow",
+  "type": "object"
+}

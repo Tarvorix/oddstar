@@ -1,0 +1,71 @@
+{
+  "properties": {
+    "details": {
+      "additionalProperties": true,
+      "title": "Details",
+      "type": "object"
+    },
+    "entry_id": {
+      "title": "Entry Id",
+      "type": "string"
+    },
+    "event_type": {
+      "enum": [
+        "candidate_registered",
+        "tier_updated",
+        "review_ingested",
+        "finding_opened",
+        "finding_closed",
+        "lesson_added",
+        "explained_anomaly"
+      ],
+      "title": "Event Type",
+      "type": "string"
+    },
+    "provenance": {
+      "additionalProperties": true,
+      "title": "Provenance",
+      "type": "object"
+    },
+    "source_id": {
+      "title": "Source Id",
+      "type": "string"
+    },
+    "status": {
+      "default": "",
+      "title": "Status",
+      "type": "string"
+    },
+    "tier": {
+      "anyOf": [
+        {
+          "enum": [
+            "A",
+            "B",
+            "C",
+            "Explained",
+            "Rejected"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Tier"
+    },
+    "timestamp_utc": {
+      "title": "Timestamp Utc",
+      "type": "string"
+    }
+  },
+  "required": [
+    "entry_id",
+    "timestamp_utc",
+    "source_id",
+    "event_type"
+  ],
+  "title": "RegistryEntry",
+  "type": "object"
+}

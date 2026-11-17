@@ -1,0 +1,45 @@
+{
+  "properties": {
+    "check": {
+      "title": "Check",
+      "type": "string"
+    },
+    "evidence": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Evidence"
+    },
+    "metrics": {
+      "additionalProperties": true,
+      "title": "Metrics",
+      "type": "object"
+    },
+    "note": {
+      "default": "",
+      "title": "Note",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "pass",
+        "fail",
+        "not_evaluated"
+      ],
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "check",
+    "status"
+  ],
+  "title": "VettingResult",
+  "type": "object"
+}

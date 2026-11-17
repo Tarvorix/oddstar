@@ -1,0 +1,162 @@
+{
+  "$defs": {
+    "SampleCutStep": {
+      "properties": {
+        "count_after": {
+          "title": "Count After",
+          "type": "integer"
+        },
+        "count_before": {
+          "title": "Count Before",
+          "type": "integer"
+        },
+        "cut_name": {
+          "title": "Cut Name",
+          "type": "string"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        }
+      },
+      "required": [
+        "cut_name",
+        "description",
+        "count_before",
+        "count_after"
+      ],
+      "title": "SampleCutStep",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "channel": {
+      "title": "Channel",
+      "type": "string"
+    },
+    "completeness_grid": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Completeness Grid",
+      "type": "array"
+    },
+    "config_hash": {
+      "title": "Config Hash",
+      "type": "string"
+    },
+    "contour_50": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Contour 50",
+      "type": "array"
+    },
+    "contour_90": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Contour 90",
+      "type": "array"
+    },
+    "distance_distribution": {
+      "additionalProperties": {
+        "type": "integer"
+      },
+      "title": "Distance Distribution",
+      "type": "object"
+    },
+    "expected_false_alarms": {
+      "title": "Expected False Alarms",
+      "type": "number"
+    },
+    "gaia_release": {
+      "title": "Gaia Release",
+      "type": "string"
+    },
+    "git_commit": {
+      "title": "Git Commit",
+      "type": "string"
+    },
+    "manifests": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Manifests",
+      "type": "array"
+    },
+    "n_flagged": {
+      "title": "N Flagged",
+      "type": "integer"
+    },
+    "n_searched": {
+      "title": "N Searched",
+      "type": "integer"
+    },
+    "reproduce": {
+      "title": "Reproduce",
+      "type": "string"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "sample_cuts": {
+      "items": {
+        "$ref": "#/$defs/SampleCutStep"
+      },
+      "title": "Sample Cuts",
+      "type": "array"
+    },
+    "sky_coverage_healpix": {
+      "items": {
+        "type": "integer"
+      },
+      "title": "Sky Coverage Healpix",
+      "type": "array"
+    },
+    "spectral_type_distribution": {
+      "additionalProperties": {
+        "type": "integer"
+      },
+      "title": "Spectral Type Distribution",
+      "type": "object"
+    },
+    "tier_breakdown": {
+      "additionalProperties": {
+        "type": "integer"
+      },
+      "title": "Tier Breakdown",
+      "type": "object"
+    },
+    "timestamp_utc": {
+      "title": "Timestamp Utc",
+      "type": "string"
+    },
+    "upper_limits": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Upper Limits",
+      "type": "array"
+    }
+  },
+  "required": [
+    "channel",
+    "run_id",
+    "gaia_release",
+    "config_hash",
+    "git_commit",
+    "timestamp_utc",
+    "n_searched",
+    "n_flagged",
+    "expected_false_alarms",
+    "reproduce"
+  ],
+  "title": "NullReport",
+  "type": "object"
+}

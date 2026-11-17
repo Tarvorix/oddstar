@@ -1,0 +1,428 @@
+{
+  "$defs": {
+    "ChannelDossierEntry": {
+      "properties": {
+        "caveats": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Caveats",
+          "type": "array"
+        },
+        "epochs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Epochs",
+          "type": "array"
+        },
+        "evidence": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence",
+          "type": "array"
+        },
+        "false_alarm_prob": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "False Alarm Prob"
+        },
+        "flagged": {
+          "default": false,
+          "title": "Flagged",
+          "type": "boolean"
+        },
+        "measurements": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": "Measurements",
+          "type": "object"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "raw_statistic": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Raw Statistic"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "ChannelDossierEntry",
+      "type": "object"
+    },
+    "Coords": {
+      "properties": {
+        "dec_deg": {
+          "title": "Dec Deg",
+          "type": "number"
+        },
+        "epoch": {
+          "default": "J2016.0",
+          "title": "Epoch",
+          "type": "string"
+        },
+        "ra_deg": {
+          "title": "Ra Deg",
+          "type": "number"
+        }
+      },
+      "required": [
+        "ra_deg",
+        "dec_deg"
+      ],
+      "title": "Coords",
+      "type": "object"
+    },
+    "DossierReviewSummary": {
+      "properties": {
+        "record": {
+          "title": "Record",
+          "type": "string"
+        },
+        "reviewer_model": {
+          "default": "",
+          "title": "Reviewer Model",
+          "type": "string"
+        },
+        "round": {
+          "title": "Round",
+          "type": "integer"
+        },
+        "verdict": {
+          "title": "Verdict",
+          "type": "string"
+        }
+      },
+      "required": [
+        "round",
+        "record",
+        "verdict"
+      ],
+      "title": "DossierReviewSummary",
+      "type": "object"
+    },
+    "HypothesisRow": {
+      "properties": {
+        "evidence": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence",
+          "type": "array"
+        },
+        "name": {
+          "enum": [
+            "instrument_artifact",
+            "catalog_mismatch",
+            "blend_neighbouring_star",
+            "background_galaxy",
+            "galactic_cirrus",
+            "solar_system_object",
+            "young_star_disk",
+            "collision_debris",
+            "stellar_companion",
+            "evolved_star_mass_loss",
+            "known_variable_class",
+            "unexplained"
+          ],
+          "title": "Name",
+          "type": "string"
+        },
+        "note": {
+          "default": "",
+          "title": "Note",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "disfavoured",
+            "consistent",
+            "untested"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "status"
+      ],
+      "title": "HypothesisRow",
+      "type": "object"
+    },
+    "Provenance": {
+      "properties": {
+        "certificates": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Certificates",
+          "type": "array"
+        },
+        "config_hash": {
+          "title": "Config Hash",
+          "type": "string"
+        },
+        "git_commit": {
+          "title": "Git Commit",
+          "type": "string"
+        },
+        "manifests": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Manifests",
+          "type": "array"
+        },
+        "run_id": {
+          "title": "Run Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "git_commit",
+        "config_hash"
+      ],
+      "title": "Provenance",
+      "type": "object"
+    },
+    "StarMetadata": {
+      "properties": {
+        "distance_pc": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Distance Pc"
+        },
+        "gaia_release": {
+          "default": "dr3",
+          "title": "Gaia Release",
+          "type": "string"
+        },
+        "known_in_literature": {
+          "default": false,
+          "title": "Known In Literature",
+          "type": "boolean"
+        },
+        "luminosity_lsun": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Luminosity Lsun"
+        },
+        "ruwe": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ruwe"
+        },
+        "simbad_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Simbad Type"
+        },
+        "teff_k": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Teff K"
+        }
+      },
+      "title": "StarMetadata",
+      "type": "object"
+    },
+    "VettingResult": {
+      "properties": {
+        "check": {
+          "title": "Check",
+          "type": "string"
+        },
+        "evidence": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Evidence"
+        },
+        "metrics": {
+          "additionalProperties": true,
+          "title": "Metrics",
+          "type": "object"
+        },
+        "note": {
+          "default": "",
+          "title": "Note",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "pass",
+            "fail",
+            "not_evaluated"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "check",
+        "status"
+      ],
+      "title": "VettingResult",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "channels": {
+      "items": {
+        "$ref": "#/$defs/ChannelDossierEntry"
+      },
+      "title": "Channels",
+      "type": "array"
+    },
+    "coords": {
+      "$ref": "#/$defs/Coords"
+    },
+    "cross_channel_patterns": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Cross Channel Patterns",
+      "type": "array"
+    },
+    "hypotheses": {
+      "items": {
+        "$ref": "#/$defs/HypothesisRow"
+      },
+      "title": "Hypotheses",
+      "type": "array"
+    },
+    "lead_lines": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Lead Lines",
+      "type": "array"
+    },
+    "provenance": {
+      "$ref": "#/$defs/Provenance"
+    },
+    "reproduce": {
+      "title": "Reproduce",
+      "type": "string"
+    },
+    "reviews": {
+      "items": {
+        "$ref": "#/$defs/DossierReviewSummary"
+      },
+      "title": "Reviews",
+      "type": "array"
+    },
+    "source_id": {
+      "title": "Source Id",
+      "type": "string"
+    },
+    "star": {
+      "$ref": "#/$defs/StarMetadata"
+    },
+    "tier": {
+      "enum": [
+        "A",
+        "B",
+        "C",
+        "Explained",
+        "Rejected"
+      ],
+      "title": "Tier",
+      "type": "string"
+    },
+    "vetting": {
+      "items": {
+        "$ref": "#/$defs/VettingResult"
+      },
+      "title": "Vetting",
+      "type": "array"
+    },
+    "what_would_settle_it": {
+      "items": {
+        "type": "string"
+      },
+      "title": "What Would Settle It",
+      "type": "array"
+    }
+  },
+  "required": [
+    "source_id",
+    "coords",
+    "tier",
+    "provenance",
+    "star",
+    "reproduce"
+  ],
+  "title": "Dossier",
+  "type": "object"
+}

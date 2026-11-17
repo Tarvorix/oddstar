@@ -1,0 +1,162 @@
+{
+  "$defs": {
+    "ReviewFinding": {
+      "properties": {
+        "evidence": {
+          "title": "Evidence",
+          "type": "string"
+        },
+        "finding_id": {
+          "title": "Finding Id",
+          "type": "string"
+        },
+        "lesson_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lesson Id"
+        },
+        "linked_test": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Linked Test"
+        },
+        "reproduce_cmd": {
+          "title": "Reproduce Cmd",
+          "type": "string"
+        },
+        "severity": {
+          "enum": [
+            "material",
+            "minor",
+            "info"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "status": {
+          "default": "open",
+          "enum": [
+            "open",
+            "closed"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "unautomated_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unautomated Reason"
+        }
+      },
+      "required": [
+        "finding_id",
+        "severity",
+        "summary",
+        "evidence",
+        "reproduce_cmd"
+      ],
+      "title": "ReviewFinding",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "findings": {
+      "items": {
+        "$ref": "#/$defs/ReviewFinding"
+      },
+      "title": "Findings",
+      "type": "array"
+    },
+    "measurements": {
+      "additionalProperties": {
+        "type": "number"
+      },
+      "title": "Measurements",
+      "type": "object"
+    },
+    "notes": {
+      "default": "",
+      "title": "Notes",
+      "type": "string"
+    },
+    "queries_run": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Queries Run",
+      "type": "array"
+    },
+    "review_id": {
+      "title": "Review Id",
+      "type": "string"
+    },
+    "reviewer_model": {
+      "title": "Reviewer Model",
+      "type": "string"
+    },
+    "round": {
+      "title": "Round",
+      "type": "integer"
+    },
+    "source_id": {
+      "title": "Source Id",
+      "type": "string"
+    },
+    "timestamp_utc": {
+      "title": "Timestamp Utc",
+      "type": "string"
+    },
+    "uncertainties": {
+      "additionalProperties": {
+        "type": "number"
+      },
+      "title": "Uncertainties",
+      "type": "object"
+    },
+    "verdict": {
+      "enum": [
+        "reproduced",
+        "not_reproduced",
+        "explained",
+        "unresolved"
+      ],
+      "title": "Verdict",
+      "type": "string"
+    }
+  },
+  "required": [
+    "review_id",
+    "round",
+    "source_id",
+    "reviewer_model",
+    "timestamp_utc",
+    "verdict"
+  ],
+  "title": "ReviewRecord",
+  "type": "object"
+}
