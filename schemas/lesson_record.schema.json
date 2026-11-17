@@ -5,17 +5,39 @@
       "title": "Added To Impostors",
       "type": "boolean"
     },
+    "additional_linked_tests": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Additional Linked Tests",
+      "type": "array"
+    },
     "automated_check": {
       "title": "Automated Check",
       "type": "string"
+    },
+    "closes_finding": {
+      "default": true,
+      "title": "Closes Finding",
+      "type": "boolean"
     },
     "commit_sha": {
       "default": "",
       "title": "Commit Sha",
       "type": "string"
     },
+    "commit_sha_note": {
+      "default": "",
+      "title": "Commit Sha Note",
+      "type": "string"
+    },
     "finding_id": {
       "title": "Finding Id",
+      "type": "string"
+    },
+    "finding_source": {
+      "default": "",
+      "title": "Finding Source",
       "type": "string"
     },
     "generic_lesson": {
@@ -29,6 +51,13 @@
     "linked_test": {
       "title": "Linked Test",
       "type": "string"
+    },
+    "related_finding_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Related Finding Ids",
+      "type": "array"
     },
     "skill_updated": {
       "anyOf": [

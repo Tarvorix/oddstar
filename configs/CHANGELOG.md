@@ -2,6 +2,168 @@
 
 All threshold, sample-cut, and prompt changes must be logged here under Ground Rule R4 before running validation or search.
 
+## [1.1.0] - 2026-11-17
+
+### Infrared vetting inputs
+Measured infrared vetting inputs (`vetting:` section only; channel thresholds unchanged). Config hash changes from
+`ce6e224fd31d` to `9d274caf416b`, so channels need re-validation before search (certificates not regenerated here).
+- `chance_alignment_p_max: 0.01` - fail threshold for P(unrelated W3/W4 source within the confusion radius); replaces the hard-coded 0.01.
+- `chance_alignment_annulus_inner_arcsec: 15.0`, `chance_alignment_annulus_outer_arcsec: 300.0` - AllWISE annulus for the local density (inner radius excludes the target's own blend).
+- `chance_alignment_min_snr: 3.0` - W3/W4 S/N for a source to count towards the density.
+- `chance_alignment_min_flux_frac_of_excess: 0.5` - only sources at least this fraction of the target's excess could mimic it.
+- `youth_xray_lx_min_erg_s: 1.0e+29` - X-ray youth threshold; was hard-coded in `ir_checks.py`.
+- `youth_nuv_locus_sigma_mag: 0.5` - adopted uncertainty of the approximate inactive NUV-G locus.
+- `youth_uv_constraint_nsigma: 2.0` - UV test is constraining only if excess + n sigma stays below `youth_uv_excess_mag`.
+- `youth_galex_match_radius_arcsec: 3.0`, `youth_rosat_match_radius_arcsec: 30.0`, `youth_erass1_match_radius_arcsec: 15.0` - cross-match radii (GALEX ~5" PSF; ROSAT PSPC survey positions ~10-30"; eRASS1 ~5-15").
+- `youth_rosat_flux_limit_erg_cm2_s: 1.0e-13`, `youth_erass1_flux_limit_erg_cm2_s: 5.0e-14` - survey flux limits used to turn a non-detection into an L_X upper limit (approximate all-sky typical values).
+- `sso_visit_gap_days: 3.0` - L1b frames closer than this belong to one visit (one SkyBoT query per visit).
+- `sso_max_rate_arcsec_per_hr: 120.0` - widens each visit's SkyBoT cone so bodies reaching the target within the visit are returned.
+- `w1_beam_arcsec: 6.1`, `w2_beam_arcsec: 6.4` - native W1/W2 PSF FWHM for cutout measurements (W3 6.5", W4 12.0" already present).
+- `wise_atlas_psf_broadening: 1.414` - Atlas images are PSF-convolved, so the reference FWHM is ~sqrt(2) x native.
+- `vision_cutout_size_arcsec: 200.0` - Atlas cutout size (room for the 30-90" background annulus).
+- `vision_centroid_max_sigma: 3.0` - k in the k sigma centroid test and the chance-alignment radius.
+- `vision_extended_fwhm_ratio: 1.3` - fitted / reference FWHM above which a band is called extended.
+- `vision_min_fit_snr: 5.0` - minimum point-source S/N for the rubric to evaluate a band.
+- `vision_peak_snr_min: 3.0` - per-pixel significance for local maxima (secondary peaks).
+- `cirrus_annulus_inner_arcsec: 30.0`, `cirrus_annulus_outer_arcsec: 90.0` - blank annulus for the measured background rms.
+- `deep_screen_core_radius_arcsec: 1.5` - non-PSF catalogue source inside this radius is a contaminant.
+- `deep_screen_ps1_psf_minus_kron_min: 0.35` - PS1 r_PSF - r_Kron above which a source is extended.
+- `deep_screen_faint_r_mag: 17.5` - faint point sources 1.8-8" fainter than this are recorded (no longer an automatic failure).
+- `deep_screen_min_flux_frac_of_excess: 0.5` - a non-PSF LS source in the beam is a contaminant if its unWISE W3/W4 flux reaches this fraction of the excess.
+- `subarcsec_imaging_search_radius_arcsec: 3.0` - MAST CAOM HST/JWST search radius.
+- `neighbour_assumed_g_minus_rp: 1.3`, `neighbour_assumed_rp_minus_w3: 3.7`, `neighbour_assumed_rp_minus_w4: 4.0` - conservative (red, M-dwarf-like) colours used to estimate a Gaia neighbour's W3/W4 flux.
+- Note: the top-level `version:` field was still "1.0.0" when the entries above were written; it is bumped to "1.1.0" below.
+
+### Governance and thresholds moved from source
+Decision cuts that were literals in the source now live in `configs/default.yaml`. **Every value is unchanged**, so
+no vetting outcome, sample or channel score changes; the live sample SQL text is byte-identical (tested in
+`tests/test_governance_config.py`). The config hash changes from `10bc507f1b29` to `c4ad1ae04d32`, so validation
+certificates must be regenerated for the new hash (not done here).
+
+- `version: "1.1.0"` (was "1.0.0"). CI now requires `version` to equal the newest `## [x.y.z]` heading here (`check_config_version`).
+- R4 commit-separation cutoff: `7bf6ed5f4be3050e91b99f87503bbb20078b9604`. `check_git_commit_separation` checks HEAD and, in pull-request CI, every non-merge commit of the base range, but only commits after this one; earlier history is not rewritten.
+- `vetting` (from `vet/engine.py` `vet_target`): `outlier_driver_min_abs_contribution: 2.0` (generic_outlier driver contribution that routes to a check).
+- `vetting` (from `vet/ir_checks.py`):
+  - `check_xmatch_integrity`: `xmatch_max_sep_arcsec: 2.5`.
+  - `check_wise_quality`: `wise_w4_min_frames: 5`, `wise_w4_min_detected_frame_frac: 0.15`, `wise_w4_max_rchi2: 3.5`, `wise_max_ext_flg: 1`.
+  - `check_extragalactic_colours`: `dog_w1_w2_min: 0.45`, `dog_w2_w3_min: 3.0`.
+  - `check_single_frames`: `single_frame_consistency_frac: 0.5`, `single_frame_coadd_floor_frac: 0.6`, `single_frame_max_to_median: 2.2`.
+  - `_youth_uv`: `youth_nuv_default_err_mag: 0.3` (NUV error adopted when GALEX gives none).
+  - `check_evolved`: `evolved_teff_max_k: 5200.0`.
+  - `check_binary`: `binary_rv_scatter_max_kms: 5.0`.
+- `vetting` (from `vet/lc_checks.py`):
+  - `matched_detrend` / `analyze_tess_sector`: `lc_detrend_low_mask_sigma: 2.5` (the function keeps 2.5 as its default argument for direct callers).
+  - `_tess_systematics`: `lc_tess_contiguous_dt_factor: 1.5`.
+  - `_sector_period_search` and `check_known_variable` (BLS): `lc_bls_min_period_days: 0.8`, `lc_bls_max_period_days: 8.0`, `lc_bls_duration_days: 0.1`.
+  - `_sector_period_search` (eclipse confirmation): `lc_eb_eclipse_min_depth_frac_of_model: 0.5`, `lc_eb_min_eclipses: 2`, `lc_eb_min_eclipse_epoch_frac: 0.5`.
+  - `_ir_event_window`: `lc_ir_event_baseline_visits: 3`, `lc_ir_event_dev_frac: 0.5`, `lc_ir_event_min_window_days: 180.0`, `lc_ir_event_pad_days: 90.0`.
+- `vetting` (from `vet/spectral_checks.py`):
+  - `check_cosmic_ray`: `spectral_cr_spike_mad_sigma: 8.0`, `spectral_peak_width_flux_level: 1.3`, `spectral_cr_min_peak_flux: 1.5`, `spectral_cr_min_width_lsf_frac: 0.7`.
+  - `check_sky_line`: `spectral_sky_peak_mad_sigma: 6.0`, `spectral_target_peak_sigma: 3.5`.
+  - `check_stellar_emission`: `spectral_stellar_line_min_amp: 0.20`.
+  - `check_repeat`: `spectral_repeat_quiet_max_excess: 0.25`, `spectral_repeat_max_pixel_shift: 2`, `spectral_repeat_min_excess: 0.20`.
+- `vetting` (from `vet/vanishing_checks.py` `check_proper_motion`): `vanishing_pm_min_raw_sep_arcsec: 3.0`.
+- `fusion` (from `fuse/engine.py` `calibrate_fap` / `fuse_results`): `fap_floor: 1.0e-12`, `fallback_false_alarm_rate_per_star: 1.0e-4` (`calibrate_fap` keeps `floor=1e-12` as its default argument for callers that pass none).
+- `live_ingestion` (new section):
+  - from `io/live_survey.py` `_phot_quality_where_sql`: `allwise_number_of_neighbours: 1`, `allwise_number_of_mates: 0`, `tmass_number_of_neighbours: 1`, `tmass_number_of_mates: 0`.
+  - from `io/live_survey.py` `fetch_live_halo_bulge_sample` region presets, `regions.halo`: `min_parallax_over_error: 10.0`, `parallax_min_mas: 0.5`, `parallax_max_mas: 20.0`, `max_ruwe: 1.4`, `min_abs_b_deg: 20.0`, `g_mag_min: 7.5`, `g_mag_max: 14.5`, `teff_min_k: 3800.0`, `teff_max_k: 7500.0`, `max_mh_gspphot: -0.8`, `min_vtan_kms: 150.0`.
+  - `regions.bulge`: `gal_l_half_width_deg: 12.0` (the query keeps `l <= 12.0 OR l >= 348.0`), `abs_b_min_deg: 3.0`, `abs_b_max_deg: 10.0`, `parallax_min_mas: 0.08`, `parallax_max_mas: 0.45`, `min_parallax_over_error: 5.0`, `max_ruwe: 1.4`, `g_mag_min: 8.0`, `g_mag_max: 14.5`, `teff_min_k: 3500.0`, `teff_max_k: 7500.0`.
+  - `regions.local`: `min_parallax_over_error: 15.0`, `parallax_min_mas: 2.0`, `parallax_max_mas: 25.0`, `max_ruwe: 1.4`, `min_abs_b_deg: 12.0`, `g_mag_min: 7.5`, `g_mag_max: 13.5`, `teff_min_k: 3800.0`, `teff_max_k: 7500.0`, `min_vtan_kms: 65.0`.
+  - from `cli.py` `filtered_live_ingestion`: `ir_excess_w4_upper_limit_ph_qual: ["U", "X"]` (W4 `ph_qual` codes treated as upper limits), `ir_excess_artifact_cc_flag_bands: [3, 4]` (bands whose `cc_flags` character marks an artifact), `ir_timedomain_neowise_enrich_max_stars: 25` (NEOWISE enrichment cap).
+- `storage.evidence_dir: "registry/evidence"` and a new `evidence` section (`max_array_elements: 64`, `max_string_chars: 2000`, `max_json_bytes: 65536`, `max_image_bytes: 262144`): size guards of the committed evidence store. Storage policy, not decision thresholds.
+- Deliberately left in source: statistical and unit constants (1.4826, 1.2533, 2.5 log10, 4.74047, 365.25, MJD/BTJD offsets, catalogue epochs 2016.0 / 2010.2, R_V 3.1, physical constants), numerical guards (1e-9, 1e-6, 1e-4 floors), array indices and window offsets, minimum sample sizes for a statistic to be computed (points per sector or segment, bins, seasons, nights), the BLS grid size 200, the `0.5 x span` period bound, data defaults used when an input is missing (spectral `lsf`/pixel size, `abs_g`/`teff` defaults, USNO epoch/magnitude, PS1 depth, plate count), enrichment-fetch query radii, timeouts, chunk sizes and the `n_lim` clamp in `live_survey.py`, `_row_to_star_dict` and the end of `enrich_star_live_for_vetting` (out of scope here), `vet/underluminous_checks.py`, and the dossier writer's threshold text.
+
+### Star model: empirical photosphere and explicit extinction
+- Added `channels.ir_excess` empirical-locus keys (moved from hard-coded values where they existed; no existing threshold changed): `locus_bp_rp_min: -0.2`, `locus_bp_rp_max: 2.8`, `locus_n_bins: 15`, `locus_min_stars_per_bin: 5` (same binning as before), `locus_clip_sigma: 3.0`, `locus_clip_max_iter: 5`, `locus_intrinsic_scatter_floor_mag: 0.01`, `locus_extrapolation_scatter_mag: 0.10`, `locus_persist_min_stars: 100`, `literature_locus_scatter_mag: [0.03, 0.04, 0.05, 0.08]` (assumed W1..W4 scatter for the literature fallback; the table has none).
+- Added `channels.ir_excess` dust-quantification keys: `excess_significance_sigma: 3.0`, `dust_temp_interval_delta_chi2: 1.0`, `colour_temp_min_k: 30.0`, `colour_temp_max_k: 3000.0`.
+- Added `vetting` extinction keys: `extinction_heavy_dust_ebv: 0.30` (previously hard-coded in `check_extinction`, same value), `extinction_los_excess_summary_ebv: 0.05`, `sfd_to_sf11_factor: 0.86`, `bayestar19_ebv_per_unit: 0.884` (Green et al. 2019 Eq. 1; Eq. 2 gives 0.996; to be confirmed in a live run).
+- Behaviour: the ir_excess primary photosphere is now the dereddened W1..W4 empirical locus (`photosphere_source` recorded); the empirical-predictor chi now includes the locus intrinsic scatter (was multiplied by 0.0) and no longer adds `cal_uncertainty_frac` (already inside the locus scatter); fixture photospheres carry the dwarf WISE colours; `ebv_star` replaces `ebv_sfd` wherever the star is dereddened.
+
+### Light-curve vetting inputs
+Light-curve vetting checks now evaluate fetched data or return `not_evaluated`, and every check can fail. All keys are
+vetting-only additions; no channel detection threshold changed, so channel scores are unaffected. The config hash
+changes, so validation certificates must be regenerated for the new hash.
+
+- `channels.optical_dips` (pipeline_agreement): `pipeline_quiet_depth_frac: 0.02`, `pipeline_depth_abs_tol_frac: 0.08`,
+  `pipeline_depth_min_ratio: 0.5` (moved from literals in `lc_checks._depths_agree`, values unchanged);
+  `pipeline_min_bin_fill_frac: 0.5` (6 h bins with fewer than half the expected native cadences are dropped);
+  `pipeline_min_binned_corr: 0.5` (binned QLP/TESScut Pearson r required only when a feature exceeds the quiet level);
+  `tess_segment_gap_days: 0.5` (segment split used by `matched_detrend` and edge distances; was the default argument).
+- `channels.optical_dips` (systematics_window, TESS): `systematics_edge_margin_days: 0.5`, `systematics_bkg_sigma: 5.0`,
+  `systematics_bkg_depth_frac: 0.25`, `systematics_centroid_jump_sigma: 5.0`, `systematics_centroid_jump_min_px: 0.05`.
+- `channels.optical_dips` (neighbour_signal, TESS): `neighbour_centroid_window_days: 2.0`, `neighbour_source_offset_sigma: 3.0`,
+  `neighbour_source_offset_min_px: 0.3`.
+- `channels.optical_dips` (known_variable): `periodic_eb_min_depth_frac: 0.15` (was the literal `min(flux) < 0.85`, unchanged);
+  `rotation_min_period_days: 0.1`, `rotation_max_period_days: 13.0`, `rotation_fap_max: 0.001`, `rotation_period_match_frac: 0.1`.
+- `channels.optical_dips` (second_survey, TESS events): `second_survey_simultaneous_pad_days: 0.25`,
+  `second_survey_simultaneous_min_depth_ratio: 0.5`, `second_survey_night_dip_sigma: 3.0`, `second_survey_min_dip_nights: 2`.
+- `channels.ir_timedomain` (systematics_window, NEOWISE): `neowise_comparison_radius_arcsec: 150.0`,
+  `neowise_comparison_exclude_arcsec: 8.0`, `neowise_comparison_mag_window: 1.0`, `neowise_comparison_min_stars: 3`,
+  `neowise_comparison_max_stars: 10`, `systematics_ensemble_corr: 0.7`, `systematics_ensemble_corr_min_amp_frac: 0.2`,
+  `systematics_ensemble_amp_frac: 0.5`.
+- `channels.ir_timedomain` (neighbour_signal, NEOWISE): `neighbour_blend_sigma: 3.0`, `neighbour_min_track_arcsec: 0.3`
+  (the stationary-flux-share limit reuses `vetting.neighbour_blend_flux_frac: 0.25`).
+- `channels.ir_timedomain` (second_survey): `second_survey_min_season_nights: 5` (was the literal in `summarize_survey`),
+  `second_survey_season_floor_mag: 0.005`, `second_survey_change_sigma: 5.0`, `second_survey_min_overlap_seasons: 4`,
+  `second_survey_min_abs_corr: 0.6`, `second_survey_slope_sigma: 3.0`, `second_survey_comparable_frac: 0.5`.
+- `vetting`: `tess_neighbour_radius_px: 2.0` (Gaia cone for TESS-aperture neighbours), `sso_tess_radius_px: 2.0`
+  (SkyBoT radius at TESS event times = 2 x `tess_pixel_arcsec`), `sso_min_flux_ratio_of_depth: 0.1`.
+
+### generic_outlier re-certification, code fingerprints, survey-scale NEOWISE (wt/survey-scale)
+Keys added only; no existing threshold or gate changed. The config hash changes, so every channel must be re-validated;
+certificates now also carry `code_fingerprint` and go stale when the validated code changes.
+- `channels.generic_outlier.modality_null_default_n_points: 1000` - series length assumed for the noise expectation of a
+  `dip_snr` / `spec_line_snr` value supplied without its series (`sub_metrics`), i.e. E[max of 1000 N(0,1)] = 3.23 (Blom approximation).
+- `channels.generic_outlier.vanished_margin_plate_sigma_mag: 0.3` - photographic-plate magnitude uncertainty (USNO-B1.0,
+  Monet et al. 2003) used to express `vanished_margin` in sigma.
+- Behaviour (generic_outlier): a present modality feature is now an excess over its own noise expectation (absent stays 0.0,
+  L003); the Isolation Forest draws split attributes from all features (Liu et al. 2008), so a feature constant in the
+  background can still isolate a query; `spec_line_snr` is the strongest single-exposure feature (repeat test left to the
+  spectral vetting suite, like `dip_snr`). See `docs/channels/generic_outlier.md`.
+- `channels.ir_timedomain.neowise_bulk_max_attempts: 3`, `neowise_bulk_retry_backoff_s: 2.0` - bounded retries (exponential
+  backoff 2 s, 4 s) of the survey NEOWISE-only fetch (`oddstar.io.neowise_bulk`); its rate limit is `archives.neowise.rate_limit_rps`.
+- Behaviour (ir_timedomain): stars without NEOWISE coverage, with a failed or missing NEOWISE fetch, or with fewer than
+  `min_visits` visits are reported as not searched and excluded from null-report denominators (detection thresholds unchanged).
+- Removed `live_ingestion.ir_timedomain_neowise_enrich_max_stars: 25`. A live `search ir_timedomain` used to fetch NEOWISE
+  for the first 25 sample stars only and drop the rest; it now fetches every sample star through the bulk path
+  (`--neowise-max-stars N` bounds a run explicitly, and the stars beyond N are reported as not searched).
+
+### Remaining default-value passes removed
+Vanishing, spectral and radio vetting, the SIMBAD-based checks and the generic_outlier path no longer pass on
+default input values (lessons L007/L008): a check passes or fails only on inputs that are explicitly present (fixtures,
+hand-built dicts) or written by a query recorded as `ok` (live stars); otherwise it reports `not_evaluated` and names the
+missing data product. No existing threshold value changed. The config hash changes, so validation certificates must
+be regenerated for the new hash (not done here).
+
+- `channels.vanishing.vetting_variable_simbad_types: ["Mira", "LPV*", "CV*", "Flare*"]` - SIMBAD types that explain a
+  vanished plate source in `known_variable`; was a literal set in `vet/vanishing_checks.py` (unchanged).
+- `channels.optical_dips.detrend_edge_zone_window_frac: 0.5` (new) - dip candidates within this fraction of
+  `detrend_window_days` (2.5 d) of a TESS segment edge or data gap, where the matched running median can erase or
+  distort a dip, make `pipeline_agreement`, `systematics_window`, `neighbour_signal`, `sso_crossing` and the TESS context
+  of `second_survey` report `not_evaluated` instead of `pass` (a `fail` stands). Edge-zone bins are also compared with the
+  raw interior flux so an erased dip is still seen.
+- `vetting.metallicity_subdwarf_feh_max: -1.0` - [Fe/H] below which `check_metallicity` calls a subdwarf; was the
+  literal `-1.0` in `vet/underluminous_checks.py` (unchanged).
+- Literal fallbacks of config keys removed from vetting source (`.get(key, default)` -> required key, values unchanged):
+  `channels.vanishing.min_early_plates` (2), `min_depth_margin_mag` (2.0), `max_pm_residual_arcsec` (1.5),
+  `channels.radio_narrowband.min_drift_abs_hz_s` (0.05), `channels.spectral_lines.sky_line_exclusion_angstrom` (1.5),
+  `stellar_line_exclusion_angstrom` (1.5).
+- Input defaults removed (now `not_evaluated` when absent): vanishing `usno_epoch` 1953.4, `usno_mag_r` 17.0,
+  `panstarrs_depth_mag` 21.8, `early_plates_count` (2 with any plate record), `known_lpv` False, `sso_on_plate` False,
+  `blend_split_sources` 1, `present_in_gaia` True, proper motion 0.0; spectral `lsf_fwhm_a` 0.45, pixel size 0.25 A,
+  `detector_artifact` False, empty flux arrays; radio `off_scan_hits` 0, `drift_hz_s` 0.0, `in_rfi_band` False,
+  `multi_target_match` False, `reobserved_confirmed` False; SIMBAD type "Star"; generic path `abs_g_mag` 4.8,
+  `teff_k` 5800, `ruwe` 1.0, proper motion 0.0 (xmatch, NEOWISE PM track), radio row separation 99",
+  second-instrument interpretation "confirmed", fixture cutout offset 0.0" / background 0.4 mJy.
+- SIMBAD: live ingestion records `query_status["simbad"]` and `vetting_archive.simbad_entry`; `simbad_type` is None when
+  the lookup failed or SIMBAD has no entry. `known_variable` (light curve and vanishing) and `metallicity` return
+  `not_evaluated` when the lookup did not succeed; "no entry" is a successful negative answer.
+- `vet/engine.py`: a generic_outlier target with a dip/IR driver is routed to the light-curve checks also when it carries
+  only per-sector TESS data (`lightcurves.tess_sectors`, the live format), not just the legacy fixture arrays.
+- Fixture-only channels for live stars: vanishing, spectral_lines and radio_narrowband have no live ingestion, so every
+  check of those suites returns `not_evaluated` for a live star (a SIMBAD-listed Mira can still fail vanishing
+  `known_variable`).
+
 ## [1.0.0] - 2026-11-16
 - Initial frozen baseline configuration for all 8 search channels, 23 archive adapters, and 42 vetting checks.
 - Set `storage.max_cache_gb: 10.0` per workstation disk budget decision (with process-and-evict retention of manifest SHA-256 hashes for heavy raw radio/pixel payloads).

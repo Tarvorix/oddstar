@@ -361,7 +361,7 @@ class ArchiveFetcher:
         elif self.archive in {"tess", "kepler", "ztf", "asassn"}:
             base["lightcurves"] = star.get("lightcurves", {})
         elif self.archive in {"simbad", "vizier"}:
-            base["simbad_type"] = star.get("simbad_type", "Star")
+            base["simbad_type"] = star.get("simbad_type")
             base["known_in_literature"] = star.get("known_in_literature", False)
             base["name"] = star.get("name", "")
         elif self.archive == "dustmaps":

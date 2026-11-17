@@ -1,13 +1,21 @@
 {
   "lesson_id": "L006_matched_detrending_and_robust_optical_surveys",
-  "finding_id": "F-5628404318169472-ADV-L006",
+  "finding_id": "F-5628404318169472-20261117-R2-OPTICAL",
   "source_id": "5628404318169472",
   "title": "Fetch TESS QLP/TESScut, ZTF and ASAS-SN live for LC vetting, with matched detrending and retried/paged ZTF queries",
   "what_happened": "The sole Tier C survivor 5628404318169472 carried two not_evaluated holes that code could close. pipeline_agreement never received a second TESS extraction because live enrichment fetched no TESS data, and the adversarial review's hand comparison of QLP vs. TESScut (raw r = 0.43-0.81) used different detrending on each series. second_survey never received ZTF or ASAS-SN because live enrichment had no optical survey fetch, and the reviewer's own IRSA ZTF cone requests timed out at 40 s unless narrowed to one band list and a 6 arcsec cone.",
   "generic_lesson": "A cross-pipeline comparison is only meaningful when both series go through the identical detrending filter at matched cadences, using the detection channel's own window. Archive time-series queries that can time out need bounded retries, a shrinking cone and time-window paging, and every failure mode must surface in the check note instead of silently reading as no coverage. Vetting-only time series are stored apart from channel inputs so new vetting data never changes a certified channel score.",
-  "automated_check": "oddstar.vet.lc_checks.check_pipeline_agreement + oddstar.vet.lc_checks.matched_detrend + oddstar.vet.lc_checks.check_second_survey + oddstar.io.optical_timeseries.fetch_ztf_lightcurve + oddstar.io.optical_timeseries.fetch_asassn_lightcurve + oddstar.io.optical_timeseries.fetch_tess_pipeline_pair",
-  "linked_test": "tests/test_optical_vetting.py::test_pipeline_agreement_matched_detrending",
+  "automated_check": "oddstar.vet.lc_checks.check_second_survey + oddstar.vet.lc_checks.check_pipeline_agreement + oddstar.vet.lc_checks.matched_detrend + oddstar.io.optical_timeseries.fetch_ztf_lightcurve + oddstar.io.optical_timeseries.fetch_asassn_lightcurve + oddstar.io.optical_timeseries.fetch_tess_pipeline_pair",
+  "linked_test": "tests/test_lc_vetting_live.py::test_second_survey_reference_star_dims_while_ir_brightens",
   "added_to_impostors": false,
   "skill_updated": null,
-  "commit_sha": "97acb8954df1895d2c4e01a7307dccecb6e112a0"
+  "commit_sha": "2b24823d0b8909d526951058b1d972a91c98d3a8",
+  "commit_sha_note": "",
+  "closes_finding": true,
+  "related_finding_ids": [],
+  "finding_source": "review/records/REV-20261117-R2-5628404318169472.json",
+  "additional_linked_tests": [
+    "tests/test_optical_vetting.py::test_pipeline_agreement_matched_detrending",
+    "tests/test_lc_vetting_live.py::test_second_survey_counter_case_and_coverage"
+  ]
 }

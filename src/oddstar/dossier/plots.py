@@ -68,7 +68,127 @@ def render_cutouts_panel(
     *,
     fov_arcsec: float = 40.0,
 ) -> Path:
-    """Render fixed-scale standard-stretch multi-band cutouts (Optical, Ks, W1, W2, W3, W4)."""
+    """Cutout evidence panel: real fetched pixels when available, a synthetic panel only for synthetic fixtures,
+    otherwise a placeholder stating that no pixels were fetched (never invented sky images for a real star)."""
+    if star.get("synthetic_fixture"):
+        return render_synthetic_fixture_cutouts(star, out_path, fov_arcsec=fov_arcsec)
+    real = render_real_cutouts_panel(star, out_path)
+    if real is not None:
+        return real
+    return _render_no_pixels_placeholder(star, out_path)
+
+
+def _render_no_pixels_placeholder(star: dict[str, Any], out_path: Path) -> Path:
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    qs = (star.get("vetting_archive") or {}).get("query_status") or {}
+    fig, ax = plt.subplots(figsize=(6.0, 2.4), dpi=110)
+    ax.axis("off")
+    txt = (
+        f"No cutout pixels fetched for {star.get('name', star.get('source_id'))}\n"
+        f"cutouts_wise: {qs.get('cutouts_wise', 'not run')}\ncutouts_ps1: {qs.get('cutouts_ps1', 'not run')}"
+    )
+    ax.text(0.5, 0.5, txt, ha="center", va="center", fontsize=9, wrap=True)
+    fig.tight_layout()
+    fig.savefig(out_path)
+    plt.close(fig)
+    return out_path
+
+
+def _stamp(blob_path: str, ra: float, dec: float, half_arcsec: float) -> tuple[np.ndarray, float, float, Any] | None:
+    """Crop a cached FITS cutout to +/-half_arcsec around (ra, dec). Returns (stamp, x, y, wcs) or None."""
+    from astropy.wcs import WCS
+    from astropy.wcs.utils import proj_plane_pixel_scales
+
+    from oddstar.io.cutouts import read_fits_image
+
+    try:
+        data, header = read_fits_image(Path(blob_path).read_bytes())
+        wcs = WCS(header).celestial
+        pix = float(np.mean(proj_plane_pixel_scales(wcs))) * 3600.0
+        x0, y0 = (float(v) for v in wcs.world_to_pixel_values(ra, dec))
+    except Exception:
+        return None
+    h = max(3, int(round(half_arcsec / pix)))
+    ix, iy = int(round(x0)), int(round(y0))
+    x_lo, y_lo = max(0, ix - h), max(0, iy - h)
+    stamp = data[y_lo : iy + h + 1, x_lo : ix + h + 1]
+    if stamp.size == 0:
+        return None
+    return stamp, x0 - x_lo, y0 - y_lo, (wcs, x_lo, y_lo, pix)
+
+
+def render_real_cutouts_panel(star: dict[str, Any], out_path: Path, *, half_fov_arcsec: float = 40.0) -> Path | None:
+    """Render the fetched AllWISE Atlas W1-W4 (and PS1 stack) cutouts with the predicted Gaia position (cyan +),
+    the fitted image centroid (lime x) and the band FWHM circle, annotated with the measured metrics.
+    Returns None when no cached cutout pixels are readable."""
+    cut = (star.get("vetting_archive") or {}).get("cutouts") or {}
+    bands = cut.get("bands") or {}
+    ra, dec = cut.get("pred_ra_deg"), cut.get("pred_dec_deg")
+    if ra is None or dec is None:
+        return None
+    panels: list[tuple[str, tuple[np.ndarray, float, float, Any], dict[str, Any]]] = []
+    ps1 = cut.get("ps1") or {}
+    if ps1.get("blob_path"):
+        st = _stamp(ps1["blob_path"], float(star["ra_deg"]), float(star["dec_deg"]), min(half_fov_arcsec, 25.0))
+        if st is not None:
+            panels.append((f"PS1 {ps1.get('filter', 'r')} stack", st, {}))
+    for b in ("W1", "W2", "W3", "W4"):
+        m = bands.get(b) or {}
+        if not m.get("blob_path"):
+            continue
+        st = _stamp(m["blob_path"], float(ra), float(dec), half_fov_arcsec)
+        if st is not None:
+            panels.append((f"AllWISE Atlas {b}", st, m))
+    if not panels:
+        return None
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    ncol = 3
+    nrow = int(math.ceil(len(panels) / ncol))
+    fig, axes = plt.subplots(nrow, ncol, figsize=(3.2 * ncol, 3.4 * nrow), dpi=120, squeeze=False)
+    for ax in axes.flat:
+        ax.axis("off")
+    for ax, (title, (img, x0, y0, (wcs, x_lo, y_lo, pix)), m) in zip(axes.flat, panels):
+        finite = img[np.isfinite(img)]
+        vmin, vmax = (np.percentile(finite, [5.0, 99.5]) if finite.size else (0.0, 1.0))
+        norm_img = np.arcsinh(np.clip((img - vmin) / max(1e-9, vmax - vmin), 0.0, 1.0) * 5.0)
+        ax.imshow(norm_img, origin="lower", cmap="magma")
+        ax.plot(x0, y0, "+", color="cyan", ms=12, mew=1.4)
+        label = title
+        if m.get("status") == "ok" and m.get("centroid_ra_deg") is not None:
+            cx, cy = (float(v) for v in wcs.world_to_pixel_values(m["centroid_ra_deg"], m["centroid_dec_deg"]))
+            ax.plot(cx - x_lo, cy - y_lo, "x", color="lime", ms=9, mew=1.4)
+            if m.get("fwhm_ref_arcsec"):
+                ax.add_patch(plt.Circle((x0, y0), 0.5 * float(m["fwhm_ref_arcsec"]) / pix, fill=False, edgecolor="lime", lw=0.9, ls="--"))
+            sig = m.get("offset_sigma_arcsec")
+            sig_txt = f"{float(sig):.2f}" if sig is not None else "n/a"
+            snr = m.get("flux_snr")
+            snr_txt = f"{float(snr):.1f}" if snr is not None else "n/a"
+            ratio = m.get("fwhm_ratio")
+            ratio_txt = f"{float(ratio):.2f}" if ratio is not None else "n/a"
+            label += f"\noff {float(m['offset_arcsec']):.2f}\"±{sig_txt}  S/N {snr_txt}  FWHM/ref {ratio_txt}"
+        elif m:
+            label += f"\n{m.get('status')}"
+        ax.set_title(label, fontsize=7.5)
+        ax.axis("on")
+        ax.set_xticks([])
+        ax.set_yticks([])
+    fig.suptitle(
+        f"Real cutouts — {star.get('name', star.get('source_id'))} (+ Gaia at epoch {cut.get('epoch_jyear', float('nan')):.2f}, x fitted centroid)",
+        fontsize=9,
+    )
+    fig.tight_layout()
+    fig.savefig(out_path)
+    plt.close(fig)
+    return out_path
+
+
+def render_synthetic_fixture_cutouts(
+    star: dict[str, Any],
+    out_path: Path,
+    *,
+    fov_arcsec: float = 40.0,
+) -> Path:
+    """SYNTHETIC multi-band cutouts drawn from a fixture star's explicit inputs. Not real pixels: fixtures only."""
     out_path.parent.mkdir(parents=True, exist_ok=True)
     seed_val = int.from_bytes(hashlib.sha256(str(star["source_id"]).encode()).digest()[:4], "big")
     rng = np.random.default_rng(seed_val)
@@ -126,7 +246,7 @@ def render_cutouts_panel(
         ax.set_xticks([])
         ax.set_yticks([])
 
-    fig.suptitle(f"Multi-band Cutouts ({fov_arcsec:.0f}\" FOV) — {star.get('name', star['source_id'])}", fontsize=11)
+    fig.suptitle(f"SYNTHETIC fixture cutouts (not real pixels, {fov_arcsec:.0f}\" FOV) — {star.get('name', star['source_id'])}", fontsize=11)
     fig.tight_layout()
     fig.savefig(out_path)
     plt.close(fig)

@@ -1,0 +1,550 @@
+{
+ "title": "Mean dwarf colour and effective temperature sequence (subset of columns used by oddstar)",
+ "reference": "Pecaut, M. J. & Mamajek, E. E. 2013, ApJS 208, 9, 'Intrinsic Colors, Temperatures, and Bolometric Corrections of Pre-main-sequence Stars' (online companion table 'A Modern Mean Dwarf Stellar Color and Effective Temperature Sequence', maintained by E. Mamajek)",
+ "url": "https://www.pas.rochester.edu/~emamajek/EEM_dwarf_UBVIJHK_colors_Teff.txt",
+ "table_version": "2022.04.16",
+ "retrieved_utc_date": "2026-11-17",
+ "provenance": "retrieved",
+ "retrieval_method": "Fetched from the URL above on 2026-11-17 with a web-fetch tool that returns the page text through a summarising language model (direct HTTP download was blocked by the network proxy). Three independent fetches returned identical values for every overlapping row and column. The values have NOT been byte-compared with the original file: diff this file against the URL before any publication.",
+ "column_notes": {
+  "bp_rp": "Gaia DR2/EDR3 BP-RP, intrinsic (unreddened) dwarf colour",
+  "m_g": "Gaia G absolute magnitude",
+  "ks_w1": "2MASS Ks minus WISE W1 (Vega)",
+  "w1_w2": "WISE W1-W2; the file states these WISE colours were 'added ... based on dwarf locus as function of Tycho Bt-Vt color from Patel+2014 for B5V-K5V' (version note 2017.03.14); later types are '...' in the file (null here) except M5V W1-W2",
+  "w1_w3": "WISE W1-W3 (B5V-K5V only, see w1_w2 note)",
+  "w1_w4": "WISE W1-W4 (B5V-K5V only, see w1_w2 note)"
+ },
+ "derived_in_code": "Ks-W2 = ks_w1 + w1_w2, Ks-W3 = ks_w1 + w1_w3, Ks-W4 = ks_w1 + w1_w4 (oddstar.io.physics)",
+ "columns": [
+  "spt",
+  "teff_k",
+  "bp_rp",
+  "m_g",
+  "ks_w1",
+  "w1_w2",
+  "w1_w3",
+  "w1_w4"
+ ],
+ "rows": [
+  {
+   "spt": "A0V",
+   "teff_k": 9700,
+   "bp_rp": -0.037,
+   "m_g": 1.0,
+   "ks_w1": 0.042,
+   "w1_w2": -0.041,
+   "w1_w3": -0.074,
+   "w1_w4": -0.022
+  },
+  {
+   "spt": "A1V",
+   "teff_k": 9300,
+   "bp_rp": 0.005,
+   "m_g": 1.16,
+   "ks_w1": 0.043,
+   "w1_w2": -0.036,
+   "w1_w3": -0.068,
+   "w1_w4": -0.023
+  },
+  {
+   "spt": "A2V",
+   "teff_k": 8800,
+   "bp_rp": 0.068,
+   "m_g": 1.345,
+   "ks_w1": 0.044,
+   "w1_w2": -0.034,
+   "w1_w3": -0.067,
+   "w1_w4": -0.029
+  },
+  {
+   "spt": "A3V",
+   "teff_k": 8600,
+   "bp_rp": 0.11,
+   "m_g": 1.69,
+   "ks_w1": 0.045,
+   "w1_w2": -0.033,
+   "w1_w3": -0.066,
+   "w1_w4": -0.029
+  },
+  {
+   "spt": "A4V",
+   "teff_k": 8250,
+   "bp_rp": 0.166,
+   "m_g": 1.92,
+   "ks_w1": 0.046,
+   "w1_w2": -0.031,
+   "w1_w3": -0.059,
+   "w1_w4": -0.021
+  },
+  {
+   "spt": "A5V",
+   "teff_k": 8100,
+   "bp_rp": 0.194,
+   "m_g": 1.98,
+   "ks_w1": 0.046,
+   "w1_w2": -0.03,
+   "w1_w3": -0.058,
+   "w1_w4": -0.021
+  },
+  {
+   "spt": "A6V",
+   "teff_k": 7910,
+   "bp_rp": 0.222,
+   "m_g": 2.09,
+   "ks_w1": 0.046,
+   "w1_w2": -0.03,
+   "w1_w3": -0.057,
+   "w1_w4": -0.018
+  },
+  {
+   "spt": "A7V",
+   "teff_k": 7760,
+   "bp_rp": 0.263,
+   "m_g": 2.19,
+   "ks_w1": 0.047,
+   "w1_w2": -0.03,
+   "w1_w3": -0.056,
+   "w1_w4": -0.017
+  },
+  {
+   "spt": "A8V",
+   "teff_k": 7590,
+   "bp_rp": 0.32,
+   "m_g": 2.27,
+   "ks_w1": 0.048,
+   "w1_w2": -0.028,
+   "w1_w3": -0.055,
+   "w1_w4": -0.009
+  },
+  {
+   "spt": "A9V",
+   "teff_k": 7400,
+   "bp_rp": 0.327,
+   "m_g": 2.37,
+   "ks_w1": 0.048,
+   "w1_w2": -0.028,
+   "w1_w3": -0.055,
+   "w1_w4": -0.007
+  },
+  {
+   "spt": "F0V",
+   "teff_k": 7220,
+   "bp_rp": 0.377,
+   "m_g": 2.51,
+   "ks_w1": 0.049,
+   "w1_w2": -0.026,
+   "w1_w3": -0.05,
+   "w1_w4": 0.003
+  },
+  {
+   "spt": "F1V",
+   "teff_k": 7020,
+   "bp_rp": 0.434,
+   "m_g": 2.69,
+   "ks_w1": 0.05,
+   "w1_w2": -0.026,
+   "w1_w3": -0.047,
+   "w1_w4": 0.009
+  },
+  {
+   "spt": "F2V",
+   "teff_k": 6820,
+   "bp_rp": 0.49,
+   "m_g": 2.89,
+   "ks_w1": 0.051,
+   "w1_w2": -0.027,
+   "w1_w3": -0.046,
+   "w1_w4": 0.011
+  },
+  {
+   "spt": "F3V",
+   "teff_k": 6750,
+   "bp_rp": 0.518,
+   "m_g": 2.99,
+   "ks_w1": 0.051,
+   "w1_w2": -0.028,
+   "w1_w3": -0.046,
+   "w1_w4": 0.008
+  },
+  {
+   "spt": "F4V",
+   "teff_k": 6670,
+   "bp_rp": 0.546,
+   "m_g": 3.1,
+   "ks_w1": 0.052,
+   "w1_w2": -0.029,
+   "w1_w3": -0.046,
+   "w1_w4": 0.0
+  },
+  {
+   "spt": "F5V",
+   "teff_k": 6550,
+   "bp_rp": 0.587,
+   "m_g": 3.26,
+   "ks_w1": 0.052,
+   "w1_w2": -0.03,
+   "w1_w3": -0.045,
+   "w1_w4": -0.004
+  },
+  {
+   "spt": "F6V",
+   "teff_k": 6350,
+   "bp_rp": 0.64,
+   "m_g": 3.56,
+   "ks_w1": 0.054,
+   "w1_w2": -0.033,
+   "w1_w3": -0.045,
+   "w1_w4": -0.012
+  },
+  {
+   "spt": "F7V",
+   "teff_k": 6280,
+   "bp_rp": 0.67,
+   "m_g": 3.66,
+   "ks_w1": 0.055,
+   "w1_w2": -0.036,
+   "w1_w3": -0.045,
+   "w1_w4": -0.013
+  },
+  {
+   "spt": "F8V",
+   "teff_k": 6180,
+   "bp_rp": 0.694,
+   "m_g": 3.9,
+   "ks_w1": 0.056,
+   "w1_w2": -0.039,
+   "w1_w3": -0.044,
+   "w1_w4": -0.016
+  },
+  {
+   "spt": "F9V",
+   "teff_k": 6050,
+   "bp_rp": 0.719,
+   "m_g": 4.105,
+   "ks_w1": 0.057,
+   "w1_w2": -0.041,
+   "w1_w3": -0.044,
+   "w1_w4": -0.014
+  },
+  {
+   "spt": "F9.5V",
+   "teff_k": 5990,
+   "bp_rp": 0.767,
+   "m_g": 4.195,
+   "ks_w1": 0.057,
+   "w1_w2": -0.042,
+   "w1_w3": -0.043,
+   "w1_w4": -0.012
+  },
+  {
+   "spt": "G0V",
+   "teff_k": 5930,
+   "bp_rp": 0.784,
+   "m_g": 4.325,
+   "ks_w1": 0.058,
+   "w1_w2": -0.043,
+   "w1_w3": -0.043,
+   "w1_w4": -0.01
+  },
+  {
+   "spt": "G1V",
+   "teff_k": 5860,
+   "bp_rp": 0.803,
+   "m_g": 4.462,
+   "ks_w1": 0.06,
+   "w1_w2": -0.044,
+   "w1_w3": -0.042,
+   "w1_w4": -0.01
+  },
+  {
+   "spt": "G2V",
+   "teff_k": 5770,
+   "bp_rp": 0.823,
+   "m_g": 4.635,
+   "ks_w1": 0.061,
+   "w1_w2": -0.05,
+   "w1_w3": -0.04,
+   "w1_w4": -0.016
+  },
+  {
+   "spt": "G3V",
+   "teff_k": 5720,
+   "bp_rp": 0.832,
+   "m_g": 4.703,
+   "ks_w1": 0.061,
+   "w1_w2": -0.05,
+   "w1_w3": -0.04,
+   "w1_w4": -0.014
+  },
+  {
+   "spt": "G4V",
+   "teff_k": 5680,
+   "bp_rp": 0.841,
+   "m_g": 4.757,
+   "ks_w1": 0.062,
+   "w1_w2": -0.052,
+   "w1_w3": -0.041,
+   "w1_w4": -0.014
+  },
+  {
+   "spt": "G5V",
+   "teff_k": 5660,
+   "bp_rp": 0.85,
+   "m_g": 4.801,
+   "ks_w1": 0.062,
+   "w1_w2": -0.052,
+   "w1_w3": -0.041,
+   "w1_w4": -0.014
+  },
+  {
+   "spt": "G6V",
+   "teff_k": 5600,
+   "bp_rp": 0.869,
+   "m_g": 4.914,
+   "ks_w1": 0.063,
+   "w1_w2": -0.053,
+   "w1_w3": -0.04,
+   "w1_w4": -0.012
+  },
+  {
+   "spt": "G7V",
+   "teff_k": 5550,
+   "bp_rp": 0.88,
+   "m_g": 5.006,
+   "ks_w1": 0.064,
+   "w1_w2": -0.054,
+   "w1_w3": -0.04,
+   "w1_w4": -0.013
+  },
+  {
+   "spt": "G8V",
+   "teff_k": 5480,
+   "bp_rp": 0.9,
+   "m_g": 5.098,
+   "ks_w1": 0.065,
+   "w1_w2": -0.057,
+   "w1_w3": -0.039,
+   "w1_w4": -0.018
+  },
+  {
+   "spt": "G9V",
+   "teff_k": 5380,
+   "bp_rp": 0.95,
+   "m_g": 5.34,
+   "ks_w1": 0.067,
+   "w1_w2": -0.06,
+   "w1_w3": -0.038,
+   "w1_w4": -0.018
+  },
+  {
+   "spt": "K0V",
+   "teff_k": 5270,
+   "bp_rp": 0.983,
+   "m_g": 5.553,
+   "ks_w1": 0.07,
+   "w1_w2": -0.063,
+   "w1_w3": -0.037,
+   "w1_w4": -0.015
+  },
+  {
+   "spt": "K1V",
+   "teff_k": 5170,
+   "bp_rp": 1.01,
+   "m_g": 5.65,
+   "ks_w1": 0.071,
+   "w1_w2": -0.064,
+   "w1_w3": -0.038,
+   "w1_w4": -0.013
+  },
+  {
+   "spt": "K2V",
+   "teff_k": 5100,
+   "bp_rp": 1.1,
+   "m_g": 5.83,
+   "ks_w1": 0.073,
+   "w1_w2": -0.068,
+   "w1_w3": -0.037,
+   "w1_w4": -0.009
+  },
+  {
+   "spt": "K3V",
+   "teff_k": 4830,
+   "bp_rp": 1.21,
+   "m_g": 6.2,
+   "ks_w1": 0.079,
+   "w1_w2": -0.071,
+   "w1_w3": -0.031,
+   "w1_w4": -0.008
+  },
+  {
+   "spt": "K4V",
+   "teff_k": 4600,
+   "bp_rp": 1.34,
+   "m_g": 6.53,
+   "ks_w1": 0.087,
+   "w1_w2": -0.072,
+   "w1_w3": -0.03,
+   "w1_w4": 0.009
+  },
+  {
+   "spt": "K5V",
+   "teff_k": 4440,
+   "bp_rp": 1.43,
+   "m_g": 6.83,
+   "ks_w1": 0.092,
+   "w1_w2": -0.073,
+   "w1_w3": -0.029,
+   "w1_w4": 0.019
+  },
+  {
+   "spt": "K6V",
+   "teff_k": 4300,
+   "bp_rp": 1.53,
+   "m_g": 7.02,
+   "ks_w1": 0.101,
+   "w1_w2": null,
+   "w1_w3": null,
+   "w1_w4": null
+  },
+  {
+   "spt": "K7V",
+   "teff_k": 4100,
+   "bp_rp": 1.7,
+   "m_g": 7.57,
+   "ks_w1": 0.11,
+   "w1_w2": null,
+   "w1_w3": null,
+   "w1_w4": null
+  },
+  {
+   "spt": "K8V",
+   "teff_k": 3990,
+   "bp_rp": 1.73,
+   "m_g": 7.74,
+   "ks_w1": 0.115,
+   "w1_w2": null,
+   "w1_w3": null,
+   "w1_w4": null
+  },
+  {
+   "spt": "K9V",
+   "teff_k": 3930,
+   "bp_rp": 1.79,
+   "m_g": 8.03,
+   "ks_w1": 0.117,
+   "w1_w2": null,
+   "w1_w3": null,
+   "w1_w4": null
+  },
+  {
+   "spt": "M0V",
+   "teff_k": 3850,
+   "bp_rp": 1.84,
+   "m_g": 8.16,
+   "ks_w1": 0.12,
+   "w1_w2": null,
+   "w1_w3": null,
+   "w1_w4": null
+  },
+  {
+   "spt": "M0.5V",
+   "teff_k": 3770,
+   "bp_rp": 1.97,
+   "m_g": 8.44,
+   "ks_w1": 0.125,
+   "w1_w2": null,
+   "w1_w3": null,
+   "w1_w4": null
+  },
+  {
+   "spt": "M1V",
+   "teff_k": 3660,
+   "bp_rp": 2.09,
+   "m_g": 8.82,
+   "ks_w1": 0.13,
+   "w1_w2": null,
+   "w1_w3": null,
+   "w1_w4": null
+  },
+  {
+   "spt": "M1.5V",
+   "teff_k": 3620,
+   "bp_rp": 2.13,
+   "m_g": 8.98,
+   "ks_w1": 0.135,
+   "w1_w2": null,
+   "w1_w3": null,
+   "w1_w4": null
+  },
+  {
+   "spt": "M2V",
+   "teff_k": 3560,
+   "bp_rp": 2.23,
+   "m_g": 9.29,
+   "ks_w1": 0.14,
+   "w1_w2": null,
+   "w1_w3": null,
+   "w1_w4": null
+  },
+  {
+   "spt": "M2.5V",
+   "teff_k": 3470,
+   "bp_rp": 2.39,
+   "m_g": 9.67,
+   "ks_w1": 0.145,
+   "w1_w2": null,
+   "w1_w3": null,
+   "w1_w4": null
+  },
+  {
+   "spt": "M3V",
+   "teff_k": 3430,
+   "bp_rp": 2.5,
+   "m_g": 10.05,
+   "ks_w1": 0.15,
+   "w1_w2": null,
+   "w1_w3": null,
+   "w1_w4": null
+  },
+  {
+   "spt": "M3.5V",
+   "teff_k": 3270,
+   "bp_rp": 2.78,
+   "m_g": 10.87,
+   "ks_w1": 0.17,
+   "w1_w2": null,
+   "w1_w3": null,
+   "w1_w4": null
+  },
+  {
+   "spt": "M4V",
+   "teff_k": 3210,
+   "bp_rp": 2.94,
+   "m_g": 11.21,
+   "ks_w1": 0.18,
+   "w1_w2": null,
+   "w1_w3": null,
+   "w1_w4": null
+  },
+  {
+   "spt": "M4.5V",
+   "teff_k": 3110,
+   "bp_rp": 3.16,
+   "m_g": 12.04,
+   "ks_w1": 0.2,
+   "w1_w2": null,
+   "w1_w3": null,
+   "w1_w4": null
+  },
+  {
+   "spt": "M5V",
+   "teff_k": 3060,
+   "bp_rp": 3.35,
+   "m_g": 12.45,
+   "ks_w1": 0.21,
+   "w1_w2": 0.17,
+   "w1_w3": null,
+   "w1_w4": null
+  }
+ ]
+}

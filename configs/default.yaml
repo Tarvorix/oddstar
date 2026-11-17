@@ -1,4 +1,4 @@
-version: "1.0.0"
+version: "1.1.0"
 
 storage:
   max_cache_gb: 10.0
@@ -8,6 +8,7 @@ storage:
   runs_dir: "runs"
   dossiers_dir: "dossiers"
   registry_dir: "registry"
+  evidence_dir: "registry/evidence"
 
 gaia:
   release: "dr3"
@@ -38,6 +39,20 @@ channels:
     design_point_frac_lum: 0.01
     chi_distribution_mean_tol: 0.15
     chi_distribution_std_tol: 0.20
+    locus_bp_rp_min: -0.2
+    locus_bp_rp_max: 2.8
+    locus_n_bins: 15
+    locus_min_stars_per_bin: 5
+    locus_clip_sigma: 3.0
+    locus_clip_max_iter: 5
+    locus_intrinsic_scatter_floor_mag: 0.01
+    locus_extrapolation_scatter_mag: 0.10
+    locus_persist_min_stars: 100
+    literature_locus_scatter_mag: [0.03, 0.04, 0.05, 0.08]
+    excess_significance_sigma: 3.0
+    dust_temp_interval_delta_chi2: 1.0
+    colour_temp_min_k: 30.0
+    colour_temp_max_k: 3000.0
 
   ir_timedomain:
     visit_bin_days: 180.0
@@ -47,6 +62,29 @@ channels:
     jump_snr_threshold: 4.5
     optical_flat_max_chi2: 2.5
     design_point_amp_mag: 0.35
+    # Vetting-only (since 1.1.0): systematics_window NEOWISE field-star ensemble
+    neowise_comparison_radius_arcsec: 150.0
+    neowise_comparison_exclude_arcsec: 8.0
+    neowise_comparison_mag_window: 1.0
+    neowise_comparison_min_stars: 3
+    neowise_comparison_max_stars: 10
+    systematics_ensemble_corr: 0.7
+    systematics_ensemble_corr_min_amp_frac: 0.2
+    systematics_ensemble_amp_frac: 0.5
+    # Vetting-only (since 1.1.0): neighbour_signal NEOWISE PM-track residual tests
+    neighbour_blend_sigma: 3.0
+    neighbour_min_track_arcsec: 0.3
+    # Vetting-only (since 1.1.0): second_survey seasonal optical response to the IR variation
+    second_survey_min_season_nights: 5
+    second_survey_season_floor_mag: 0.005
+    second_survey_change_sigma: 5.0
+    second_survey_min_overlap_seasons: 4
+    second_survey_min_abs_corr: 0.6
+    second_survey_slope_sigma: 3.0
+    second_survey_comparable_frac: 0.5
+    # Survey-scale NEOWISE-only fetch (oddstar.io.neowise_bulk); rate limit comes from archives.neowise
+    neowise_bulk_max_attempts: 3
+    neowise_bulk_retry_backoff_s: 2.0
 
   optical_dips:
     detrend_window_days: 5.0
@@ -57,6 +95,37 @@ channels:
     secular_fade_snr_threshold: 4.5
     periodic_bls_veto_snr: 8.0
     design_point_depth_frac: 0.15
+    # Vetting-only (since 1.1.0): pipeline_agreement (first three were literals in _depths_agree)
+    pipeline_quiet_depth_frac: 0.02
+    pipeline_depth_abs_tol_frac: 0.08
+    pipeline_depth_min_ratio: 0.5
+    pipeline_min_bin_fill_frac: 0.5
+    pipeline_min_binned_corr: 0.5
+    tess_segment_gap_days: 0.5
+    # Vetting-only (since 1.1.0): systematics_window TESS event tests
+    systematics_edge_margin_days: 0.5
+    systematics_bkg_sigma: 5.0
+    systematics_bkg_depth_frac: 0.25
+    systematics_centroid_jump_sigma: 5.0
+    systematics_centroid_jump_min_px: 0.05
+    # Vetting-only (since 1.1.0): neighbour_signal TESS difference-image centroid
+    neighbour_centroid_window_days: 2.0
+    neighbour_source_offset_sigma: 3.0
+    neighbour_source_offset_min_px: 0.3
+    # Vetting-only (since 1.1.0): known_variable (periodic_eb_min_depth_frac was a literal 0.85 flux floor)
+    periodic_eb_min_depth_frac: 0.15
+    rotation_min_period_days: 0.1
+    rotation_max_period_days: 13.0
+    rotation_fap_max: 0.001
+    rotation_period_match_frac: 0.1
+    # Vetting-only (since 1.1.0): second_survey simultaneous coverage of TESS dip events
+    second_survey_simultaneous_pad_days: 0.25
+    second_survey_simultaneous_min_depth_ratio: 0.5
+    second_survey_night_dip_sigma: 3.0
+    second_survey_min_dip_nights: 2
+    # Vetting-only (since 1.1.0): events within this fraction of detrend_window_days of a segment edge or data gap
+    # are where the matched running median can erase or distort a dip; detrend-based checks report not_evaluated there
+    detrend_edge_zone_window_frac: 0.5
 
   radio_narrowband:
     max_abs_drift_hz_s: 4.0
@@ -83,6 +152,8 @@ channels:
     min_combined_quantile: 0.99
     seed: 20261116
     design_point_zscore: 4.5
+    modality_null_default_n_points: 1000
+    vanished_margin_plate_sigma_mag: 0.3
 
   spectral_lines:
     lsf_max_width_kms: 15.0
@@ -98,6 +169,8 @@ channels:
     match_radius_arcsec: 3.0
     max_pm_residual_arcsec: 1.5
     design_point_mag_diff: 3.0
+    # Vetting-only (since 1.1.0): SIMBAD types that explain a vanished plate source (was a literal in vanishing_checks.py)
+    vetting_variable_simbad_types: ["Mira", "LPV*", "CV*", "Flare*"]
 
 vetting:
   centroid_offset_max_beam_frac: 0.35
@@ -115,7 +188,88 @@ vetting:
   evolved_mg_bright_limit: 0.5
   binary_ruwe_max: 1.4
   extinction_disagreement_mag: 0.20
+  extinction_heavy_dust_ebv: 0.30
+  extinction_los_excess_summary_ebv: 0.05
+  sfd_to_sf11_factor: 0.86
+  bayestar19_ebv_per_unit: 0.884
   tess_pixel_arcsec: 21.0
+  # --- 1.1.0 (2026-11-17): measured infrared vetting inputs (see configs/CHANGELOG.md) ---
+  chance_alignment_p_max: 0.01
+  chance_alignment_annulus_inner_arcsec: 15.0
+  chance_alignment_annulus_outer_arcsec: 300.0
+  chance_alignment_min_snr: 3.0
+  chance_alignment_min_flux_frac_of_excess: 0.5
+  youth_xray_lx_min_erg_s: 1.0e+29
+  youth_nuv_locus_sigma_mag: 0.5
+  youth_uv_constraint_nsigma: 2.0
+  youth_galex_match_radius_arcsec: 3.0
+  youth_rosat_match_radius_arcsec: 30.0
+  youth_rosat_flux_limit_erg_cm2_s: 1.0e-13
+  youth_erass1_match_radius_arcsec: 15.0
+  youth_erass1_flux_limit_erg_cm2_s: 5.0e-14
+  sso_visit_gap_days: 3.0
+  sso_max_rate_arcsec_per_hr: 120.0
+  w1_beam_arcsec: 6.1
+  w2_beam_arcsec: 6.4
+  wise_atlas_psf_broadening: 1.414
+  vision_cutout_size_arcsec: 200.0
+  vision_centroid_max_sigma: 3.0
+  vision_extended_fwhm_ratio: 1.3
+  vision_min_fit_snr: 5.0
+  vision_peak_snr_min: 3.0
+  cirrus_annulus_inner_arcsec: 30.0
+  cirrus_annulus_outer_arcsec: 90.0
+  deep_screen_core_radius_arcsec: 1.5
+  deep_screen_ps1_psf_minus_kron_min: 0.35
+  deep_screen_faint_r_mag: 17.5
+  deep_screen_min_flux_frac_of_excess: 0.5
+  subarcsec_imaging_search_radius_arcsec: 3.0
+  neighbour_assumed_g_minus_rp: 1.3
+  neighbour_assumed_rp_minus_w3: 3.7
+  neighbour_assumed_rp_minus_w4: 4.0
+  # --- 1.1.0 (2026-11-17): light-curve vetting inputs (see configs/CHANGELOG.md) ---
+  tess_neighbour_radius_px: 2.0
+  sso_tess_radius_px: 2.0
+  sso_min_flux_ratio_of_depth: 0.1
+  # --- 1.1.0 (2026-11-17): decision cuts moved from source, values unchanged (see configs/CHANGELOG.md) ---
+  outlier_driver_min_abs_contribution: 2.0
+  xmatch_max_sep_arcsec: 2.5
+  wise_w4_min_frames: 5
+  wise_w4_min_detected_frame_frac: 0.15
+  wise_w4_max_rchi2: 3.5
+  wise_max_ext_flg: 1
+  dog_w1_w2_min: 0.45
+  dog_w2_w3_min: 3.0
+  single_frame_consistency_frac: 0.5
+  single_frame_coadd_floor_frac: 0.6
+  single_frame_max_to_median: 2.2
+  youth_nuv_default_err_mag: 0.3
+  evolved_teff_max_k: 5200.0
+  binary_rv_scatter_max_kms: 5.0
+  lc_detrend_low_mask_sigma: 2.5
+  lc_tess_contiguous_dt_factor: 1.5
+  lc_bls_min_period_days: 0.8
+  lc_bls_max_period_days: 8.0
+  lc_bls_duration_days: 0.1
+  lc_eb_eclipse_min_depth_frac_of_model: 0.5
+  lc_eb_min_eclipses: 2
+  lc_eb_min_eclipse_epoch_frac: 0.5
+  lc_ir_event_baseline_visits: 3
+  lc_ir_event_dev_frac: 0.5
+  lc_ir_event_min_window_days: 180.0
+  lc_ir_event_pad_days: 90.0
+  spectral_cr_spike_mad_sigma: 8.0
+  spectral_peak_width_flux_level: 1.3
+  spectral_cr_min_peak_flux: 1.5
+  spectral_cr_min_width_lsf_frac: 0.7
+  spectral_sky_peak_mad_sigma: 6.0
+  spectral_target_peak_sigma: 3.5
+  spectral_stellar_line_min_amp: 0.20
+  spectral_repeat_quiet_max_excess: 0.25
+  spectral_repeat_max_pixel_shift: 2
+  spectral_repeat_min_excess: 0.20
+  vanishing_pm_min_raw_sep_arcsec: 3.0
+  metallicity_subdwarf_feh_max: -1.0
 
 validation:
   blind_recovery_min: 0.90
@@ -129,6 +283,61 @@ fusion:
   tier_a_min_channels: 2
   tier_a_max_fap: 0.0001
   tier_b_max_fap: 0.001
+  # 1.1.0: moved from oddstar.fuse.engine literals (values unchanged)
+  fap_floor: 1.0e-12
+  fallback_false_alarm_rate_per_star: 1.0e-4
+
+# 1.1.0: committed evidence store size guards (registry/evidence); storage policy, not a decision threshold
+evidence:
+  max_array_elements: 64
+  max_string_chars: 2000
+  max_json_bytes: 65536
+  max_image_bytes: 262144
+
+# 1.1.0: live sample cuts (oddstar.io.live_survey) and live search filters (oddstar.cli), moved from source unchanged
+live_ingestion:
+  allwise_number_of_neighbours: 1
+  allwise_number_of_mates: 0
+  tmass_number_of_neighbours: 1
+  tmass_number_of_mates: 0
+  ir_excess_w4_upper_limit_ph_qual: ["U", "X"]
+  ir_excess_artifact_cc_flag_bands: [3, 4]
+  regions:
+    halo:
+      min_parallax_over_error: 10.0
+      parallax_min_mas: 0.5
+      parallax_max_mas: 20.0
+      max_ruwe: 1.4
+      min_abs_b_deg: 20.0
+      g_mag_min: 7.5
+      g_mag_max: 14.5
+      teff_min_k: 3800.0
+      teff_max_k: 7500.0
+      max_mh_gspphot: -0.8
+      min_vtan_kms: 150.0
+    bulge:
+      gal_l_half_width_deg: 12.0
+      abs_b_min_deg: 3.0
+      abs_b_max_deg: 10.0
+      parallax_min_mas: 0.08
+      parallax_max_mas: 0.45
+      min_parallax_over_error: 5.0
+      max_ruwe: 1.4
+      g_mag_min: 8.0
+      g_mag_max: 14.5
+      teff_min_k: 3500.0
+      teff_max_k: 7500.0
+    local:
+      min_parallax_over_error: 15.0
+      parallax_min_mas: 2.0
+      parallax_max_mas: 25.0
+      max_ruwe: 1.4
+      min_abs_b_deg: 12.0
+      g_mag_min: 7.5
+      g_mag_max: 13.5
+      teff_min_k: 3800.0
+      teff_max_k: 7500.0
+      min_vtan_kms: 65.0
 
 archives:
   gaia:

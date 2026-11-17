@@ -9,5 +9,10 @@
   "linked_test": "tests/test_lessons.py::test_lesson_l005_channel_scoped_metallicity_wise_routing_and_southern_ls_dr10",
   "added_to_impostors": false,
   "skill_updated": null,
-  "commit_sha": "75c40e4ba1529a6fe501ca5a3fa2d0ad3dd5df2b"
+  "commit_sha": "9eb6dc4a97d7319d4241d471571294e69bb4537e",
+  "commit_sha_note": "",
+  "closes_finding": true,
+  "related_finding_ids": [],
+  "finding_source": "",
+  "additional_linked_tests": []
 }

@@ -22,21 +22,37 @@ class RawCache:
         self.manifest_path = self.raw_dir / "manifests.jsonl"
         self._index: dict[tuple[str, str, str], ManifestRecord] = {}
         self._by_sha: dict[str, ManifestRecord] = {}
+        # Running byte total of the blobs on disk; None until first needed (one directory walk per process, not per put)
+        self._cached_bytes: int | None = None
+        self.recovered_truncated_manifest_line = False
         self._load_manifests()
 
     def _load_manifests(self) -> None:
         if not self.manifest_path.exists():
             return
-        for line in self.manifest_path.read_text(encoding="utf-8").splitlines():
+        text = self.manifest_path.read_text(encoding="utf-8")
+        lines = text.splitlines()
+        for i, line in enumerate(lines):
             if not line.strip():
                 continue
-            rec = ManifestRecord.model_validate_json(line)
+            try:
+                rec = ManifestRecord.model_validate_json(line)
+            except ValueError:
+                # A run killed while appending leaves the last line cut short (no trailing newline). That request simply
+                # was not recorded and is fetched again. A malformed line anywhere else is corruption and still raises.
+                if i == len(lines) - 1 and not text.endswith("\n"):
+                    self.recovered_truncated_manifest_line = True
+                    continue
+                raise
             key = (rec.archive, rec.release, rec.request_signature)
             self._index[key] = rec
             self._by_sha[rec.sha256] = rec
+        if self.recovered_truncated_manifest_line:
+            self._rewrite_manifests()
 
     def _rewrite_manifests(self) -> None:
-        rows = [rec.model_dump_json() for rec in self._by_sha.values()]
+        # One row per request: several requests can return byte-identical payloads (e.g. empty tables) and share a blob
+        rows = [rec.model_dump_json() for rec in self._index.values()]
         tmp = self.manifest_path.with_suffix(".jsonl.tmp")
         tmp.write_text("\n".join(rows) + ("\n" if rows else ""), encoding="utf-8")
         tmp.replace(self.manifest_path)
@@ -60,12 +76,23 @@ class RawCache:
         for p in self.raw_dir.rglob("*"):
             if p.is_file() and p.name != "manifests.jsonl" and not p.name.endswith(".tmp"):
                 total += p.stat().st_size
+        self._cached_bytes = total
         return total
+
+    def _mark_evicted(self, sha: str) -> None:
+        for key, rec in list(self._index.items()):
+            if rec.sha256 == sha and not rec.evicted:
+                self._index[key] = rec.model_copy(update={"evicted": True})
+        if sha in self._by_sha:
+            self._by_sha[sha] = self._by_sha[sha].model_copy(update={"evicted": True})
 
     def enforce_budget(self, incoming_bytes: int = 0) -> list[str]:
         """Evict oldest raw blobs if cache exceeds max_cache_bytes; preserve manifest hashes."""
         evicted_shas: list[str] = []
-        current = self.total_cached_bytes()
+        current = self._cached_bytes if self._cached_bytes is not None else self.total_cached_bytes()
+        if current + incoming_bytes <= self.max_cache_bytes:
+            return evicted_shas
+        current = self.total_cached_bytes()  # re-measure from disk before evicting anything
         if current + incoming_bytes <= self.max_cache_bytes:
             return evicted_shas
 
@@ -83,11 +110,8 @@ class RawCache:
             blob.unlink(missing_ok=True)
             current -= size
             evicted_shas.append(sha)
-            if sha in self._by_sha:
-                rec = self._by_sha[sha]
-                updated = rec.model_copy(update={"evicted": True})
-                self._by_sha[sha] = updated
-                self._index[(rec.archive, rec.release, rec.request_signature)] = updated
+            self._mark_evicted(sha)
+        self._cached_bytes = current
 
         if evicted_shas:
             self._rewrite_manifests()
@@ -100,10 +124,11 @@ class RawCache:
             return False
         blob = Path(rec.blob_path)
         if blob.exists():
+            size = blob.stat().st_size
             blob.unlink()
-        updated = rec.model_copy(update={"evicted": True})
-        self._by_sha[sha256] = updated
-        self._index[(rec.archive, rec.release, rec.request_signature)] = updated
+            if self._cached_bytes is not None:
+                self._cached_bytes = max(0, self._cached_bytes - size)
+        self._mark_evicted(sha256)
         self._rewrite_manifests()
         return True
 
@@ -129,6 +154,8 @@ class RawCache:
         blob_path = archive_dir / sha
         if not blob_path.exists():
             blob_path.write_bytes(payload)
+            if self._cached_bytes is not None:
+                self._cached_bytes += len(payload)
 
         now = datetime.now(timezone.utc).isoformat()
         manifest_id = hashlib.sha256(f"{archive}:{release}:{request_signature}:{sha}".encode()).hexdigest()[:16]

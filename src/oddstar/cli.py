@@ -29,7 +29,18 @@ from oddstar.io import (
     list_archives_info,
     ra_dec_to_healpix,
 )
-from oddstar.review import add_lesson, build_review_packet, ingest_review_record
+from oddstar.evidence import export_candidate_evidence, verify_evidence
+from oddstar.registry import REGISTRATION_EVENTS, append_entry, clean_source_id, read_ledger
+from oddstar.review import (
+    add_lesson,
+    amend_lesson,
+    build_review_packet,
+    ingest_all_stored_records,
+    ingest_review_record,
+    record_lesson_commit_shas,
+    register_lesson_file,
+)
+from oddstar.review.status import model_family, open_findings_by_source, load_review_records, review_status, reviewed_source_ids
 from oddstar.sample import build_parent_sample, resolve_star_record
 from oddstar.schemas import (
     CLIResponse,
@@ -239,6 +250,7 @@ def _cmd_search(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, 
                     extra_stars.append(resolve_star_record(cid, cfg))
 
     ch = build_channel(args.channel, cfg, root)
+    neowise_fetch: dict[str, Any] | None = None
     if args.channel == "radio_narrowband":
         stars = [dict(v) for v in RADIO_CADENCES.values()]
         cuts = []
@@ -257,8 +269,18 @@ def _cmd_search(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, 
                 by_id[es["source_id"]] = es
             stars = list(by_id.values())
         if args.channel == "ir_timedomain":
-            # Enrich up to 25 targets with live NEOWISE-R multi-epoch data per Section 5.2 cost control
-            stars = [enrich_star_live_for_vetting(s, cfg, cache, enrich_optical=False)[0] for s in stars[: min(25, len(stars))]]
+            # NEOWISE-R single-exposure rows only, for every sample star (cached, rate-limited, retried, resumable).
+            # Full vetting enrichment still runs below, for flagged stars only. Stars beyond --neowise-max-stars or
+            # whose fetch failed stay in the sample and are reported as not searched.
+            from oddstar.io.neowise_bulk import enrich_sample_neowise
+
+            def _neowise_progress(done: int, total: int, sid: str, status: str) -> None:
+                if not args.json and (done == total or done % 100 == 0):
+                    print(f"  neowise {done}/{total} (last {sid}: {status.split(':')[0]})", file=sys.stderr)
+
+            stars, neowise_fetch = enrich_sample_neowise(
+                stars, cfg, cache, max_stars=args.neowise_max_stars, progress=_neowise_progress
+            )
         nside = cfg.storage.healpix_nside
         cuts = [
             {
@@ -298,14 +320,16 @@ def _cmd_search(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, 
         # Calibrate FAP immediately against the active certificate
         from oddstar.fuse.engine import calibrate_fap
 
-        cal_fap = calibrate_fap(sc.raw_statistic, cert, sc.false_alarm_prob)
+        cal_fap = calibrate_fap(sc.raw_statistic, cert, sc.false_alarm_prob, float(cfg.fusion.fap_floor))
         sc = sc.model_copy(update={"false_alarm_prob": cal_fap})
         if is_live and args.channel == "ir_excess" and sc.flagged:
+            # filtered_live_ingestion: W4 upper limits and contaminated W3/W4 coadds never count as live flags
+            # (ph_qual letters and cc_flags bands from `live_ingestion`; WISE band n is character n-1 of the flag strings)
             aw = star.get("allwise", {})
             phq = str(aw.get("ph_qual", "AAAA"))
             ccf = str(aw.get("cc_flags", "0000"))
-            w4_upper = len(phq) >= 4 and phq[3] in {"U", "X"}
-            ir_artifact = len(ccf) >= 4 and (ccf[2] != "0" or ccf[3] != "0")
+            w4_upper = len(phq) >= 4 and phq[3] in set(cfg.live_ingestion.ir_excess_w4_upper_limit_ph_qual)
+            ir_artifact = len(ccf) >= 4 and any(ccf[int(band) - 1] != "0" for band in cfg.live_ingestion.ir_excess_artifact_cc_flag_bands)
             if w4_upper or ir_artifact:
                 reason = "W4_upper_limit" if w4_upper else f"cc_flags={ccf}"
                 sc = sc.model_copy(
@@ -326,6 +350,13 @@ def _cmd_search(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, 
             live_flagged[fsid] = enriched
         (run_dir / "live_stars.json").write_text(json.dumps(live_flagged, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
+    coverage: dict[str, Any] | None = None
+    if args.channel == "ir_timedomain":
+        from oddstar.channels.ir_timedomain.channel import search_coverage_summary
+
+        coverage = search_coverage_summary(stars, cfg)
+    n_searched = coverage["n_searched"] if coverage is not None else len(stars)
+
     payload = {
         "run_id": run_id,
         "channel": args.channel,
@@ -334,7 +365,7 @@ def _cmd_search(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, 
         "git_commit": current_git_commit(root),
         "seed": seed,
         "certificate": f"validation/certificates/{args.channel}-{cfg.gaia.release}-{short_hash}.json",
-        "n_searched": len(stars),
+        "n_searched": n_searched,
         "n_flagged": len(flagged_ids),
         "flagged_ids": flagged_ids,
         "cuts": cuts,
@@ -342,6 +373,15 @@ def _cmd_search(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, 
         "measurements": measurements,
         "scores": scores,
     }
+    if coverage is not None:
+        # n_input, n_searched, n_not_searched, n_no_coverage, n_failed, n_not_fetched, n_insufficient_visits, not_searched_ids
+        payload.update(coverage)
+        payload["neowise_fetch"] = neowise_fetch
+    if is_live or coverage is not None:
+        # The real searched sample, so the null report is built from these stars and not from regenerated fixtures
+        payload["sample_stars"] = [
+            {"source_id": str(s["source_id"]), "distance_pc": s.get("distance_pc"), "teff_k": s.get("teff_k")} for s in stars
+        ]
     search_out.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
     state = RunState(
@@ -355,15 +395,34 @@ def _cmd_search(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, 
         status="completed",
         timestamp_utc=datetime.now(timezone.utc).isoformat(),
         artifacts=[str(search_out)],
-        summary={"n_searched": len(stars), "n_flagged": len(flagged_ids)},
+        summary={"n_searched": n_searched, "n_flagged": len(flagged_ids)},
     )
     (run_dir / "run_state.json").write_text(state.model_dump_json(indent=2) + "\n", encoding="utf-8")
 
+    warnings: list[str] = []
+    if coverage is not None and coverage["n_not_searched"]:
+        warnings.append(
+            f"{coverage['n_not_searched']} of {coverage['n_input']} stars not searched "
+            f"(no_coverage={coverage['n_no_coverage']}, failed={coverage['n_failed']}, not_fetched={coverage['n_not_fetched']}, "
+            f"insufficient_visits={coverage['n_insufficient_visits']}); they are excluded from the null result"
+        )
     return CLIResponse(
         ok=True,
-        summary=f"Searched {len(stars)} targets on '{args.channel}' -> {len(flagged_ids)} flagged (run_id={run_id})",
+        summary=f"Searched {n_searched} of {len(stars)} targets on '{args.channel}' -> {len(flagged_ids)} flagged (run_id={run_id})",
         artifacts=[str(search_out)],
-        data={"run_id": run_id, "n_searched": len(stars), "n_flagged": len(flagged_ids), "flagged_ids": flagged_ids},
+        data={
+            "run_id": run_id,
+            "n_searched": n_searched,
+            "n_input": len(stars),
+            "n_flagged": len(flagged_ids),
+            "flagged_ids": flagged_ids,
+            **(
+                {"coverage": {k: v for k, v in coverage.items() if k != "not_searched_ids"}, "neowise_fetch": neowise_fetch}
+                if coverage is not None
+                else {}
+            ),
+        },
+        warnings=warnings,
         next=f"oddstar vet {run_id} --json",
     )
 
@@ -419,6 +478,7 @@ def _cmd_fuse(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, ro
     scores_by_star: dict[str, list[ChannelScore]] = {}
     vet_by_star: dict[str, list[VettingResult]] = {}
     certs_by_ch: dict[str, ValidationCertificate] = {}
+    meas_by_star: dict[str, list[dict[str, Any]]] = {}
     n_stars_max = 0
 
     for rid in args.run_ids:
@@ -432,10 +492,13 @@ def _cmd_fuse(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, ro
             cert = load_certificate(ch, cfg, root)
             if cert is not None:
                 certs_by_ch[ch] = cert
+            meas_rows = {str(m.get("source_id")): m for m in sdata.get("measurements", [])}
             for row in sdata["scores"]:
                 sc = ChannelScore.model_validate(row)
                 if sc.flagged:
                     scores_by_star.setdefault(sc.source_id, []).append(sc)
+                    if sc.source_id in meas_rows:
+                        meas_by_star.setdefault(sc.source_id, []).append(meas_rows[sc.source_id])
         vf = rdir / "vetting.json"
         if vf.exists():
             vdata = json.loads(vf.read_text(encoding="utf-8"))
@@ -461,25 +524,33 @@ def _cmd_fuse(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, ro
     out_path = out_dir / "fusion.json"
     out_path.write_text(fusion.model_dump_json(indent=2) + "\n", encoding="utf-8")
 
-    # Append fusion outcomes to registry ledger
-    reg_dir = root / cfg.storage.registry_dir
-    reg_dir.mkdir(parents=True, exist_ok=True)
-    ledger = reg_dir / "ledger.jsonl"
+    (out_dir / "fuse_inputs.json").write_text(json.dumps({"run_id": out_run_id, "input_run_ids": list(args.run_ids)}, indent=2) + "\n", encoding="utf-8")
+
+    # Append fusion outcomes to the registry ledger, each with its committed evidence directory
+    ledger = root / cfg.storage.registry_dir / "ledger.jsonl"
     now = datetime.now(timezone.utc).isoformat()
-    with ledger.open("a", encoding="utf-8") as fh:
-        for cand in fusion.candidates:
-            ev_type = "explained_anomaly" if cand.tier == "Explained" else "candidate_registered"
-            entry = RegistryEntry(
-                entry_id=f"REG-FUSE-{out_run_id}-{cand.source_id}",
-                timestamp_utc=now,
-                source_id=cand.source_id,
-                event_type=ev_type,
-                tier=cand.tier,
-                status=cand.explained_reason or f"Tier {cand.tier}",
-                provenance={"run_id": out_run_id, "config_hash": short_hash},
-                details=cand.model_dump(),
-            )
-            fh.write(entry.model_dump_json() + "\n")
+    evidence_dirs: list[str] = []
+    for cand in fusion.candidates:
+        ev_type = "explained_anomaly" if cand.tier == "Explained" else "candidate_registered"
+        exp = _export_for_registration(
+            root, cfg, short_hash, source_id=cand.source_id, run_id=out_run_id, tier=cand.tier,
+            vetting=vet_by_star.get(cand.source_id, []), measurements=meas_by_star.get(cand.source_id, []),
+            scores=scores_by_star.get(cand.source_id, []),
+        )
+        evidence_dirs.append(exp.rel_dir)
+        entry = RegistryEntry(
+            entry_id=f"REG-FUSE-{out_run_id}-{cand.source_id}",
+            timestamp_utc=now,
+            source_id=cand.source_id,
+            event_type=ev_type,
+            tier=cand.tier,
+            status=cand.explained_reason or f"Tier {cand.tier}",
+            provenance={"run_id": out_run_id, "config_hash": short_hash, "git_commit": current_git_commit(root)},
+            details={**cand.model_dump(), "vetting": exp.vetting_rows, "evidence_scope": exp.index.scope},
+            evidence_dir=exp.rel_dir,
+            evidence_index_sha256=exp.index_sha256,
+        )
+        append_entry(root, entry, cfg.storage.registry_dir)
 
     tier_counts: dict[str, int] = {}
     for c in fusion.candidates:
@@ -488,9 +559,40 @@ def _cmd_fuse(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, ro
     return CLIResponse(
         ok=True,
         summary=f"Fused {len(fusion.candidates)} flagged targets across {len(certs_by_ch)} channels (tiers={tier_counts})",
-        artifacts=[str(out_path), str(ledger)],
-        data={"fusion": fusion.model_dump(), "tier_counts": tier_counts},
+        artifacts=[str(out_path), str(ledger), *evidence_dirs],
+        data={"fusion": fusion.model_dump(), "tier_counts": tier_counts, "evidence_dirs": evidence_dirs},
         next=f"oddstar null-report {args.run_ids[0]} --json",
+    )
+
+
+def _export_for_registration(
+    root: Path,
+    cfg: PipelineConfig,
+    short_hash: str,
+    *,
+    source_id: str,
+    run_id: str,
+    tier: str,
+    vetting: list[VettingResult],
+    measurements: list[dict[str, Any]],
+    scores: list[ChannelScore],
+    images: list[Path] | None = None,
+) -> Any:
+    """Committed evidence for a registration (all checks for A/B/C/Explained; failing cause only for Rejected)."""
+    return export_candidate_evidence(
+        root=root,
+        cfg=cfg,
+        source_id=source_id,
+        run_id=run_id,
+        tier=tier,
+        vetting=vetting,
+        measurements=measurements,
+        scores=scores,
+        images=images or [],
+        config_hash=short_hash,
+        config_hash_full=compute_config_hash(cfg.model_dump()),
+        git_commit=current_git_commit(root),
+        pipeline_version=__version__,
     )
 
 
@@ -502,6 +604,7 @@ def _inspect_single_target(
     *,
     run_id: str | None = None,
     live: bool = False,
+    register: bool = False,
 ) -> tuple[Any, Path, Path]:
     clean_id = source_id.replace("Gaia DR3 ", "").replace("Gaia DR4 ", "").strip()
     rid = run_id or f"inspect-{clean_id}-{cfg.gaia.release}-{short_hash}"
@@ -573,6 +676,7 @@ def _inspect_single_target(
                     record=str(rf.relative_to(root)),
                     verdict=rr.verdict,
                     reviewer_model=rr.reviewer_model,
+                    model_family=model_family(rr.reviewer_model),
                 )
             )
 
@@ -590,21 +694,78 @@ def _inspect_single_target(
         manifests=manifests,
         cfg=cfg,
         root=root,
+        review_status=review_status(root, clean_id, registry_dir=cfg.storage.registry_dir) if reviews else None,
     )
+    if register:
+        _register_inspection(root, cfg, short_hash, dossier, json_p, measurements, scores, vetting)
     return dossier, json_p, md_p
+
+
+def _register_inspection(
+    root: Path,
+    cfg: PipelineConfig,
+    short_hash: str,
+    dossier: Any,
+    json_p: Path,
+    measurements: list[Measurement],
+    scores: list[ChannelScore],
+    vetting: list[VettingResult],
+) -> None:
+    """`inspect --register`: append the dossier tier to the ledger with its committed evidence directory."""
+    sid = clean_source_id(dossier.source_id)
+    rid = dossier.provenance.run_id
+    flagged = {c.name for c in dossier.channels if c.flagged}
+    images = [json_p.parent / ev for c in dossier.channels if c.name in flagged for ev in c.evidence]
+    exp = _export_for_registration(
+        root, cfg, short_hash, source_id=sid, run_id=rid, tier=dossier.tier, vetting=vetting,
+        measurements=[m.model_dump() for m in measurements], scores=scores, images=images,
+    )
+    holes = sorted({v.check for v in vetting if v.status == "not_evaluated"})
+    append_entry(
+        root,
+        RegistryEntry(
+            entry_id=f"REG-INSPECT-{rid}-{sid}-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')}",
+            timestamp_utc=datetime.now(timezone.utc).isoformat(),
+            source_id=sid,
+            event_type="explained_anomaly" if dossier.tier == "Explained" else "candidate_registered",
+            tier=dossier.tier,
+            status=f"Tier {dossier.tier} (inspect)",
+            provenance={"run_id": rid, "config_hash": short_hash, "git_commit": current_git_commit(root), "mode": "inspect"},
+            details={
+                "source_id": sid,
+                "tier": dossier.tier,
+                "flagged_channels": sorted(flagged),
+                "open_holes": holes,
+                "vetting": exp.vetting_rows,
+                "evidence_scope": exp.index.scope,
+            },
+            evidence_dir=exp.rel_dir,
+            evidence_index_sha256=exp.index_sha256,
+        ),
+        cfg.storage.registry_dir,
+    )
 
 
 def _cmd_inspect(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, root: Path) -> CLIResponse:
     if args.dry_run:
         return CLIResponse(ok=True, summary=f"[dry-run] Would inspect {args.source_id} across all channels and write dossier")
-    dossier, json_p, md_p = _inspect_single_target(args.source_id, cfg, short_hash, root, run_id=args.run_id, live=bool(args.live))
+    dossier, json_p, md_p = _inspect_single_target(
+        args.source_id, cfg, short_hash, root, run_id=args.run_id, live=bool(args.live), register=bool(args.register)
+    )
     flagged = [c.name for c in dossier.channels if c.flagged]
     holes = [v.check for v in dossier.vetting if v.status == "not_evaluated"]
     return CLIResponse(
         ok=True,
         summary=f"Inspected {dossier.source_id} -> Tier {dossier.tier} (flagged={flagged}, open_holes={holes})",
         artifacts=[str(json_p), str(md_p)],
-        data={"tier": dossier.tier, "flagged_channels": flagged, "open_holes": holes, "lead_lines": dossier.lead_lines},
+        data={
+            "tier": dossier.tier,
+            "flagged_channels": flagged,
+            "open_holes": holes,
+            "lead_lines": dossier.lead_lines,
+            "registered": bool(args.register),
+            "review_status": dossier.review_status.summary if dossier.review_status else None,
+        },
         next=f"oddstar review packet {args.source_id} --round 1 --json",
     )
 
@@ -636,6 +797,20 @@ def _cmd_review_packet(args: argparse.Namespace, cfg: PipelineConfig, short_hash
 
 
 def _cmd_review_ingest(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, root: Path) -> CLIResponse:
+    if args.all:
+        if args.dry_run:
+            return CLIResponse(ok=True, summary="[dry-run] Would ingest every stored record under review/records/")
+        results = ingest_all_stored_records(cfg, root)
+        appended = [e for r in results for e in r["appended_entries"]]
+        return CLIResponse(
+            ok=True,
+            summary=f"Ingested {len(results)} stored review records ({sum(not r['already_ingested'] for r in results)} new; {len(appended)} ledger events appended)",
+            artifacts=[r["stored_path"] for r in results],
+            data={"results": results, "appended_entries": appended},
+            next="oddstar status --json",
+        )
+    if not args.file:
+        raise PolicyViolationError("review ingest needs a record file or --all")
     if args.dry_run:
         return CLIResponse(ok=True, summary=f"[dry-run] Would ingest review record {args.file}")
     res = ingest_review_record(Path(args.file), cfg, root)
@@ -646,6 +821,144 @@ def _cmd_review_ingest(args: argparse.Namespace, cfg: PipelineConfig, short_hash
         data=res,
         next="oddstar lessons add --help" if res["open_findings"] else "oddstar status --json",
     )
+
+
+def _cmd_lessons_register(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, root: Path) -> CLIResponse:
+    path = Path(args.file)
+    if not path.is_absolute():
+        path = root / path
+    if args.dry_run:
+        return CLIResponse(ok=True, summary=f"[dry-run] Would register lesson file {path}")
+    rec, appended = register_lesson_file(path, cfg, root)
+    return CLIResponse(
+        ok=True,
+        summary=f"Registered lesson {rec.lesson_id} ({len(appended)} ledger events appended)",
+        artifacts=[str(path)],
+        data={"lesson": rec.model_dump(), "appended_entries": appended},
+        next="oddstar status --json",
+    )
+
+
+def _cmd_lessons_amend(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, root: Path) -> CLIResponse:
+    updates: dict[str, Any] = {}
+    for item in args.set or []:
+        key, _, raw = item.partition("=")
+        try:
+            updates[key.strip()] = json.loads(raw)
+        except json.JSONDecodeError:
+            updates[key.strip()] = raw
+    if args.dry_run:
+        return CLIResponse(ok=True, summary=f"[dry-run] Would amend lesson {args.lesson_id}: {sorted(updates)}")
+    rec, appended = amend_lesson(args.lesson_id, updates, reason=args.reason, cfg=cfg, root=root, md_note=args.md_note)
+    return CLIResponse(
+        ok=True,
+        summary=f"Amended lesson {rec.lesson_id} ({len(appended)} ledger events appended)",
+        artifacts=[str(root / "lessons" / f"{rec.lesson_id}.json")],
+        data={"lesson": rec.model_dump(), "appended_entries": appended},
+    )
+
+
+def _cmd_lessons_record_sha(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, root: Path) -> CLIResponse:
+    if args.dry_run:
+        return CLIResponse(ok=True, summary="[dry-run] Would set each lesson commit_sha to the commit that introduced its files")
+    res = record_lesson_commit_shas(cfg, root)
+    changed = [r for r in res if r["action"] == "amended"]
+    pending = [r["lesson_id"] for r in res if r["action"] == "not committed yet"]
+    return CLIResponse(
+        ok=True,
+        summary=f"Lesson commit_sha: {len(changed)} amended, {len(pending)} not committed yet",
+        data={"results": res},
+        warnings=[f"{lid}: lesson files not committed yet; run again after the commit that adds them" for lid in pending],
+    )
+
+
+def _cmd_evidence_export(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, root: Path) -> CLIResponse:
+    sid = clean_source_id(args.source_id)
+    vetting, measurements, scores, tier, run_id, images = _collect_candidate_artifacts(root, cfg, sid, args.run_id)
+    if args.dry_run:
+        return CLIResponse(ok=True, summary=f"[dry-run] Would export evidence for {sid} from run {run_id} (tier {tier}, {len(vetting)} checks)")
+    exp = _export_for_registration(
+        root, cfg, short_hash, source_id=sid, run_id=run_id, tier=tier, vetting=vetting, measurements=measurements,
+        scores=scores, images=images,
+    )
+    return CLIResponse(
+        ok=True,
+        summary=f"Exported evidence for {sid} (run {run_id}, tier {tier}, {len(exp.index.files)} files) to {exp.rel_dir}",
+        artifacts=[str(exp.directory / "index.json")],
+        data={"evidence_dir": exp.rel_dir, "index_sha256": exp.index_sha256, "index": exp.index.model_dump(mode="json")},
+        warnings=["Export only: no ledger entry was written (fuse and inspect --register register candidates)"],
+        next=f"oddstar evidence verify {sid} --json",
+    )
+
+
+def _cmd_evidence_verify(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, root: Path) -> CLIResponse:
+    rep = verify_evidence(root, cfg.storage, args.source_id)
+    scope = clean_source_id(args.source_id) if args.source_id else "all sources"
+    if rep["problems"]:
+        raise PolicyViolationError(
+            f"Evidence verification failed for {scope}: " + "; ".join(rep["problems"][:20]),
+            hint="Evidence files are immutable once registered; re-export to a new run instead of editing them",
+        )
+    return CLIResponse(
+        ok=True,
+        summary=(
+            f"Evidence verified for {scope}: {len(rep['verified_dirs'])} directories, "
+            f"{rep['ledger_entries_with_evidence']} ledger entries with evidence, "
+            f"{rep['legacy_without_evidence']} legacy_without_evidence (registered before the evidence store; no committed evidence)"
+        ),
+        data={k: v for k, v in rep.items() if k != "legacy_entry_ids"},
+    )
+
+
+def _collect_candidate_artifacts(
+    root: Path, cfg: PipelineConfig, sid: str, run_id: str | None
+) -> tuple[list[VettingResult], list[dict[str, Any]], list[ChannelScore], str, str, list[Path]]:
+    """Vetting rows, measurements, scores, tier, run id and images of a candidate from run or dossier artefacts.
+
+    `--run-id` may name a vet/search run, a fuse run (its `fuse_inputs.json` lists the input runs) or an inspect run
+    (the dossier). Without it the source's dossier is used.
+    """
+    from oddstar.fuse.engine import assign_tier
+    from oddstar.schemas import Dossier
+
+    runs_dir = root / cfg.storage.runs_dir
+    run_dirs: list[Path] = []
+    if run_id and (runs_dir / run_id).is_dir():
+        fi = runs_dir / run_id / "fuse_inputs.json"
+        if fi.exists():
+            run_dirs = [runs_dir / r for r in json.loads(fi.read_text(encoding="utf-8")).get("input_run_ids", [])]
+        else:
+            run_dirs = [runs_dir / run_id]
+    if run_dirs:
+        vetting: list[VettingResult] = []
+        meas: list[dict[str, Any]] = []
+        scores: list[ChannelScore] = []
+        for rd in run_dirs:
+            for sf in sorted(rd.glob("search_*.json")):
+                sdata = json.loads(sf.read_text(encoding="utf-8"))
+                meas += [m for m in sdata.get("measurements", []) if str(m.get("source_id")) == sid]
+                scores += [ChannelScore.model_validate(r) for r in sdata.get("scores", []) if str(r.get("source_id")) == sid]
+            vf = rd / "vetting.json"
+            if vf.exists():
+                vetting += [VettingResult.model_validate(v) for v in json.loads(vf.read_text(encoding="utf-8")).get("vetting", {}).get(sid, [])]
+        if not scores:
+            raise ArtifactNotFoundError(f"No scores for {sid} in run(s) {[d.name for d in run_dirs]}")
+        tier, _ = assign_tier(scores, vetting, cfg)
+        return vetting, meas, scores, tier, str(run_id), []
+    d_json = root / cfg.storage.dossiers_dir / sid / "dossier.json"
+    if not d_json.exists():
+        raise ArtifactNotFoundError(f"No run '{run_id}' and no dossier for {sid}", hint=f"Run `oddstar inspect {sid}` or pass --run-id")
+    dossier = Dossier.model_validate_json(d_json.read_text(encoding="utf-8"))
+    if run_id and dossier.provenance.run_id != run_id:
+        raise ArtifactNotFoundError(f"Dossier for {sid} belongs to run {dossier.provenance.run_id}, not {run_id}")
+    scores = [
+        ChannelScore(source_id=sid, channel=c.name, raw_statistic=float(c.raw_statistic or 0.0), false_alarm_prob=float(c.false_alarm_prob or 1.0),
+                     flagged=c.flagged, rank_score=0.0, summary="from dossier")
+        for c in dossier.channels
+    ]
+    meas = [{"channel": c.name, "values": c.measurements, "epochs": c.epochs, "caveats": c.caveats} for c in dossier.channels]
+    images = [d_json.parent / ev for c in dossier.channels if c.flagged for ev in c.evidence]
+    return list(dossier.vetting), meas, scores, dossier.tier, dossier.provenance.run_id, images
 
 
 def _cmd_lessons_add(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, root: Path) -> CLIResponse:
@@ -664,6 +977,10 @@ def _cmd_lessons_add(args: argparse.Namespace, cfg: PipelineConfig, short_hash: 
         skill_updated=args.skill,
         cfg=cfg,
         root=root,
+        closes_finding=not bool(args.no_close),
+        related_finding_ids=list(args.related_finding or []),
+        finding_source=args.finding_source or "",
+        additional_linked_tests=list(args.also_test or []),
     )
     return CLIResponse(
         ok=True,
@@ -688,7 +1005,10 @@ def _cmd_null_report(args: argparse.Namespace, cfg: PipelineConfig, short_hash: 
     if args.dry_run:
         return CLIResponse(ok=True, summary=f"[dry-run] Would generate null-report for {args.run_id} ({ch_name})")
 
-    stars = generate_field_sample(n_stars=int(sdata["n_searched"]), seed=int(sdata.get("seed", cfg.sample.seed)), gaia_release=cfg.gaia.release)
+    if "sample_stars" in sdata:
+        stars = sdata["sample_stars"]  # the real searched sample (live or offline), with its not-searched stars
+    else:
+        stars = generate_field_sample(n_stars=int(sdata["n_searched"]), seed=int(sdata.get("seed", cfg.sample.seed)), gaia_release=cfg.gaia.release)
     tier_breakdown = {"A": 0, "B": 0, "C": 0, "Explained": 0, "Rejected": 0}
     vf = run_dir / "vetting.json"
     if vf.exists():
@@ -718,6 +1038,7 @@ def _cmd_null_report(args: argparse.Namespace, cfg: PipelineConfig, short_hash: 
         manifests=[],
         cfg=cfg,
         root=root,
+        not_searched=sdata.get("not_searched_ids") if "sample_stars" in sdata else None,
     )
     return CLIResponse(
         ok=True,
@@ -728,45 +1049,60 @@ def _cmd_null_report(args: argparse.Namespace, cfg: PipelineConfig, short_hash: 
 
 
 def _cmd_status(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, root: Path) -> CLIResponse:
-    certs_dir = root / "validation" / "certificates"
-    certified: dict[str, list[str]] = {}
-    if certs_dir.exists():
-        for cf in sorted(certs_dir.glob("*.json")):
-            if cf.name == "dr3_vs_dr4_comparison.json":
-                continue
-            c = ValidationCertificate.model_validate_json(cf.read_text(encoding="utf-8"))
-            if c.passed:
-                certified.setdefault(c.gaia_release, []).append(c.channel)
+    # A channel counts as certified only when its certificate passed for the current config hash and the code it
+    # validated is the code that would run a search now (the same condition `search` enforces).
+    from oddstar.validate import all_certificate_status
 
-    open_findings: list[str] = []
-    closed_findings: set[str] = set()
-    ledger = root / cfg.storage.registry_dir / "ledger.jsonl"
-    if ledger.exists():
-        for line in ledger.read_text(encoding="utf-8").splitlines():
-            if not line.strip():
-                continue
-            row = json.loads(line)
-            if row.get("event_type") == "finding_opened":
-                open_findings.append(row["details"]["finding_id"])
-            elif row.get("event_type") == "finding_closed":
-                closed_findings.add(row["details"]["finding_id"])
-    unresolved = [fid for fid in open_findings if fid not in closed_findings]
+    certified: dict[str, list[str]] = {}
+    certificate_rows: dict[str, list[dict[str, Any]]] = {}
+    for rel in ("dr3", "dr4"):
+        rel_cfg = cfg if cfg.gaia.release == rel else cfg.model_copy(update={"gaia": cfg.gaia.model_copy(update={"release": rel})})
+        certificate_rows[rel] = all_certificate_status(rel_cfg, root)
+        certified[rel] = [r["channel"] for r in certificate_rows[rel] if r["usable"]]
+
+    rows = read_ledger(root, cfg.storage.registry_dir)
+    records = load_review_records(root)
+    open_by_source = open_findings_by_source(rows, records)
+    unresolved = sorted(f for fs in open_by_source.values() for f in fs)
+    ev = verify_evidence(root, cfg.storage)
+    cache: dict[str, Any] = {}
+    review = {sid: review_status(root, sid, registry_dir=cfg.storage.registry_dir, _cache=cache).model_dump() for sid in reviewed_source_ids(root)}
+    n_registrations = sum(1 for r in rows if r.get("event_type") in REGISTRATION_EVENTS)
 
     runs_dir = root / cfg.storage.runs_dir
     run_ids = sorted(p.name for p in runs_dir.iterdir() if p.is_dir() and not p.name.startswith("_")) if runs_dir.exists() else []
     uncertified_dr3 = [c for c in ALL_CHANNEL_NAMES if c not in certified.get("dr3", [])]
     next_cmd = f"oddstar validate {uncertified_dr3[0]} --json" if uncertified_dr3 else "oddstar inspect 4582145718700356096 --json"
+    warnings = [f"evidence: {p}" for p in ev["problems"]]
+    for rel, cert_rows in certificate_rows.items():
+        for r in cert_rows:
+            if not r["usable"]:
+                warnings.append(f"certificate {r['channel']} {rel}: {'; '.join(r['reasons'])}")
+    if ev["legacy_without_evidence"]:
+        warnings.append(
+            f"{ev['legacy_without_evidence']} of {n_registrations} ledger registrations are legacy_without_evidence: "
+            "written before the committed evidence store, so the evidence behind their pass rows is not in the repository"
+        )
+    for sid, st in review.items():
+        warnings.append(f"review {sid}: {st['summary']} ({st['independence_basis']})")
     return CLIResponse(
         ok=True,
         summary=(
             f"Certified channels DR3={len(certified.get('dr3', []))}/8, DR4={len(certified.get('dr4', []))}/8; "
-            f"active runs={len(run_ids)}; open findings={len(unresolved)}"
+            f"active runs={len(run_ids)}; open findings={len(unresolved)} across {len(open_by_source)} sources; "
+            f"registrations with committed evidence={ev['ledger_entries_with_evidence']}, "
+            f"legacy_without_evidence={ev['legacy_without_evidence']}"
         ),
+        warnings=warnings,
         data={
             "certified": certified,
+            "certificates": certificate_rows,
             "uncertified_dr3": uncertified_dr3,
             "active_runs": run_ids,
             "open_findings": unresolved,
+            "open_findings_by_source": open_by_source,
+            "review_status": review,
+            "evidence": {k: v for k, v in ev.items() if k != "legacy_entry_ids"},
         },
         next=next_cmd,
     )
@@ -862,6 +1198,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_search.add_argument("--run-id", default=None)
     p_search.add_argument("--seed", type=int, default=None)
     p_search.add_argument("--extra-ids", default=None)
+    p_search.add_argument(
+        "--neowise-max-stars",
+        type=int,
+        default=None,
+        help="ir_timedomain --live: fetch NEOWISE for at most N sample stars (default: all); the rest are reported as not searched",
+    )
 
     p_vet = sub.add_parser("vet", parents=[common], help="Stage 4 vetting checks on flagged targets")
     p_vet.add_argument("run_id")
@@ -877,6 +1219,15 @@ def build_parser() -> argparse.ArgumentParser:
     p_ins = sub.add_parser("inspect", parents=[common], help="One-star full pipeline mode")
     p_ins.add_argument("source_id")
     p_ins.add_argument("--run-id", default=None)
+    p_ins.add_argument("--register", action="store_true", help="Register the dossier tier in the ledger with committed evidence")
+
+    p_ev = sub.add_parser("evidence", parents=[common], help="Committed evidence store (registry/evidence)")
+    ev_sub = p_ev.add_subparsers(dest="evidence_cmd", required=True)
+    p_ee = ev_sub.add_parser("export", parents=[common], help="Export compact evidence for a candidate from run/dossier artefacts")
+    p_ee.add_argument("source_id")
+    p_ee.add_argument("--run-id", default=None)
+    p_evv = ev_sub.add_parser("verify", parents=[common], help="Re-hash evidence and check ledger references")
+    p_evv.add_argument("source_id", nargs="?", default=None)
 
     p_rev = sub.add_parser("review", parents=[common], help="Stage 7 isolated adversarial review")
     rev_sub = p_rev.add_subparsers(dest="review_cmd", required=True)
@@ -885,7 +1236,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_rp.add_argument("--round", type=int, default=1)
     p_rp.add_argument("--claim", default=None)
     p_ri = rev_sub.add_parser("ingest", parents=[common], help="Validate and record reviewer JSON")
-    p_ri.add_argument("file")
+    p_ri.add_argument("file", nargs="?", default=None)
+    p_ri.add_argument("--all", action="store_true", help="Ingest every stored record under review/records/ (idempotent)")
 
     p_les = sub.add_parser("lessons", parents=[common], help="Lessons loop (R7)")
     les_sub = p_les.add_subparsers(dest="lessons_cmd", required=True)
@@ -900,6 +1252,18 @@ def build_parser() -> argparse.ArgumentParser:
     p_la.add_argument("--linked-test", required=True)
     p_la.add_argument("--added-to-impostors", action="store_true")
     p_la.add_argument("--skill", default=None)
+    p_la.add_argument("--no-close", action="store_true", help="Link the finding without closing it")
+    p_la.add_argument("--related-finding", action="append", default=None, help="Other finding ID addressed (not closed)")
+    p_la.add_argument("--finding-source", default=None, help="Where the finding is recorded when not in a review record")
+    p_la.add_argument("--also-test", action="append", default=None, help="Additional linked test")
+    p_lr = les_sub.add_parser("register", parents=[common], help="Register an existing lesson file in the ledger")
+    p_lr.add_argument("file")
+    p_lm = les_sub.add_parser("amend", parents=[common], help="Correct lesson metadata and record the change")
+    p_lm.add_argument("lesson_id")
+    p_lm.add_argument("--set", action="append", default=None, metavar="FIELD=VALUE", help="VALUE is JSON or a plain string")
+    p_lm.add_argument("--reason", required=True)
+    p_lm.add_argument("--md-note", default=None)
+    les_sub.add_parser("record-sha", parents=[common], help="Set commit_sha to the commit that introduced each lesson")
 
     p_null = sub.add_parser("null-report", parents=[common], help="Emit sensitivity and null-result report")
     p_null.add_argument("run_id")
@@ -957,6 +1321,16 @@ def dispatch(argv: list[str] | None = None, *, root: Path | None = None) -> tupl
             resp = _cmd_review_ingest(args, cfg, short_hash, base)
         elif cmd == "lessons" and args.lessons_cmd == "add":
             resp = _cmd_lessons_add(args, cfg, short_hash, base)
+        elif cmd == "lessons" and args.lessons_cmd == "register":
+            resp = _cmd_lessons_register(args, cfg, short_hash, base)
+        elif cmd == "lessons" and args.lessons_cmd == "amend":
+            resp = _cmd_lessons_amend(args, cfg, short_hash, base)
+        elif cmd == "lessons" and args.lessons_cmd == "record-sha":
+            resp = _cmd_lessons_record_sha(args, cfg, short_hash, base)
+        elif cmd == "evidence" and args.evidence_cmd == "export":
+            resp = _cmd_evidence_export(args, cfg, short_hash, base)
+        elif cmd == "evidence" and args.evidence_cmd == "verify":
+            resp = _cmd_evidence_verify(args, cfg, short_hash, base)
         elif cmd == "null-report":
             resp = _cmd_null_report(args, cfg, short_hash, base)
         elif cmd == "status":

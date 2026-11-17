@@ -14,6 +14,61 @@ from oddstar.config import PipelineConfig, compute_config_hash
 from oddstar.sample.builder import build_parent_sample
 from oddstar.schemas import ChannelScore, EvidenceRef, Measurement, SampleSpec
 
+# Coverage categories: only "searched" stars enter the denominator of a null result / completeness statement.
+COVERAGE_CATEGORIES = ("searched", "no_coverage", "insufficient_visits", "failed", "not_fetched")
+
+
+def neowise_search_status(star: dict[str, Any], min_visits: int) -> tuple[str, str]:
+    """Whether the channel could actually search this star, as (category, detail).
+
+    The NEOWISE query outcome is read from `vetting_archive.query_status["neowise"]` (written by both the survey bulk
+    fetch and full vetting enrichment). A failed query is "failed" whatever data the record carries; a live record that
+    was never queried is "not_fetched"; a synthetic fixture record without NEOWISE visits is "no_coverage". A star with
+    fewer than `min_visits` visits cannot be flagged and is "insufficient_visits". Anything but "searched" must be
+    reported as not searched, never counted as a quiet star.
+    """
+    qs = (star.get("vetting_archive") or {}).get("query_status") or {}
+    fetch = star.get("neowise_fetch") or {}
+    status = qs.get("neowise")
+    if fetch.get("status") == "not_fetched" and status is None:
+        return "not_fetched", str(fetch.get("reason") or "NEOWISE not fetched")
+    if isinstance(status, str) and status.startswith("failed"):
+        return "failed", status
+    if status == "no_coverage":
+        return "no_coverage", "no NEOWISE-R single-exposure rows within 3 arcsec"
+    n_vis = len((star.get("neowise") or {}).get("mjd") or [])
+    if status is None and n_vis == 0:
+        if star.get("synthetic_fixture"):
+            return "no_coverage", "record carries no NEOWISE visits"
+        return "not_fetched", "NEOWISE-R was never queried for this star"
+    if n_vis == 0:
+        return "no_coverage", "NEOWISE query returned no usable visits"
+    if n_vis < int(min_visits):
+        return "insufficient_visits", f"{n_vis} NEOWISE visits < min_visits={int(min_visits)}"
+    return "searched", f"{n_vis} NEOWISE visits"
+
+
+def search_coverage_summary(stars: list[dict[str, Any]], cfg: PipelineConfig) -> dict[str, Any]:
+    """Counts of searched vs not-searched stars for a run payload and the null report.
+
+    Returns {"n_input", "n_searched", "n_not_searched", "n_<category>" for every category, "not_searched_ids":
+    {category: [source_id, ...]}}. Only `n_searched` may be used as the denominator of an upper limit.
+    """
+    min_visits = int(cfg.channels["ir_timedomain"]["min_visits"])
+    ids: dict[str, list[str]] = {c: [] for c in COVERAGE_CATEGORIES if c != "searched"}
+    n_searched = 0
+    for s in stars:
+        cat, _ = neowise_search_status(s, min_visits)
+        if cat == "searched":
+            n_searched += 1
+        else:
+            ids[cat].append(str(s["source_id"]))
+    out: dict[str, Any] = {"n_input": len(stars), "n_searched": n_searched, "n_not_searched": len(stars) - n_searched}
+    for cat, lst in ids.items():
+        out[f"n_{cat}"] = len(lst)
+    out["not_searched_ids"] = {cat: lst for cat, lst in ids.items() if lst}
+    return out
+
 
 class IrTimedomainChannel:
     name = "ir_timedomain"
@@ -36,7 +91,8 @@ class IrTimedomainChannel:
         return spec
 
     def measure(self, star: dict[str, Any], data: dict[str, Any]) -> Measurement:
-        neo = star.get("neowise", {})
+        coverage, coverage_detail = neowise_search_status(star, int(self.ch_cfg["min_visits"]))
+        neo = star.get("neowise", {}) if coverage != "failed" else {}
         lc = star.get("lightcurves", {})
         mjd = np.asarray(neo.get("mjd", []), dtype=float)
         w1 = np.asarray(neo.get("w1_mjy", []), dtype=float)
@@ -44,7 +100,7 @@ class IrTimedomainChannel:
         e1 = np.maximum(1e-3, np.asarray(neo.get("w1_err_mjy", np.ones_like(w1)), dtype=float))
         e2 = np.maximum(1e-3, np.asarray(neo.get("w2_err_mjy", np.ones_like(w2)), dtype=float))
 
-        if len(mjd) < 3:
+        if coverage in {"failed", "not_fetched", "no_coverage"} or len(mjd) < 3:
             values = {"chi2_w1": 0.0, "chi2_w2": 0.0, "slope_snr": 0.0, "max_jump_snr": 0.0, "color_change_mag": 0.0, "optical_chi2": 1.0, "n_visits": float(len(mjd))}
         else:
             med1, med2 = float(np.median(w1)), float(np.median(w2))
@@ -89,13 +145,18 @@ class IrTimedomainChannel:
                 "n_visits": float(len(mjd)),
             }
 
+        values["searched"] = 1.0 if coverage == "searched" else 0.0
+        caveats = ["NEOWISE-R covers W1 (3.4um) and W2 (4.6um) only; W3/W4 have no post-2010 baseline."]
+        if coverage != "searched":
+            caveats.append(f"Not searched ({coverage}): {coverage_detail}. Excluded from the null-result denominator.")
         return Measurement(
             source_id=str(star["source_id"]),
             channel=self.name,
             values=values,
             uncertainties={"chi2_w2": 0.2},
             epochs=["2014-2024"],
-            caveats=["NEOWISE-R covers W1 (3.4um) and W2 (4.6um) only; W3/W4 have no post-2010 baseline."],
+            caveats=caveats,
+            extra={"search_status": coverage, "search_status_detail": coverage_detail},
         )
 
     def score(self, m: Measurement) -> ChannelScore:
@@ -109,9 +170,14 @@ class IrTimedomainChannel:
         )
         opt_quiet = v["optical_chi2"] <= float(self.ch_cfg["optical_flat_max_chi2"])
         enough_visits = v["n_visits"] >= float(self.ch_cfg["min_visits"])
-        flagged = bool(ir_active and opt_quiet and enough_visits)
+        searched = float(v.get("searched", 1.0)) > 0.0
+        flagged = bool(ir_active and opt_quiet and enough_visits and searched)
 
         fap = float(max(1e-12, math.exp(-0.5 * max(0.0, ir_stat))))
+        summary = f"IR time-domain stat={ir_stat:.2f} (chi2_w2={v['chi2_w2']:.2f}, optical_chi2={v['optical_chi2']:.2f})"
+        if not searched:
+            status = str(m.extra.get("search_status", "not_searched"))
+            summary = f"NOT SEARCHED ({status}): {m.extra.get('search_status_detail', '')}"
         return ChannelScore(
             source_id=m.source_id,
             channel=self.name,
@@ -119,7 +185,7 @@ class IrTimedomainChannel:
             false_alarm_prob=fap,
             flagged=flagged,
             rank_score=float(max(0.0, -math.log10(fap))),
-            summary=f"IR time-domain stat={ir_stat:.2f} (chi2_w2={v['chi2_w2']:.2f}, optical_chi2={v['optical_chi2']:.2f})",
+            summary=summary,
             feature_contributions={
                 "chi2_w2": float(v["chi2_w2"]),
                 "slope_snr": float(v["slope_snr"]),

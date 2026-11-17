@@ -2,9 +2,9 @@
   "channel": "ir_excess",
   "gaia_release": "dr3",
   "split": "all",
-  "config_hash": "ce6e224fd31d",
-  "git_commit": "9c01737f0dafe990dc0960fb2e5130fd39c51554",
-  "timestamp_utc": "2026-11-17T06:19:55.194159+00:00",
+  "config_hash": "092bb769c315",
+  "git_commit": "5f459ed9591dd94ab0225fa302be1d057ecb1f23",
+  "timestamp_utc": "2026-11-17T22:20:40.499104+00:00",
   "passed": true,
   "blind_recovery_rate": 1.0,
   "blind_total": 13,
@@ -17,7 +17,7 @@
     {
       "t_dust_k": 150.0,
       "frac_lum": 0.0005,
-      "completeness": 0.6,
+      "completeness": 0.85,
       "n_trials": 20
     },
     {
@@ -41,7 +41,7 @@
     {
       "t_dust_k": 250.0,
       "frac_lum": 0.0005,
-      "completeness": 0.55,
+      "completeness": 0.7,
       "n_trials": 20
     },
     {
@@ -65,13 +65,13 @@
     {
       "t_dust_k": 450.0,
       "frac_lum": 0.0005,
-      "completeness": 0.3,
+      "completeness": 0.45,
       "n_trials": 20
     },
     {
       "t_dust_k": 450.0,
       "frac_lum": 0.002,
-      "completeness": 0.75,
+      "completeness": 1.0,
       "n_trials": 20
     },
     {
@@ -93,39 +93,39 @@
   "expected_false_positives": 3.333333333333333,
   "calibration_curve": [
     {
-      "stat": 0.3721439011701595,
+      "stat": 0.38075422248131785,
       "fap": 0.5
     },
     {
-      "stat": 0.8123705427653665,
+      "stat": 0.9464140192984687,
       "fap": 0.25
     },
     {
-      "stat": 1.3801899251278968,
+      "stat": 1.4311844895930481,
       "fap": 0.09999999999999998
     },
     {
-      "stat": 1.5822950690203579,
+      "stat": 1.8626364652765373,
       "fap": 0.050000000000000044
     },
     {
-      "stat": 2.2884660894306545,
+      "stat": 2.3468398389876666,
       "fap": 0.010000000000000009
     },
     {
-      "stat": 3.9579668218421578,
+      "stat": 4.258870287829769,
       "fap": 0.0001
     },
     {
-      "stat": 5.457966821842158,
+      "stat": 5.758870287829769,
       "fap": 1e-6
     },
     {
-      "stat": 8.457966821842158,
+      "stat": 8.758870287829769,
       "fap": 1e-9
     },
     {
-      "stat": 14.457966821842158,
+      "stat": 14.758870287829769,
       "fap": 1e-12
     }
   ],
@@ -134,67 +134,67 @@
       {
         "source_id": "5721914390814200960",
         "flagged": true,
-        "raw_stat": 7.627512812023662
-      },
-      {
-        "source_id": "2996362101189875200",
-        "flagged": true,
-        "raw_stat": 19.44094034506369
-      },
-      {
-        "source_id": "6438274350302427904",
-        "flagged": true,
-        "raw_stat": 20.39414059256549
-      },
-      {
-        "source_id": "5290837497970360960",
-        "flagged": true,
-        "raw_stat": 19.0688076359104
-      },
-      {
-        "source_id": "6133409280036818688",
-        "flagged": true,
-        "raw_stat": 20.193381901445765
-      },
-      {
-        "source_id": "5551530885782831616",
-        "flagged": true,
-        "raw_stat": 20.033217082662457
+        "raw_stat": 8.578245179187759
       },
       {
         "source_id": "3687158017250050176",
         "flagged": true,
-        "raw_stat": 19.741727191804095
+        "raw_stat": 20.319025573365153
       },
       {
-        "source_id": "66549657436283904",
+        "source_id": "2996362101189875200",
         "flagged": true,
-        "raw_stat": 18.56078360190419
+        "raw_stat": 19.87517358536727
       },
       {
         "source_id": "1638028353993041792",
         "flagged": true,
-        "raw_stat": 19.239416773548317
+        "raw_stat": 19.71355673663036
+      },
+      {
+        "source_id": "5290837497970360960",
+        "flagged": true,
+        "raw_stat": 19.661324339200586
       },
       {
         "source_id": "6048418276566039424",
         "flagged": true,
-        "raw_stat": 21.040171432369256
+        "raw_stat": 21.18452936147997
       },
       {
-        "source_id": "115725517896200320",
+        "source_id": "66549657436283904",
         "flagged": true,
-        "raw_stat": 20.410437833376054
+        "raw_stat": 18.834489154341796
       },
       {
         "source_id": "6485732215620751360",
         "flagged": true,
-        "raw_stat": 18.46184859094309
+        "raw_stat": 19.23653321518447
+      },
+      {
+        "source_id": "6438274350302427904",
+        "flagged": true,
+        "raw_stat": 20.56429029495777
+      },
+      {
+        "source_id": "6133409280036818688",
+        "flagged": true,
+        "raw_stat": 20.322935570822583
+      },
+      {
+        "source_id": "5551530885782831616",
+        "flagged": true,
+        "raw_stat": 20.42617741095508
       },
       {
         "source_id": "4066368953121417984",
         "flagged": true,
-        "raw_stat": 19.519924589765505
+        "raw_stat": 19.699605811741463
+      },
+      {
+        "source_id": "115725517896200320",
+        "flagged": true,
+        "raw_stat": 20.607859181238908
       }
     ],
     "impostor_rejection": [
@@ -212,7 +212,7 @@
           "deep_imaging",
           "radio_counterpart"
         ],
-        "reason": "Failed integrity/artifact check 'centroid_offset': WISE W4 centroid offset=4.90 arcsec (0.408 of 12.0\" beam)",
+        "reason": "Failed integrity/artifact check 'centroid_offset': WISE W4 centroid offset=4.90 arcsec (0.408 of 12.0\" beam) [synthetic fixture value]",
         "passed": true
       },
       {
@@ -244,7 +244,7 @@
           "deep_imaging",
           "neighbours"
         ],
-        "reason": "Failed integrity/artifact check 'centroid_offset': WISE W4 centroid offset=6.20 arcsec (0.517 of 12.0\" beam)",
+        "reason": "Failed integrity/artifact check 'centroid_offset': WISE W4 centroid offset=6.20 arcsec (0.517 of 12.0\" beam) [synthetic fixture value]",
         "passed": true
       },
       {
@@ -275,7 +275,7 @@
           "deep_imaging",
           "neighbours"
         ],
-        "reason": "Failed integrity/artifact check 'centroid_offset': WISE W4 centroid offset=5.00 arcsec (0.417 of 12.0\" beam)",
+        "reason": "Failed integrity/artifact check 'centroid_offset': WISE W4 centroid offset=5.00 arcsec (0.417 of 12.0\" beam) [synthetic fixture value]",
         "passed": true
       },
       {
@@ -293,6 +293,37 @@
         "reason": "Failed integrity/artifact check 'wise_quality': cc_flags=0000, ext_flg=5, ph_qual=AAAA, w4rchi2=8.40, w4m=12",
         "passed": true
       }
-    ]
-  }
+    ],
+    "code_fingerprint_files": {
+      "oddstar/__init__.py": "2af7d8f7316e5196abd067dcdd82791314113df68b496c3611136877b193be1e",
+      "oddstar/channels/__init__.py": "af613ea2e399e30d14d7eca150d9a3f4fa5e409e0976b773c95c9f752789212e",
+      "oddstar/channels/ir_excess/__init__.py": "45bcc6159941913251e0074cff42f1ea77aa27a04e90a9e9db17af0ae52d22a6",
+      "oddstar/channels/ir_excess/channel.py": "0c602ba4efe96ee020dfdaf009c0ad6c7ca65cf996b68ea2f0b546ebbd0ef545",
+      "oddstar/config.py": "46af545c91b0db22ac5d71dcec4529e1d1cebfe3b62cb3be2b5268481ef3df0c",
+      "oddstar/dossier/plots.py": "dfa110bd1909df63c68c5f70e48faa791f731108cc2c7b388f67e0d17d52c0f0",
+      "oddstar/errors.py": "6e2757f307284892a5d69bf8967ee111d49bcd4c4100bf82316d02d7fb09ed30",
+      "oddstar/fuse/engine.py": "5f0a7a028b801f8eb314818735eac801eae6f9a07ed4fc8c000c96412e590b7d",
+      "oddstar/io/archive_http.py": "fd4022fa1f56a5fbf69d07ae135ff0d2edc8f2639422edcf540ddcd3b5f6c1ff",
+      "oddstar/io/cache.py": "d1eb1f1983ae9177eb6bba94cecdaa44ef25ac57c67c71bcb69093e049719f96",
+      "oddstar/io/cutouts.py": "4d7be2173b4fad8b476dcb6521e360183295d0b1b2004d8368f093a33c34e8bc",
+      "oddstar/io/fixtures_data.py": "a307d3d50d71d54f06d3ee8a9bc082414713e205763233c6c5511bf97db29ab4",
+      "oddstar/io/physics.py": "1861802f5f9e8439ba53ff79b3450ea7bd7e38918d04a0a4cb7ef01fdf2ceb0d",
+      "oddstar/io/storage.py": "63843e3a91f38ae2604a9aea9b6c8f23fb727392dc8488c2ff1270765f768e50",
+      "oddstar/io/vetting_queries.py": "b96feb951f29f5827667f819d1657ce2eb01bdf3752c8c7df3749ff054bc6b3b",
+      "oddstar/sample/builder.py": "3b54c7d25f3b150e98a5c72f89efa82dd14e3d979b914395ebcbd41880e0e4ac",
+      "oddstar/schemas/__init__.py": "f042a0e7698fd0bbd38af7a4a6e948f0e47a587dae1315d2f9fc2c943605fc0f",
+      "oddstar/schemas/models.py": "64fedcad48d4d68b769097def87f49371ffe8f8ed501f4dfcf02b6682f53514a",
+      "oddstar/validate/fingerprint.py": "94a922c6bd78f5ae3dbc606b482957a8a8f9cc8c522f695d88e814a8a7f81a91",
+      "oddstar/validate/harness.py": "d63ed92087688d45acb51f58b4b68bd7f81a3ca298b9c8cf540bf1d656a46388",
+      "oddstar/vet/common.py": "0107f4da0f5b310f759688785f0c9347c5785db6ca6129452441ced3cb96622e",
+      "oddstar/vet/engine.py": "06c8dbb115be221f6d5d0443120e57aba7b35bcca6108f2885a8ee9f06b70403",
+      "oddstar/vet/ir_checks.py": "70fb0904ec1ed1cc4aa300fc17bba9679d033caf0c9987e55936e48d3bb4a2de",
+      "oddstar/vet/lc_checks.py": "95dc68dcca4fee811917fc2ed162f112eee61dc02e3d963da1e69668c937c119",
+      "oddstar/vet/radio_checks.py": "a80a21256c2adea7ed3fc463abd9dd6f38658fa316f5c08e7987475b9e12fd8f",
+      "oddstar/vet/spectral_checks.py": "fc0c86caac14a3a652c7d45740d2725cbe3a573f5db40b6f0d1198ec0a0995b7",
+      "oddstar/vet/underluminous_checks.py": "50f9093f9d224f15068f8b456ca535032df7e3f835bd2e5a6ab5d680f6ed74a0",
+      "oddstar/vet/vanishing_checks.py": "6dc1a99d71d9d792aa581152313f874e4dd03d6487fcb3cd3b5d36bf77490128"
+    }
+  },
+  "code_fingerprint": "523ffc7937466ec725dbd5cfb379372ba3c5db4b92a549d939659bcfa6235672"
 }

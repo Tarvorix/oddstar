@@ -14,6 +14,7 @@ from oddstar.dossier.plots import (
     render_statistic_distribution,
     render_waterfall_plot,
 )
+from oddstar.io.physics import extinction_two_case_summary, star_applied_ebv
 from oddstar.fuse.engine import (
     assign_tier,
     build_hypothesis_table,
@@ -28,6 +29,7 @@ from oddstar.schemas import (
     DossierReviewSummary,
     Measurement,
     Provenance,
+    ReviewStatus,
     StarMetadata,
     ValidationCertificate,
     VettingResult,
@@ -96,6 +98,90 @@ def _build_four_lead_lines(
     ]
 
 
+_LABEL_KEYS = (
+    "photosphere_source",
+    "photosphere_secondary",
+    "locus_n_stars",
+    "locus_id",
+    "locus_gaia_release",
+    "locus_sample_kind",
+    "literature_reference",
+    "literature_url",
+    "literature_retrieved_utc_date",
+    "ebv_star",
+    "ebv_star_source",
+)
+
+
+def _channel_labels(m: Measurement | None) -> dict[str, Any]:
+    """Provenance labels carried from Measurement.extra (photosphere source, locus size, applied reddening)."""
+    if m is None:
+        return {}
+    return {k: m.extra[k] for k in _LABEL_KEYS if k in m.extra}
+
+
+def _ir_excess_md(v: dict[str, float | None], unc: dict[str, float]) -> list[str]:
+    def _f(key: str) -> float:
+        val = v.get(key)
+        return float(val) if val is not None else float("nan")
+
+    out = [
+        "",
+        "| Band | Observed (mJy) | Photosphere (mJy) | Excess (mJy) | Excess / sigma | Obs / phot | Secondary model (mJy) | Bare Planck (mJy) |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- |",
+    ]
+    for b in ("w1", "w2", "w3", "w4"):
+        out.append(
+            f"| {b.upper()} | {_f(f'{b}_obs_mjy'):.3f} +/- {unc.get(f'{b}_obs_mjy', float('nan')):.3f} "
+            f"| {_f(f'{b}_phot_mjy'):.3f} +/- {unc.get(f'{b}_phot_mjy', float('nan')):.3f} "
+            f"| {_f(f'{b}_excess_mjy'):.3f} +/- {unc.get(f'{b}_excess_mjy', float('nan')):.3f} "
+            f"| {_f(f'{b}_excess_sigma'):.1f} | {_f(f'{b}_excess_ratio'):.2f} | {_f(f'{b}_pred_model_mjy'):.3f} | {_f(f'{b}_pred_planck_mjy'):.3f} |"
+        )
+    out.append("")
+    if _f("t_dust_k") > 0.0:
+        out.append(
+            f"- Single-blackbody dust fit ({int(_f('dust_fit_n_bands'))} significant bands): T_dust = {_f('t_dust_k'):.0f} K "
+            f"[{_f('t_dust_lo_k'):.0f}, {_f('t_dust_hi_k'):.0f}] (Delta chi2 interval), L_dust/L_star = {_f('frac_lum'):.4g} "
+            f"[{_f('frac_lum_lo'):.4g}, {_f('frac_lum_hi'):.4g}], chi2 = {_f('dust_fit_chi2'):.2f} (reduced {_f('dust_fit_red_chi2'):.2f}; "
+            f"interval uses Delta chi2 = {_f('dust_fit_interval_delta_chi2'):.2f}), r_bb = {_f('r_bb_au'):.2f} au"
+        )
+    else:
+        out.append("- Single-blackbody dust fit: fewer than two bands with significant excess; temperature not constrained")
+    for key, lab in (("t_color_w1w2", "W1-W2"), ("t_color_w3w4", "W3-W4")):
+        if _f(f"{key}_valid") > 0.0:
+            hi = f"{_f(f'{key}_hi_k'):.0f}" + ("+ (unbounded)" if _f(f"{key}_hi_unbounded") > 0.0 else "")
+            out.append(f"- {lab} excess colour temperature: {_f(f'{key}_k'):.0f} K [{_f(f'{key}_lo_k'):.0f}, {hi}]")
+        else:
+            out.append(f"- {lab} excess colour temperature: not determined (excess not significant in both bands)")
+    if _f("frac_lum_two_temp") > 0.0:
+        out.append(
+            f"- Two-temperature L_dust/L_star: hot {_f('frac_lum_hot'):.4g} + warm {_f('frac_lum_warm'):.4g} = {_f('frac_lum_two_temp'):.4g}"
+        )
+    out.append(
+        f"- Detection statistics (two predictors): chi_emp_w3={_f('chi_emp_w3'):.2f}, chi_w3={_f('chi_w3'):.2f}, "
+        f"chi_emp_w4={_f('chi_emp_w4'):.2f}, chi_w4={_f('chi_w4'):.2f}"
+    )
+    return out
+
+
+def _extinction_md(ext: dict[str, Any]) -> list[str]:
+    out = [
+        "## Extinction: Two Cases",
+        "",
+        f"> {ext['triggered_by']}. {ext['summary']}",
+        "",
+        "| Case | E(B-V) | Source | (BP-RP)_0 | M_G | Dwarf class | Teff from colour (K) | M_G - dwarf sequence |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- |",
+    ]
+    for c in ext["cases"]:
+        out.append(
+            f"| {c['case']} | {c['ebv']:.3f} | {c['ebv_source']} | {c['bp_rp_0']:.3f} | {c['m_g']:.2f} | {c['spectral_type']} "
+            f"| {c['teff_k_from_colour']:.0f} | {c['delta_m_g_vs_sequence']:+.2f} ({c['luminosity_vs_sequence']}) |"
+        )
+    out.append("")
+    return out
+
+
 def write_dossier(
     *,
     source_id: str,
@@ -111,6 +197,7 @@ def write_dossier(
     manifests: list[str],
     cfg: PipelineConfig,
     root: Path,
+    review_status: ReviewStatus | None = None,
 ) -> tuple[Dossier, Path, Path]:
     """Generate dossier.json, dossier.md, and standard evidence plots under dossiers/<source_id>/."""
     clean_id = source_id.replace("Gaia DR3 ", "").replace("Gaia DR4 ", "").strip()
@@ -186,6 +273,7 @@ def write_dossier(
                 epochs=m.epochs if m else [],
                 caveats=m.caveats if m else [],
                 evidence=ev_list,
+                labels=_channel_labels(m),
             )
         )
 
@@ -194,6 +282,17 @@ def write_dossier(
         f"validation/certificates/{c.channel}-{c.gaia_release}-{c.config_hash}.json"
         for c in certs_by_channel.values()
     ]
+
+    ebv_applied, ebv_applied_src = star_applied_ebv(star) if "mags" in star else (None, None)
+    ext_cases = (
+        extinction_two_case_summary(
+            star,
+            min_los_excess_ebv=float(cfg.vetting["extinction_los_excess_summary_ebv"]),
+            sfd_to_sf11=float(cfg.vetting["sfd_to_sf11_factor"]),
+        )
+        if "mags" in star
+        else None
+    )
 
     rel_prefix = "Gaia DR4" if cfg.gaia.release == "dr4" else "Gaia DR3"
     display_id = f"{rel_prefix} {clean_id}" if clean_id.isdigit() else clean_id
@@ -221,15 +320,19 @@ def write_dossier(
             simbad_type=star.get("simbad_type"),
             known_in_literature=bool(star.get("known_in_literature", False)),
             gaia_release=cfg.gaia.release,
+            ebv_star=ebv_applied,
+            ebv_star_source=ebv_applied_src,
         ),
         channels=ch_entries,
         vetting=vetting,
         hypotheses=hypotheses,
         cross_channel_patterns=patterns,
         reviews=reviews,
+        review_status=review_status,
         what_would_settle_it=settle,
         lead_lines=leads,
         reproduce=f"oddstar inspect {clean_id} --config configs/default.yaml",
+        extinction_cases=ext_cases,
     )
 
     json_path = dossier_dir / "dossier.json"
@@ -250,17 +353,28 @@ def write_dossier(
             f"- **Provenance**: `run_id={run_id}`, `config_hash={short_hash}`, `gaia={cfg.gaia.release}`",
             f"- **Reproduce**: `{dossier.reproduce}`",
             "",
-            "## Channel Measurements",
-            "",
         ]
     )
+    if ebv_applied_src is not None:
+        lines.append(
+            f"- **Applied reddening**: E(B-V)={'n/a' if ebv_applied is None else f'{ebv_applied:.3f}'} (`ebv_star_source={ebv_applied_src}`)"
+        )
+    lines.append("")
+    if ext_cases is not None:
+        lines.extend(_extinction_md(ext_cases))
+    lines.extend(["## Channel Measurements", ""])
     for ch in ch_entries:
         lines.append(f"### `{ch.name}` (flagged={ch.flagged}, FAP={ch.false_alarm_prob:.3e})")
         if ch.caveats:
             lines.append(f"> Caveat: {'; '.join(ch.caveats)}")
-        for k, val in list(ch.measurements.items())[:12]:
-            if val is not None:
-                lines.append(f"- `{k}`: {val:.4g}")
+        if ch.labels:
+            lines.append("- Labels: " + ", ".join(f"`{k}={v}`" for k, v in ch.labels.items() if v is not None))
+        if ch.name == "ir_excess" and "w1_phot_mjy" in ch.measurements:
+            lines.extend(_ir_excess_md(ch.measurements, meas_by_ch["ir_excess"].uncertainties if "ir_excess" in meas_by_ch else {}))
+        else:
+            for k, val in list(ch.measurements.items())[:12]:
+                if val is not None:
+                    lines.append(f"- `{k}`: {val:.4g}")
         lines.append("")
 
     lines.extend(["## Vetting Checks", "", "| Check | Status | Note |", "| --- | --- | --- |"])
@@ -272,9 +386,13 @@ def write_dossier(
         lines.append(f"| `{h.name}` | `{h.status}` | {h.note} |")
 
     if reviews:
-        lines.extend(["", "## Independent Review Records", ""])
+        # Review status wording comes from oddstar.review.status (R10: independence is stated only when measured)
+        lines.extend(["", "## Review Records", ""])
+        if review_status is not None:
+            lines.append(f"- **Review status**: {review_status.summary} ({review_status.independence_basis})")
         for r in reviews:
-            lines.append(f"- Round {r.round} ({r.reviewer_model}): verdict=`{r.verdict}` (`{r.record}`)")
+            fam = f", family `{r.model_family}`" if r.model_family else ""
+            lines.append(f"- Round {r.round} ({r.reviewer_model}{fam}): verdict=`{r.verdict}` (`{r.record}`)")
 
     lines.extend(["", "## What Would Settle It", ""])
     for item in settle:

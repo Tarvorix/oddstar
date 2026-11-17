@@ -22,6 +22,7 @@ class StorageConfig(BaseModel):
     runs_dir: str = "runs"
     dossiers_dir: str = "dossiers"
     registry_dir: str = "registry"
+    evidence_dir: str = "registry/evidence"
 
 
 class GaiaConfig(BaseModel):
@@ -59,6 +60,34 @@ class FusionPolicyConfig(BaseModel):
     tier_a_min_channels: int = 2
     tier_a_max_fap: float = 1e-4
     tier_b_max_fap: float = 1e-3
+    # Since 1.1.0 (moved from oddstar.fuse.engine literals; values unchanged)
+    fap_floor: float = Field(gt=0.0, lt=1.0)
+    fallback_false_alarm_rate_per_star: float = Field(gt=0.0, lt=1.0)
+
+
+class EvidenceStoreConfig(BaseModel):
+    """Size guards for the committed evidence store (`storage.evidence_dir`); raw data never enters the repository."""
+
+    max_array_elements: int = Field(ge=1)
+    max_string_chars: int = Field(ge=16)
+    max_json_bytes: int = Field(ge=1024)
+    max_image_bytes: int = Field(ge=0)
+
+
+class LiveIngestionConfig(BaseModel):
+    """Live Gaia x AllWISE x 2MASS sample cuts (`oddstar.io.live_survey`) and live search filters (`oddstar.cli`).
+
+    `regions` maps a region preset (halo, bulge, local) to its numeric Gaia cuts; the SQL clause structure of each
+    preset stays in `live_survey._region_where_sql`.
+    """
+
+    allwise_number_of_neighbours: int
+    allwise_number_of_mates: int
+    tmass_number_of_neighbours: int
+    tmass_number_of_mates: int
+    regions: dict[str, dict[str, float]]
+    ir_excess_w4_upper_limit_ph_qual: list[str]
+    ir_excess_artifact_cc_flag_bands: list[int]
 
 
 class PipelineConfig(BaseModel):
@@ -71,6 +100,8 @@ class PipelineConfig(BaseModel):
     validation: ValidationPolicyConfig
     fusion: FusionPolicyConfig
     archives: dict[str, ArchivePolicyConfig]
+    evidence: EvidenceStoreConfig
+    live_ingestion: LiveIngestionConfig
 
 
 def repo_root(start: Path | None = None) -> Path:
