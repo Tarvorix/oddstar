@@ -7,7 +7,7 @@
 - **Linked Test**: `tests/test_evidence_store.py::test_verification_fails_on_tampered_or_missing_evidence`
 - **Additional Tests**: `tests/test_evidence_store.py::test_fuse_registers_candidate_with_evidence_reference`, `tests/test_evidence_store.py::test_ci_check_requires_vetting_rows_and_files`
 - **Added to Impostors**: `False`
-- **Commit (introduced the lesson files)**: `not recorded yet (filled by `oddstar lessons record-sha` after the commit that adds this lesson)`
+- **Commit (introduced the lesson files)**: `ba94372ce1d6b547b89dd9da9066ab25ddcdfe57`
 
 ## What Happened
 Registry ledger entries recorded tier and check status, but the per-check notes, metrics, consumed manifest IDs / SHA-256 values / query URLs and images that supported each pass lived only under the git-ignored runs/ and dossiers/ directories. A pass row in the ledger could therefore not be checked from a clone of the repository. The registrations made before the evidence store (including 5628404318169472) remain without committed evidence and are reported as legacy_without_evidence.

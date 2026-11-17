@@ -9,7 +9,7 @@
   "linked_test": "tests/test_ir_vetting_live.py::test_no_query_is_not_evaluated",
   "added_to_impostors": false,
   "skill_updated": null,
-  "commit_sha": "",
+  "commit_sha": "ba94372ce1d6b547b89dd9da9066ab25ddcdfe57",
   "commit_sha_note": "",
   "closes_finding": true,
   "related_finding_ids": [],
