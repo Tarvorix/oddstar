@@ -187,18 +187,27 @@ def test_matched_detrend_preserves_dip_and_flattens_ramp() -> None:
 
 
 def test_second_survey_reports_both_surveys(tmp_path: Path) -> None:
+    """Since config 1.1.0 coverage alone no longer passes: the survey must be compared with a flagged signal."""
     cfg, _, _ = load_config()
+    seasons = [
+        {"season": y, "n_nights": 40, "median_mag": 14.35 + (0.06 if y == 2021 else 0.0), "median_err_mag": 0.004,
+         "mjd_first": 51544.5 + (y - 2000) * 365.25 + 30, "mjd_mid": 51544.5 + (y - 2000) * 365.25 + 180,
+         "mjd_last": 51544.5 + (y - 2000) * 365.25 + 330}
+        for y in range(2018, 2025)
+    ]
     star = {
         "lightcurves": {
             "optical_surveys": {
-                "ztf": {"survey": "ZTF", "n_epochs": 1200, "status": "ok", "bands": {"zg": {"n_epochs": 600, "seasonal_range_mag": 0.06}}},
+                "ztf": {"survey": "ZTF", "n_epochs": 1200, "status": "ok", "season_kind": "calendar",
+                        "bands": {"zg": {"n_epochs": 600, "seasonal_range_mag": 0.06, "seasons": seasons}}},
                 "asassn": {"survey": "ASAS-SN", "n_epochs": 0, "status": "client_unavailable", "query_log": []},
             }
         }
     }
+    # No NEOWISE variation and no TESS dip: nothing to confirm or contradict -> not_evaluated, coverage still reported
     res = check_second_survey(star, cfg, tmp_path / "ev")
-    assert res.status == "pass"
-    assert res.metrics["n_surveys"] == 1 and res.metrics["max_seasonal_range_mag"] == 0.06
+    assert res.status == "not_evaluated" and "No flagged signal" in res.note
+    assert res.metrics["n_surveys"] == 1 and abs(res.metrics["max_seasonal_range_mag"] - 0.06) < 1e-9
     assert "not usable: ['asassn']" in res.note
 
 
