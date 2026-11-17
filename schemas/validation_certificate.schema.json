@@ -26,6 +26,18 @@
       "title": "Channel",
       "type": "string"
     },
+    "code_fingerprint": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Code Fingerprint"
+    },
     "completeness_grid": {
       "items": {
         "additionalProperties": true,

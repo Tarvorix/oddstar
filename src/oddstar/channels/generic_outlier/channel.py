@@ -11,6 +11,7 @@ from typing import Any
 
 import numpy as np
 from scipy.spatial import cKDTree
+from scipy.stats import norm
 
 from oddstar.config import PipelineConfig, compute_config_hash
 from oddstar.sample.builder import build_parent_sample
@@ -30,6 +31,14 @@ FEATURE_NAMES = (
     "radio_snr",
     "ruwe",
 )
+
+# Features that exist only when the star has the corresponding observation (NEOWISE visits, a TESS light curve, two
+# spectral exposures, an archival plate record, a radio cadence). L003: an absent modality is recorded as 0.0 and carries
+# no evidence. A present modality is expressed as a significance against its own noise model (see
+# `modality_significance`), so an ordinary measurement sits near 0 instead of being an outlier merely because the
+# background stars have no such observation.
+MODALITY_FEATURES = ("ir_var_chi2", "dip_snr", "spec_line_snr", "vanished_margin", "radio_snr")
+_MODALITY_IDX = tuple(FEATURE_NAMES.index(fn) for fn in MODALITY_FEATURES)
 
 
 def _c_factor(n: int) -> float:
@@ -51,6 +60,8 @@ class _ITreeNode:
     size: int
     lo: float = 0.0
     hi: float = 0.0
+    # True when the chosen attribute is constant in this node's data: the training data all stay in `right`
+    passthrough: bool = False
 
 
 class _IsolationForest:
@@ -70,23 +81,27 @@ class _IsolationForest:
         n, d = x.shape
         if depth >= self.max_depth or n <= 1:
             return _ITreeNode(None, 0.0, None, None, n)
-        feats = rng.permutation(d)
-        for f in feats:
-            lo = float(np.min(x[:, f]))
-            hi = float(np.max(x[:, f]))
-            if hi > lo + 1e-12:
-                val = float(rng.uniform(lo, hi))
-                left_mask = x[:, f] < val
-                return _ITreeNode(
-                    int(f),
-                    val,
-                    self._build_tree(x[left_mask], depth + 1, rng),
-                    self._build_tree(x[~left_mask], depth + 1, rng),
-                    n,
-                    lo=lo,
-                    hi=hi,
-                )
-        return _ITreeNode(None, 0.0, None, None, n)
+        # Liu et al. (2008) Algorithm 2: the split attribute is drawn uniformly from all attributes. An attribute that
+        # is constant in the node's data gives a degenerate split (every training point on one side); it still
+        # isolates a query lying outside the data on that attribute. Skipping constant attributes instead would make
+        # the forest blind to any feature that has no spread in the background (e.g. a modality no background star
+        # has), so a query could never be isolated on it.
+        f = int(rng.integers(d))
+        lo = float(np.min(x[:, f]))
+        hi = float(np.max(x[:, f]))
+        if hi > lo + 1e-12:
+            val = float(rng.uniform(lo, hi))
+            left_mask = x[:, f] < val
+            return _ITreeNode(
+                f,
+                val,
+                self._build_tree(x[left_mask], depth + 1, rng),
+                self._build_tree(x[~left_mask], depth + 1, rng),
+                n,
+                lo=lo,
+                hi=hi,
+            )
+        return _ITreeNode(f, lo, None, self._build_tree(x, depth + 1, rng), n, lo=lo, hi=hi, passthrough=True)
 
     def _path_length(self, row: np.ndarray, node: _ITreeNode, depth: int) -> float:
         if node.split_feat is None:
@@ -95,6 +110,10 @@ class _IsolationForest:
         # A query far outside the node's training interval (>1.5 MAD) is isolated at this cut
         if val < node.lo - 1.5 or val > node.hi + 1.5:
             return float(depth) + 0.5
+        if node.passthrough:
+            # Within the margin of a constant attribute the query follows the training data
+            assert node.right is not None
+            return self._path_length(row, node.right, depth + 1)
         if val < node.split_val:
             assert node.left is not None
             return self._path_length(row, node.left, depth + 1)
@@ -186,8 +205,6 @@ def extract_raw_feature_vector(star: dict[str, Any], sub_metrics: dict[str, floa
     f = star["flux_mjy"]
     ferr = star["flux_err_mjy"]
     sm = sub_metrics or {}
-    seed_val = int.from_bytes(hashlib.sha256(str(star["source_id"]).encode()).digest()[:4], "big")
-    sid_rng = np.random.default_rng(seed_val)
 
     # Fast photosphere-referenced chi_w4 estimate if not passed in sub_metrics
     chi_w4 = float(sm.get("chi_w4", (float(f["W4"]) - float(f["Ks"]) * 0.0125) / max(0.05, float(ferr["W4"]))))
@@ -223,16 +240,20 @@ def extract_raw_feature_vector(star: dict[str, Any], sub_metrics: dict[str, floa
         mg_pred = predict_ms_abs_g(float(star.get("teff_k", 5800.0)))
         dm_sig = float((float(star.get("abs_g_mag", mg_pred)) - mg_pred) / 0.15)
 
-    # Fast spectral line SNR (0.0 when no optical spectra are present)
+    # Fast spectral line SNR (0.0 when no optical spectra are present): the strongest single-exposure emission feature
+    # in robust-sigma units. Like dip_snr (deepest single cadence) it is not repeat-filtered here: whether a feature
+    # repeats across exposures (cosmic rays, detector artifacts) is decided by the spectral vetting suite, which a
+    # spec_line_snr-driven lead is routed to.
     spec = star.get("spectra", {})
     if "spec_line_snr" in sm:
         spec_snr = float(sm["spec_line_snr"])
     elif spec.get("flux_exp1") and spec.get("flux_exp2"):
-        e1 = np.asarray(spec["flux_exp1"], dtype=float)
-        e2 = np.asarray(spec["flux_exp2"], dtype=float)
-        comb = np.minimum(e1, e2)
-        sig = max(1e-3, 1.4826 * float(np.median(np.abs(comb - np.median(comb)))))
-        spec_snr = float(max(0.0, (np.max(comb) - np.median(comb)) / sig))
+        per_exp: list[float] = []
+        for key in ("flux_exp1", "flux_exp2"):
+            ex = np.asarray(spec[key], dtype=float)
+            sig = max(1e-3, 1.4826 * float(np.median(np.abs(ex - np.median(ex)))))
+            per_exp.append(float((np.max(ex) - np.median(ex)) / sig))
+        spec_snr = float(max(0.0, max(per_exp)))
     else:
         spec_snr = 0.0
 
@@ -261,6 +282,73 @@ def extract_raw_feature_vector(star: dict[str, Any], sub_metrics: dict[str, floa
     }
 
 
+def _expected_max_std_normal(n: int) -> float:
+    """Expected largest of n independent N(0, 1) draws, Blom (1958) plotting-position approximation."""
+    if n <= 1:
+        return 0.0
+    return float(norm.ppf((n - 0.375) / (n + 0.25)))
+
+
+def extract_modality_presence(star: dict[str, Any], sub_metrics: dict[str, float] | None = None) -> dict[str, int | None]:
+    """Which modality features were actually observed, and on how many points.
+
+    None means the modality is absent (its raw feature is the L003 deterministic 0.0). An integer means present; it is
+    the number of points the statistic was taken over, or 0 when the value came from `sub_metrics` without a series.
+    """
+    sm = sub_metrics or {}
+    if "scans" in star:
+        return {fn: (0 if fn == "radio_snr" and "radio_snr" in sm else None) for fn in MODALITY_FEATURES}
+    neo = star.get("neowise", {}) or {}
+    lc = star.get("lightcurves", {}) or {}
+    spec = star.get("spectra", {}) or {}
+    vd = star.get("vanishing_data", {}) or {}
+    n_neo = len(neo.get("w2_mjy") or [])
+    n_lc = len(lc.get("tess_flux_qlp") or [])
+    # spec_line_snr is the maximum over both exposures, so its null is the maximum over all their points
+    n_spec = (len(spec.get("flux_exp1") or []) + len(spec.get("flux_exp2") or [])) if (spec.get("flux_exp1") and spec.get("flux_exp2")) else 0
+    out: dict[str, int | None] = {
+        "ir_var_chi2": n_neo if n_neo else (0 if "ir_var_chi2" in sm else None),
+        "dip_snr": n_lc if n_lc else (0 if "dip_snr" in sm else None),
+        "spec_line_snr": n_spec if n_spec else (0 if "spec_line_snr" in sm else None),
+        "vanished_margin": 1 if vd else (0 if "vanished_margin" in sm else None),
+        "radio_snr": 0 if "radio_snr" in sm else None,
+    }
+    return out
+
+
+def modality_significance(
+    raw: dict[str, float],
+    presence: dict[str, int | None],
+    ch_cfg: dict[str, Any],
+) -> dict[str, float]:
+    """Express each present modality feature as an excess over its noise expectation, in units of the noise sigma.
+
+    - `dip_snr`, `spec_line_snr`: robust-sigma depth/height of the most extreme of n points, minus the expected maximum
+      of n Gaussian points (n from the data, else `modality_null_default_n_points`).
+    - `ir_var_chi2`: reduced chi^2 of the visits about their median -> rms excess, sqrt(chi2_r) - 1.
+    - `vanished_margin`: magnitudes below the modern survey limit / plate photometric sigma.
+    - `radio_snr`: already a signal-to-noise ratio about a zero null.
+    Absent modalities stay exactly 0.0 (no evidence; L003). Null-centred, unit-sigma scale: no background spread needed.
+    """
+    n_default = int(ch_cfg["modality_null_default_n_points"])
+    plate_sigma = float(ch_cfg["vanished_margin_plate_sigma_mag"])
+    out: dict[str, float] = {}
+    for fn in MODALITY_FEATURES:
+        n = presence.get(fn)
+        val = float(raw[fn])
+        if n is None:
+            out[fn] = 0.0
+        elif fn in {"dip_snr", "spec_line_snr"}:
+            out[fn] = val - _expected_max_std_normal(n if n > 1 else n_default)
+        elif fn == "ir_var_chi2":
+            out[fn] = math.sqrt(max(0.0, val)) - 1.0
+        elif fn == "vanished_margin":
+            out[fn] = val / plate_sigma
+        else:
+            out[fn] = val
+    return out
+
+
 class GenericOutlierChannel:
     name = "generic_outlier"
 
@@ -276,24 +364,40 @@ class GenericOutlierChannel:
         self._if_ref_scores: np.ndarray | None = None
         self._lof_ref_scores: np.ndarray | None = None
 
-    def _standardize(self, raw_matrix: np.ndarray) -> np.ndarray:
-        """Standardize each feature conditionally against stars of similar BP-RP color (Section 5.6)."""
+    def _standardize(self, raw_matrix: np.ndarray, modality_z: np.ndarray | None = None) -> np.ndarray:
+        """Standardize each feature conditionally against stars of similar BP-RP color (Section 5.6).
+
+        Modality columns are replaced by their noise-model significances (`modality_significance`); when
+        `modality_z` is None every modality is treated as absent (0.0).
+        """
         assert self._color_centers is not None and self._bin_medians is not None and self._bin_mads is not None
         bp_rp = raw_matrix[:, 0]
         idx = np.argmin(np.abs(bp_rp[:, None] - self._color_centers[None, :]), axis=1)
         med = self._bin_medians[idx]
         mad = self._bin_mads[idx]
         z = (raw_matrix - med) / mad
-        # Keep bp_rp itself globally standardized cleanly against full sample
+        z[:, list(_MODALITY_IDX)] = 0.0 if modality_z is None else modality_z
         return z
 
-    def fit_background(self, stars: list[dict[str, Any]], sub_metrics_by_id: dict[str, dict[str, float]] | None = None) -> None:
+    def feature_matrices(
+        self,
+        stars: list[dict[str, Any]],
+        sub_metrics_by_id: dict[str, dict[str, float]] | None = None,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Raw feature matrix and modality-significance matrix for a list of stars."""
         sub = sub_metrics_by_id or {}
-        rows = [
-            [extract_raw_feature_vector(s, sub.get(s["source_id"]))[fn] for fn in FEATURE_NAMES]
-            for s in stars[:1500]
-        ]
-        mat = np.asarray(rows, dtype=float)
+        raw_rows: list[list[float]] = []
+        mod_rows: list[list[float]] = []
+        for s_ in stars:
+            sm = sub.get(str(s_["source_id"]))
+            raw = extract_raw_feature_vector(s_, sm)
+            sig = modality_significance(raw, extract_modality_presence(s_, sm), self.ch_cfg)
+            raw_rows.append([raw[fn] for fn in FEATURE_NAMES])
+            mod_rows.append([sig[fn] for fn in MODALITY_FEATURES])
+        return np.asarray(raw_rows, dtype=float), np.asarray(mod_rows, dtype=float)
+
+    def fit_background(self, stars: list[dict[str, Any]], sub_metrics_by_id: dict[str, dict[str, float]] | None = None) -> None:
+        mat, mod_mat = self.feature_matrices(stars[:1500], sub_metrics_by_id)
         bp_rp = mat[:, 0]
         global_med = np.median(mat, axis=0)
         global_mad = np.maximum(0.25, 1.4826 * np.median(np.abs(mat - global_med), axis=0))
@@ -323,7 +427,7 @@ class GenericOutlierChannel:
         self._color_centers = np.asarray(centers, dtype=float)
         self._bin_medians = np.asarray(bin_meds, dtype=float)
         self._bin_mads = np.asarray(bin_mads, dtype=float)
-        z_mat = self._standardize(mat)
+        z_mat = self._standardize(mat, mod_mat)
 
         self._iforest = _IsolationForest(
             n_trees=max(200, int(self.ch_cfg["iforest_n_trees"])),
@@ -364,8 +468,10 @@ class GenericOutlierChannel:
 
         sub_metrics = data.get("sub_metrics")
         feats = extract_raw_feature_vector(star, sub_metrics)
+        presence = extract_modality_presence(star, sub_metrics)
+        sig = modality_significance(feats, presence, self.ch_cfg)
         vec = np.array([[feats[fn] for fn in FEATURE_NAMES]], dtype=float)
-        z_vec = self._standardize(vec)
+        z_vec = self._standardize(vec, np.array([[sig[fn] for fn in MODALITY_FEATURES]], dtype=float))
 
         if_score = float(self._iforest.score_samples(z_vec)[0])
         lof_score = float(self._lof.score_samples(z_vec)[0])
@@ -387,6 +493,12 @@ class GenericOutlierChannel:
         }
         for idx, fn in enumerate(FEATURE_NAMES):
             values[f"z_{fn}"] = float(z_vec[0, idx])
+        for fn in MODALITY_FEATURES:
+            values[f"present_{fn}"] = 0.0 if presence[fn] is None else 1.0
+        absent = [fn for fn in MODALITY_FEATURES if presence[fn] is None]
+        caveats = ["Hypothesis-free outlier score provides leads only; every driving feature must pass domain vetting."]
+        if absent:
+            caveats.append(f"Modalities not observed (feature set to 0.0, no evidence either way): {', '.join(absent)}.")
 
         return Measurement(
             source_id=str(star["source_id"]),
@@ -394,7 +506,7 @@ class GenericOutlierChannel:
             values=values,
             uncertainties={"iforest_score": 0.02, "lof_score": 0.1},
             epochs=["multi-archive"],
-            caveats=["Hypothesis-free outlier score provides leads only; every driving feature must pass domain vetting."],
+            caveats=caveats,
         )
 
     def score(self, m: Measurement) -> ChannelScore:
