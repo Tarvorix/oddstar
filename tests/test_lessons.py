@@ -272,5 +272,12 @@ def test_lesson_l005_channel_scoped_metallicity_wise_routing_and_southern_ls_dr1
     }
     enriched, _ = enrich_star_live_for_vetting(south_star, cfg, cache)
     assert seen_ls == ["csv"]
-    assert enriched["vetting_archive"]["deep_imaging_available"] is True
-    assert enriched["vetting_archive"]["deep_imaging_offset_galaxy"] is not None
+    # The seeing-limited LS DR10 catalogue is a neighbour screen only (it can never clear deep_imaging). The
+    # extended Tractor source ~4" away is recorded; with no photosphere (no Ks/Teff) the target excess is
+    # unknown, so it is not promoted to a contaminant.
+    va = enriched["vetting_archive"]
+    assert va["query_status"]["deep_optical_ls_dr10"] == "ok"
+    assert any("Legacy Survey DR10" in s for s in va["neighbour_screen"]["surveys"])
+    ext = va["neighbour_screen"]["extended_neighbours"]
+    assert len(ext) == 1 and ext[0]["ls_type"] == "EXP" and 3.0 < ext[0]["sep_arcsec"] < 5.0
+    assert "deep_imaging_available" not in va and "deep_imaging_offset_galaxy" not in va

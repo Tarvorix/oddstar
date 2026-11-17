@@ -336,6 +336,9 @@ def _make_base_star(
         "simbad_type": str(fdict.get("simbad_type", simbad_type)),
         "known_in_literature": known_in_literature,
         "2mass_clean": bool(fdict.get("2mass_clean", True)),
+        # Synthetic record with no real sky pixels: vetting reads its explicit inputs as evaluated values and
+        # only these records may use the synthetic cutout renderer.
+        "synthetic_fixture": True,
     }
 
 
@@ -572,6 +575,7 @@ def generate_field_sample(
                 "2mass_clean": True,
                 "simbad_type": "Star",
                 "known_in_literature": False,
+                "synthetic_fixture": True,
             }
         )
     return stars
