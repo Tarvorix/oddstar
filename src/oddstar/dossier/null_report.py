@@ -36,13 +36,48 @@ def write_null_report(
     manifests: list[str],
     cfg: PipelineConfig,
     root: Path,
+    not_searched: dict[str, list[str]] | None = None,
 ) -> tuple[NullReport, Path, Path]:
-    """Emit JSON and Markdown null-result report for a channel run (Section 11)."""
-    n_searched = len(sample_stars)
+    """Emit JSON and Markdown null-result report for a channel run (Section 11).
+
+    `not_searched` maps a reason (e.g. "no_coverage", "failed", "not_fetched", "insufficient_visits") to the source
+    IDs of sample stars the channel could not search. They are excluded from `n_searched`, the distributions and the
+    upper-limit denominators, and recorded as explicit sample cuts. For `ir_timedomain` it is derived from the star
+    records when not given, so a star without NEOWISE coverage or with a failed fetch is never counted as quiet.
+    """
+    if not_searched is None and channel == "ir_timedomain":
+        from oddstar.channels.ir_timedomain.channel import search_coverage_summary
+
+        not_searched = search_coverage_summary(sample_stars, cfg)["not_searched_ids"]
+    excluded: set[str] = set()
+    extra_cuts: list[SampleCutStep] = []
+    n_remaining = len(sample_stars)
+    sample_ids = {str(s.get("source_id")) for s in sample_stars}
+    unknown = sorted({str(x) for v in (not_searched or {}).values() for x in v} - sample_ids)
+    if unknown:
+        # Never let a not-searched star silently fall back into the searched denominator (e.g. a regenerated sample)
+        raise ValueError(f"not_searched lists {len(unknown)} source_id(s) absent from sample_stars: {', '.join(unknown[:5])}")
+    for reason in sorted(not_searched or {}):
+        ids = [i for i in dict.fromkeys(str(x) for x in not_searched[reason]) if i not in excluded]
+        if not ids:
+            continue
+        excluded.update(ids)
+        extra_cuts.append(
+            SampleCutStep(
+                cut_name=f"not_searched_{reason}",
+                description=f"Excluded from the searched denominator: {reason} ({len(ids)} stars)",
+                count_before=n_remaining,
+                count_after=n_remaining - len(ids),
+            )
+        )
+        n_remaining -= len(ids)
+    searched_stars = [s for s in sample_stars if str(s.get("source_id")) not in excluded]
+    sample_cuts = [*sample_cuts, *extra_cuts]
+    n_searched = len(searched_stars)
     dist_bins: Counter[str] = Counter()
     spec_bins: Counter[str] = Counter()
-    for s in sample_stars:
-        d = float(s.get("distance_pc", 100.0))
+    for s in searched_stars:
+        d = float(s.get("distance_pc") or 100.0)
         if d < 50:
             dist_bins["0-50pc"] += 1
         elif d < 100:
@@ -52,7 +87,7 @@ def write_null_report(
         else:
             dist_bins["200-300pc"] += 1
 
-        teff = float(s.get("teff_k", 5800.0))
+        teff = float(s.get("teff_k") or 5800.0)
         if teff >= 7300:
             spec_bins["A_or_hotter"] += 1
         elif teff >= 6000:
@@ -118,6 +153,9 @@ def write_null_report(
         "",
         f"- **Gaia Release**: `{cfg.gaia.release}` | **Config Hash**: `{short_hash}` | **Commit**: `{report.git_commit[:10]}`",
         f"- **Stars Searched**: {n_searched} across {len(healpix_cells)} HEALPix cells (`nside={cfg.storage.healpix_nside}`)",
+        f"- **Not Searched**: {len(excluded)}"
+        + (" (" + ", ".join(f"{c.cut_name.removeprefix('not_searched_')}={c.count_before - c.count_after}" for c in extra_cuts) + ")" if extra_cuts else "")
+        + " (excluded from every denominator below)",
         f"- **Flagged**: {n_flagged} (expected false alarms: {report.expected_false_alarms:.2f})",
         f"- **Tier Breakdown**: {tier_breakdown}",
         "",

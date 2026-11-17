@@ -81,6 +81,9 @@ channels:
     second_survey_min_abs_corr: 0.6
     second_survey_slope_sigma: 3.0
     second_survey_comparable_frac: 0.5
+    # Survey-scale NEOWISE-only fetch (oddstar.io.neowise_bulk); rate limit comes from archives.neowise
+    neowise_bulk_max_attempts: 3
+    neowise_bulk_retry_backoff_s: 2.0
 
   optical_dips:
     detrend_window_days: 5.0
@@ -145,6 +148,8 @@ channels:
     min_combined_quantile: 0.99
     seed: 20261116
     design_point_zscore: 4.5
+    modality_null_default_n_points: 1000
+    vanished_margin_plate_sigma_mag: 0.3
 
   spectral_lines:
     lsf_max_width_kms: 15.0

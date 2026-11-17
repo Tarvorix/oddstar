@@ -139,6 +139,9 @@ class ValidationCertificate(BaseModel):
     expected_false_positives: float
     calibration_curve: list[dict[str, float]] = Field(default_factory=list)
     details: dict[str, Any] = Field(default_factory=dict)
+    # SHA-256 over the source files that determine the channel's validated behaviour (oddstar.validate.fingerprint);
+    # None on certificates issued before code fingerprinting, which therefore cannot authorise a search.
+    code_fingerprint: str | None = None
 
 
 class Coords(BaseModel):

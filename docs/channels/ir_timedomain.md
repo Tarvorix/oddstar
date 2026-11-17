@@ -16,6 +16,7 @@ Year-scale mid-infrared brightening, fading, steps, or bursts (3.4–4.6 um) whi
 Defined in `configs/default.yaml` under `channels.ir_timedomain`:
 - `reduced_chi2_threshold: 5.0`, `slope_snr_threshold: 4.0`, `jump_snr_threshold: 4.5`
 - `optical_flat_max_chi2: 2.5`, `min_visits: 6`
+- `neowise_bulk_max_attempts: 3`, `neowise_bulk_retry_backoff_s: 2.0` (survey NEOWISE fetch, since 1.1.0)
 
 ## Known Impostors
 - Bright blended W1/W2 neighbours, Mira/LPV long-period variables, and scan-direction detector systematics.
@@ -24,7 +25,15 @@ Defined in `configs/default.yaml` under `channels.ir_timedomain`:
 - Variable disks in Moor et al. (2021), `TYC 4209-1322-1`, and `ASASSN-21qj`.
 
 ## Failure Modes
-- Single-exposure NEOWISE queries are heavy; search runs preferentially on `ir_excess`-flagged targets plus controls.
+- Single-exposure NEOWISE queries are heavy. Survey runs use the NEOWISE-only bulk path `oddstar.io.neowise_bulk.enrich_sample_neowise`
+  (one 3" `neowiser_p1bs_psd` cone per star with a reduced column set, IRSA TAP backup), not the full vetting enrichment;
+  it is cached content-addressed (re-runs and resumed runs are free), rate-limited by `archives.neowise.rate_limit_rps`, and retried
+  `neowise_bulk_max_attempts` times with exponential backoff `neowise_bulk_retry_backoff_s`. Visit binning is shared with vetting
+  section 3c (`bin_neowise_visits`); the comparison-star cone stays vetting-only.
+- Coverage is part of the result. Every star gets a search status (`neowise_search_status`): `searched`, `no_coverage` (no rows or no
+  usable frames), `insufficient_visits` (< `min_visits`), `failed` (query failed after retries) or `not_fetched` (never queried, e.g.
+  beyond `--neowise-max-stars`). Only `searched` stars can be flagged or enter the null-report denominator; the others are listed as
+  explicit `not_searched_<reason>` sample cuts, so a failed fetch is never counted as a quiet star.
 
 ## Lessons Applied
 - Enforce `neighbour_signal` and `systematics_window` checks against bright W1/W2 blends and scan-angle systematics.

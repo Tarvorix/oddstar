@@ -20,6 +20,7 @@ from oddstar.fuse.engine import assign_tier
 from oddstar.io.fixtures_data import RADIO_CADENCES, generate_field_sample, get_named_object
 from oddstar.io.physics import BAND_WAVELENGTH_UM, dust_blackbody_flux_mjy, flux_mjy_to_mag
 from oddstar.schemas import ValidationCertificate
+from oddstar.validate.fingerprint import compute_code_fingerprint, diff_file_hashes
 from oddstar.vet.engine import vet_target
 
 
@@ -62,8 +63,81 @@ def load_certificate(
     return ValidationCertificate.model_validate_json(p.read_text(encoding="utf-8"))
 
 
+def certificate_staleness(
+    cert: ValidationCertificate,
+    cfg: PipelineConfig,
+    *,
+    src_root: Path | None = None,
+) -> list[str]:
+    """Reasons why `cert` no longer certifies the current code and config (empty list = current).
+
+    Compares the config hash and the code fingerprint (`oddstar.validate.fingerprint`) of `cert.channel` computed
+    from `src_root` (default: the imported `oddstar` package, i.e. the code a search would run).
+    """
+    reasons: list[str] = []
+    short_hash = compute_config_hash(cfg.model_dump())[:12]
+    if cert.gaia_release != cfg.gaia.release:
+        reasons.append(f"gaia_release {cert.gaia_release} != current {cfg.gaia.release}")
+    if cert.config_hash != short_hash:
+        reasons.append(f"config_hash {cert.config_hash} != current {short_hash}")
+    try:
+        current_fp, current_files = compute_code_fingerprint(cert.channel, src_root)
+    except (FileNotFoundError, SyntaxError, UnicodeDecodeError) as exc:
+        reasons.append(f"code fingerprint could not be computed: {type(exc).__name__}: {exc}")
+        return reasons
+    if cert.code_fingerprint is None:
+        reasons.append("certificate has no code_fingerprint (issued before code fingerprinting)")
+    elif cert.code_fingerprint != current_fp:
+        changed = diff_file_hashes(cert.details.get("code_fingerprint_files"), current_files)
+        detail = f": {', '.join(changed[:12])}{' ...' if len(changed) > 12 else ''}" if changed else ""
+        reasons.append(f"code_fingerprint {cert.code_fingerprint[:12]} != current {current_fp[:12]}{detail}")
+    return reasons
+
+
+def certificate_status(channel: str, cfg: PipelineConfig, root: Path, *, src_root: Path | None = None) -> dict[str, Any]:
+    """Status-facing summary of the certificate `search` would use for `channel` (release and config of `cfg`).
+
+    Keys: channel, gaia_release, config_hash, certificate (relative path), exists, passed, stale, usable (exists,
+    passed and not stale: what `search` requires), reasons.
+    """
+    short_hash = compute_config_hash(cfg.model_dump())[:12]
+    path = root / "validation" / "certificates" / f"{channel}-{cfg.gaia.release}-{short_hash}.json"
+    row: dict[str, Any] = {
+        "channel": channel,
+        "gaia_release": cfg.gaia.release,
+        "config_hash": short_hash,
+        "certificate": str(path.relative_to(root)),
+        "exists": path.exists(),
+        "passed": False,
+        "stale": False,
+        "usable": False,
+        "reasons": [],
+    }
+    if not path.exists():
+        row["reasons"] = ["no certificate for the current config hash"]
+        return row
+    cert = ValidationCertificate.model_validate_json(path.read_text(encoding="utf-8"))
+    reasons = certificate_staleness(cert, cfg, src_root=src_root)
+    row["passed"] = bool(cert.passed)
+    row["stale"] = bool(reasons)
+    row["usable"] = bool(cert.passed and not reasons)
+    row["reasons"] = reasons if cert.passed else ["certificate did not pass", *reasons]
+    return row
+
+
+def all_certificate_status(cfg: PipelineConfig, root: Path, *, src_root: Path | None = None) -> list[dict[str, Any]]:
+    """`certificate_status` for every registered channel (for `oddstar status`)."""
+    from oddstar.channels import ALL_CHANNEL_NAMES
+
+    return [certificate_status(ch, cfg, root, src_root=src_root) for ch in ALL_CHANNEL_NAMES]
+
+
 def require_valid_certificate(channel: str, cfg: PipelineConfig, root: Path) -> ValidationCertificate:
-    """Enforce Ground Rule R1/R2/R4 lockout on oddstar search."""
+    """Enforce Ground Rule R1/R2/R4 lockout on oddstar search.
+
+    The certificate must exist for the current release and config hash, must have passed, and its code fingerprint
+    must equal the fingerprint of the code that will run the search.
+    """
     short_hash = compute_config_hash(cfg.model_dump())[:12]
     cert = load_certificate(channel, cfg, root)
     if cert is None:
@@ -81,6 +155,13 @@ def require_valid_certificate(channel: str, cfg: PipelineConfig, root: Path) -> 
         raise UncertifiedSearchError(
             f"Search blocked: certificate config_hash {cert.config_hash} does not match {short_hash}.",
             hint=f"Re-run `oddstar validate {channel}` for the current config.",
+        )
+    stale = [r for r in certificate_staleness(cert, cfg) if not r.startswith("config_hash")]
+    if stale:
+        raise UncertifiedSearchError(
+            f"Search blocked: validation certificate for '{channel}' is stale; the code it validated has changed "
+            f"({'; '.join(stale)}).",
+            hint=f"Re-run `oddstar validate {channel}` on the current code before searching.",
         )
     return cert
 
@@ -518,11 +599,8 @@ def _run_test4_false_alarms(
 
     elif channel_name == "generic_outlier":
         # Shuffle each conditionally-standardized feature column independently across background stars
-        from oddstar.channels.generic_outlier.channel import FEATURE_NAMES, extract_raw_feature_vector
-
-        raw_dicts = [extract_raw_feature_vector(s) for s in field_stars[:n_null]]
-        raw_mat = np.asarray([[d[fn] for fn in FEATURE_NAMES] for d in raw_dicts], dtype=float)
-        z_mat = ch._standardize(raw_mat).copy()
+        raw_mat, mod_mat = ch.feature_matrices(field_stars[:n_null])
+        z_mat = ch._standardize(raw_mat, mod_mat).copy()
         for col_idx in range(z_mat.shape[1]):
             rng.shuffle(z_mat[:, col_idx])
         assert ch._iforest is not None and ch._lof is not None
@@ -654,6 +732,8 @@ def run_validation(
         channel_name, cfg, field_stars, root
     )
 
+    code_fp, code_files = compute_code_fingerprint(channel_name)
+
     passed = (
         blind_rate >= float(cfg.validation.blind_recovery_min)
         and imp_ok
@@ -684,7 +764,9 @@ def run_validation(
         details={
             "blind_recovery": blind_details,
             "impostor_rejection": imp_details,
+            "code_fingerprint_files": code_files,
         },
+        code_fingerprint=code_fp,
     )
 
     cert_path = _certificate_path(root, channel_name, cfg.gaia.release, short_hash)
@@ -704,6 +786,7 @@ def run_validation(
                         "passed": cert.passed,
                         "blind_recovery_rate": cert.blind_recovery_rate,
                         "impostor_pass": cert.impostor_pass,
+                        "code_fingerprint": code_fp,
                     }
                 )
                 + "\n"

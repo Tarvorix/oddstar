@@ -1231,111 +1231,41 @@ def enrich_star_live_for_vetting(
             out["wise_single_frames_w4_mjy"] = w4_frames_mjy
         va["wise_l1b_frame_mjds"] = sorted(frame_mjds)
 
-    # 3c. NEOWISE-R multi-epoch W1/W2 light curve (IRSA Gator fast path -> IRSA TAP)
-    neo_rows: list[dict[str, Any]] = []
-    neo_primary_err: str | None = None
-    try:
+    # 3c. NEOWISE-R multi-epoch W1/W2 light curve (IRSA Gator fast path -> IRSA TAP). The query and the visit binning
+    #     are shared with the survey-scale NEOWISE-only path in oddstar.io.neowise_bulk.
+    from oddstar.io.neowise_bulk import bin_neowise_visits, fetch_neowise_single_exposures
+
+    neo_rows, neo_manifests, qs["neowise"], _ = fetch_neowise_single_exposures(ra, dec, cache)
+    manifests.extend(neo_manifests)
+
+    binned = bin_neowise_visits(neo_rows, ra=ra, dec=dec, pmra=pmra, pmdec=pmdec) if neo_rows else None
+    if binned is not None:
+        neo_dict, v_win, target_w1_mag = binned
+        # Field-star ensemble on the same visit grid for systematics_window (vetting-only; channel inputs unchanged)
+        from oddstar.io.optical_timeseries import build_neowise_comparison
+
+        itd = cfg.channels["ir_timedomain"]
+        comp_r = float(itd["neowise_comparison_radius_arcsec"])
         try:
-            neo_rows, m_neo, _ = _gator_cone_cached(
-                catalog="neowiser_p1bs_psd", ra=ra, dec=dec, radius_arcsec=3.0, archive="neowise", release="neowise_r", cache=cache, timeout_s=25
+            c_rows, m_cmp, _ = _gator_cone_cached(
+                catalog="neowiser_p1bs_psd", ra=ra, dec=dec, radius_arcsec=comp_r,
+                archive="neowise", release="neowise_r_field", cache=cache, timeout_s=120,
             )
-            manifests.append(m_neo)
-        except Exception as exc_primary:
-            neo_primary_err = _failed(exc_primary)  # kept so a backup failure reports both
-            q_neo = (
-                f"SELECT mjd, w1mpro, w1sigmpro, w2mpro, w2sigmpro, qual_frame, qi_fact "
-                f"FROM neowiser_p1bs_psd WHERE 1=CONTAINS(POINT('ICRS', ra, dec), CIRCLE('ICRS', {ra:.6f}, {dec:.6f}, 0.00083)) "
-                f"AND qual_frame > 0"
+            manifests.append(m_cmp)
+            comp = build_neowise_comparison(
+                c_rows, ra=ra, dec=dec, visit_windows=v_win,
+                target_w1_mag=target_w1_mag,
+                exclude_arcsec=float(itd["neowise_comparison_exclude_arcsec"]),
+                mag_window=float(itd["neowise_comparison_mag_window"]),
+                min_stars=int(itd["neowise_comparison_min_stars"]),
+                max_stars=int(itd["neowise_comparison_max_stars"]),
             )
-            neo_rows, m_neo, _ = _tap_query_cached(url=IRSA_TAP_URL, query=q_neo, archive="neowise", release="neowise_r", cache=cache, timeout_s=30)
-            manifests.append(m_neo)
-        qs["neowise"] = "ok" if neo_rows else "no_coverage"
-    except Exception as exc:
-        qs["neowise"] = _failed(exc) + (f" (gator primary {neo_primary_err})" if neo_primary_err else "")
-        neo_rows = []
-
-    if neo_rows:
-        pts: list[tuple[float, float, float, float | None, float | None]] = []
-        for row in neo_rows:
-            qf = _safe_float(row.get("qual_frame"))
-            mjd_val = _safe_float(row.get("mjd"))
-            w1_val = _safe_float(row.get("w1mpro"))
-            w2_val = _safe_float(row.get("w2mpro"))
-            r_ra = _safe_float(row.get("ra"))
-            r_dec = _safe_float(row.get("dec"))
-            if (qf is None or qf > 0) and mjd_val is not None and w1_val is not None and w2_val is not None:
-                pts.append((mjd_val, w1_val, w2_val, r_ra, r_dec))
-        pts.sort(key=lambda x: x[0])
-        if pts:
-            # Bin into ~180-day semi-annual visits and check PM-corrected astrometric trajectory
-            bins: list[tuple[float, list[tuple[float, float, float, float | None, float | None]]]] = []
-            for item in pts:
-                if not bins or item[0] - bins[-1][0] > 120.0:
-                    bins.append((item[0], [item]))
-                else:
-                    bins[-1][1].append(item)
-            v_mjd, v_w1, v_w2, v_e1, v_e2, pm_resids = [], [], [], [], [], []
-            v_dra: list[float | None] = []
-            v_ddec: list[float | None] = []
-            v_win: list[tuple[float, float]] = []
-            v_nfr: list[int] = []
-            for _, grp in bins:
-                mjd_med = float(np.median([x[0] for x in grp]))
-                v_mjd.append(mjd_med)
-                v_win.append((float(grp[0][0]), float(grp[-1][0])))
-                v_nfr.append(len(grp))
-                f1s = [mag_to_flux_mjy("W1", x[1]) for x in grp]
-                f2s = [mag_to_flux_mjy("W2", x[2]) for x in grp]
-                m1 = float(np.median(f1s))
-                m2 = float(np.median(f2s))
-                v_w1.append(m1)
-                v_w2.append(m2)
-                v_e1.append(max(0.05, float(1.4826 * np.median(np.abs(np.asarray(f1s) - m1))) / math.sqrt(len(grp)), m1 * 0.02))
-                v_e2.append(max(0.05, float(1.4826 * np.median(np.abs(np.asarray(f2s) - m2))) / math.sqrt(len(grp)), m2 * 0.02))
-                ras_g = [x[3] for x in grp if x[3] is not None]
-                decs_g = [x[4] for x in grp if x[4] is not None]
-                if ras_g and decs_g:
-                    jyr = 2000.0 + (mjd_med - 51544.5) / 365.25
-                    pra, pdec = propagate_position(ra, dec, pmra, pmdec, 2016.0, jyr)
-                    r_med, d_med = float(np.median(ras_g)), float(np.median(decs_g))
-                    pm_resids.append(angular_separation_arcsec(r_med, d_med, pra, pdec))
-                    # Per-visit residual vector from the Gaia PM track (RA*cos(Dec), Dec; arcsec) for neighbour_signal
-                    v_dra.append(round(((r_med - pra + 540.0) % 360.0 - 180.0) * math.cos(math.radians(pdec)) * 3600.0, 5))
-                    v_ddec.append(round((d_med - pdec) * 3600.0, 5))
-                else:
-                    v_dra.append(None)
-                    v_ddec.append(None)
-            neo_dict: dict[str, Any] = {"mjd": v_mjd, "w1_mjy": v_w1, "w2_mjy": v_w2, "w1_err_mjy": v_e1, "w2_err_mjy": v_e2}
-            if pm_resids:
-                neo_dict["median_pm_residual_arcsec"] = float(np.median(pm_resids))
-                neo_dict["pm_residual_ra_arcsec"] = v_dra
-                neo_dict["pm_residual_dec_arcsec"] = v_ddec
-            neo_dict["visit_n_frames"] = v_nfr
-            # Field-star ensemble on the same visit grid for systematics_window (vetting-only; channel inputs unchanged)
-            from oddstar.io.optical_timeseries import build_neowise_comparison
-
-            itd = cfg.channels["ir_timedomain"]
-            comp_r = float(itd["neowise_comparison_radius_arcsec"])
-            try:
-                c_rows, m_cmp, _ = _gator_cone_cached(
-                    catalog="neowiser_p1bs_psd", ra=ra, dec=dec, radius_arcsec=comp_r,
-                    archive="neowise", release="neowise_r_field", cache=cache, timeout_s=120,
-                )
-                manifests.append(m_cmp)
-                comp = build_neowise_comparison(
-                    c_rows, ra=ra, dec=dec, visit_windows=v_win,
-                    target_w1_mag=float(np.median([x[1] for x in pts])),
-                    exclude_arcsec=float(itd["neowise_comparison_exclude_arcsec"]),
-                    mag_window=float(itd["neowise_comparison_mag_window"]),
-                    min_stars=int(itd["neowise_comparison_min_stars"]),
-                    max_stars=int(itd["neowise_comparison_max_stars"]),
-                )
-                comp["query_log"] = [f"Gator neowiser_p1bs_psd {comp_r:.0f}\" cone: {len(c_rows)} rows"]
-            except (ArchiveAccessError, requests.RequestException, ValueError, KeyError, OSError) as exc:
-                comp = {"status": "query_failed", "n_stars": 0, "query_log": [f"{type(exc).__name__}: {str(exc)[:240]}"]}
-            comp["radius_arcsec"] = comp_r
-            neo_dict["comparison"] = comp
-            out["neowise"] = neo_dict
+            comp["query_log"] = [f"Gator neowiser_p1bs_psd {comp_r:.0f}\" cone: {len(c_rows)} rows"]
+        except (ArchiveAccessError, requests.RequestException, ValueError, KeyError, OSError) as exc:
+            comp = {"status": "query_failed", "n_stars": 0, "query_log": [f"{type(exc).__name__}: {str(exc)[:240]}"]}
+        comp["radius_arcsec"] = comp_r
+        neo_dict["comparison"] = comp
+        out["neowise"] = neo_dict
 
     # 4. Second-instrument 18-25 um archival check (Spitzer, AKARI IRC/FIS). A catalogue row within 10" is
     #    recorded as an unverified match: the photometry is not compared with W4 here.

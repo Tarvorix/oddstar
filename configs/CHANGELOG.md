@@ -70,6 +70,22 @@ changes, so validation certificates must be regenerated for the new hash.
 - `vetting`: `tess_neighbour_radius_px: 2.0` (Gaia cone for TESS-aperture neighbours), `sso_tess_radius_px: 2.0`
   (SkyBoT radius at TESS event times = 2 x `tess_pixel_arcsec`), `sso_min_flux_ratio_of_depth: 0.1`.
 
+### generic_outlier re-certification, code fingerprints, survey-scale NEOWISE (wt/survey-scale)
+Keys added only; no existing threshold or gate changed. The config hash changes, so every channel must be re-validated;
+certificates now also carry `code_fingerprint` and go stale when the validated code changes.
+- `channels.generic_outlier.modality_null_default_n_points: 1000` - series length assumed for the noise expectation of a
+  `dip_snr` / `spec_line_snr` value supplied without its series (`sub_metrics`), i.e. E[max of 1000 N(0,1)] = 3.23 (Blom approximation).
+- `channels.generic_outlier.vanished_margin_plate_sigma_mag: 0.3` - photographic-plate magnitude uncertainty (USNO-B1.0,
+  Monet et al. 2003) used to express `vanished_margin` in sigma.
+- Behaviour (generic_outlier): a present modality feature is now an excess over its own noise expectation (absent stays 0.0,
+  L003); the Isolation Forest draws split attributes from all features (Liu et al. 2008), so a feature constant in the
+  background can still isolate a query; `spec_line_snr` is the strongest single-exposure feature (repeat test left to the
+  spectral vetting suite, like `dip_snr`). See `docs/channels/generic_outlier.md`.
+- `channels.ir_timedomain.neowise_bulk_max_attempts: 3`, `neowise_bulk_retry_backoff_s: 2.0` - bounded retries (exponential
+  backoff 2 s, 4 s) of the survey NEOWISE-only fetch (`oddstar.io.neowise_bulk`); its rate limit is `archives.neowise.rate_limit_rps`.
+- Behaviour (ir_timedomain): stars without NEOWISE coverage, with a failed or missing NEOWISE fetch, or with fewer than
+  `min_visits` visits are reported as not searched and excluded from null-report denominators (detection thresholds unchanged).
+
 ## [1.0.0] - 2026-11-16
 - Initial frozen baseline configuration for all 8 search channels, 23 archive adapters, and 42 vetting checks.
 - Set `storage.max_cache_gb: 10.0` per workstation disk budget decision (with process-and-evict retention of manifest SHA-256 hashes for heavy raw radio/pixel payloads).
