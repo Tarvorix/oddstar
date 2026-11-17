@@ -130,8 +130,15 @@ def test_mast_ps1_filters_single_detection_ghosts(tmp_path: Path, monkeypatch: A
     monkeypatch.setattr(requests, "get", fake_get)
 
     enriched, _ = enrich_star_live_for_vetting(star, cfg, cache)
-    assert enriched["vetting_archive"]["deep_imaging_available"] is True
-    assert enriched["vetting_archive"]["deep_imaging_offset_galaxy"] is None
+    va = enriched["vetting_archive"]
+    # The PS1 catalogue is recorded as a neighbour screen only; it no longer sets a "deep imaging available" pass.
+    assert va["query_status"]["deep_optical_ps1"] == "ok"
+    screen = va["neighbour_screen"]
+    assert screen["surveys"] and screen["surveys"][0].startswith("PS1 DR2")
+    assert screen["contaminant"] is None
+    # The nDetections=1 ghost ~4.8" away is filtered out, not recorded as a faint point source.
+    assert screen["faint_point_sources"] == [] and screen["extended_neighbours"] == []
+    assert "deep_imaging_available" not in va
 
 
 def test_live_region_queries_halo_and_bulge(tmp_path: Path, monkeypatch: Any) -> None:
