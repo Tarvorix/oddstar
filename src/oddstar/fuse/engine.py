@@ -75,6 +75,9 @@ ASTROPHYSICAL_EXPLAINED_CHECKS = {
     "vision_rubric",
 }
 
+IR_CHANNELS = {"ir_excess", "ir_timedomain"}
+OPTICAL_COLOR_ONLY_EXPLAINERS = {"metallicity"}
+
 
 def calibrate_fap(raw_stat: float, cert: ValidationCertificate | None, fallback_fap: float) -> float:
     """Convert raw channel statistic to calibrated false-alarm probability using Test 4 curve."""
@@ -96,19 +99,26 @@ def assign_tier(
     failed = [v for v in vetting if v.status == "fail"]
     not_eval = [v for v in vetting if v.status == "not_evaluated"]
 
+    flagged = [s for s in scores if s.flagged]
+    if not flagged:
+        return "Explained", "Not flagged above channel thresholds"
+
     # Check artifact/integrity failures first -> Rejected
     for v in failed:
         if v.check in ARTIFACT_INTEGRITY_CHECKS:
             return "Rejected", f"Failed integrity/artifact check '{v.check}': {v.note}"
 
-    # Astrophysical/background impostor failures -> Explained (kept in ledger)
-    if failed:
-        first = failed[0]
-        return "Explained", f"Explained by '{first.check}': {first.note}"
+    # Astrophysical/background impostor failures -> Explained (scoped by flagged modality;
+    # optical subdwarf metallicity never explains an active mid-IR excess or IR variability flag).
+    flagged_channels = {s.channel for s in flagged}
+    if flagged_channels & IR_CHANNELS:
+        explaining_failed = [v for v in failed if v.check not in OPTICAL_COLOR_ONLY_EXPLAINERS]
+    else:
+        explaining_failed = failed
 
-    flagged = [s for s in scores if s.flagged]
-    if not flagged:
-        return "Explained", "Not flagged above channel thresholds"
+    if explaining_failed:
+        first = explaining_failed[0]
+        return "Explained", f"Explained by '{first.check}': {first.note}"
 
     # Any open hole caps tier strictly at C (Rule R9)
     if not_eval:

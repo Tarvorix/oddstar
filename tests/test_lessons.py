@@ -167,3 +167,110 @@ def test_lesson_l004_known_pulsating_variable_simbad_types(tmp_path: Path) -> No
     tier, reason = assign_tier([score], vet, cfg)
     assert tier == "Explained"
     assert reason and "known_variable" in reason
+
+
+def test_lesson_l005_channel_scoped_metallicity_wise_routing_and_southern_ls_dr10(tmp_path: Path, monkeypatch: Any) -> None:
+    """L005: (1) metallicity=fail must NOT explain away an active ir_excess flag in assign_tier;
+    (2) WISE-driven generic_outlier flags (ks_w3, w3_w4) must route through run_ir_vetting (rejecting AABU/neighbours);
+    (3) check_wise_quality catches hh00 W1/W2 halo contamination and low w4nm/w4m frame fractions;
+    (4) southern Dec <= -30 targets query DECam ls_dr10.tractor via CSV TAP without a Dec > -30 gate.
+    """
+    import requests
+    from oddstar.io.cache import RawCache
+    from oddstar.io.live_survey import enrich_star_live_for_vetting
+    from oddstar.schemas import ChannelScore
+
+    cfg, _, _ = load_config()
+
+    # 1. metallicity=fail must NOT mask an active ir_excess flag
+    ir_star = {
+        "source_id": "6739572937544816000",
+        "ra_deg": 292.0619,
+        "dec_deg": -36.5529,
+        "abs_g_mag": 4.02,
+        "teff_k": 5745.0,
+        "feh": -1.44,
+        "ruwe": 0.96,
+        "mags": {"G": 13.93, "BP": 14.33, "RP": 13.36, "J": 12.66, "Ks": 12.20, "W1": 12.06, "W2": 12.05, "W3": 10.68, "W4": 8.05},
+        "flux_mjy": {"W4": 5.0},
+        "allwise": {"ra_deg": 292.0619, "dec_deg": -36.5529, "cc_flags": "0000", "ext_flg": 0, "ph_qual": "AAAB", "w4rchi2": 0.92, "w4m": 14, "n_neighbours_gaia_xmatch": 1},
+        "wise_single_frames_w4_mjy": [5.0] * 14,
+        "vetting_archive": {"deep_imaging_available": False, "second_instrument_ir": None, "neighbours_in_w4_beam": [], "radio_sources_within_10arcsec": [], "moving_objects_2010": [], "nss_flag": 0, "rv_scatter_kms": 0.2},
+    }
+    sc_ir = ChannelScore(source_id="6739572937544816000", channel="ir_excess", raw_statistic=7.3, false_alarm_prob=3.9e-7, flagged=True, rank_score=12.0, summary="IR")
+    sc_out = ChannelScore(source_id="6739572937544816000", channel="generic_outlier", raw_statistic=9.1, false_alarm_prob=1e-12, flagged=True, rank_score=12.0, summary="Out", feature_contributions={"chi_w4": 3.9, "ks_w3": 2.5})
+    vet_ir = vet_target(ir_star, [sc_ir, sc_out], cfg, tmp_path / "ev_ir_feh")
+    assert {v.check: v.status for v in vet_ir}["metallicity"] == "fail"
+    tier_ir, _ = assign_tier([sc_ir, sc_out], vet_ir, cfg)
+    assert tier_ir == "C"
+
+    # 2. WISE-driven generic_outlier (ks_w3=-4.83, AABU, 17 neighbours) routes through IR vetting -> Rejected
+    lmc_star = {
+        "source_id": "4651844963414920576",
+        "ra_deg": 82.4412,
+        "dec_deg": -70.9409,
+        "abs_g_mag": 3.86,
+        "teff_k": 5980.0,
+        "feh": -0.86,
+        "ruwe": 0.89,
+        "mags": {"G": 12.07, "BP": 12.37, "RP": 11.58, "J": 11.04, "Ks": 10.64, "W1": 10.62, "W2": 10.66, "W3": 11.87, "W4": 9.69},
+        "flux_mjy": {"W4": 1.1},
+        "allwise": {"ra_deg": 82.4411, "dec_deg": -70.9407, "cc_flags": "0000", "ext_flg": 0, "ph_qual": "AABU", "w4rchi2": 1.07, "w4m": 46, "n_neighbours_gaia_xmatch": 1},
+        "vetting_archive": {"deep_imaging_available": False, "neighbours_in_w4_beam": [{"id": "n1", "sep_arcsec": 5.0, "flux_frac": 0.30}], "radio_sources_within_10arcsec": [], "moving_objects_2010": []},
+    }
+    sc_lmc = ChannelScore(source_id="4651844963414920576", channel="generic_outlier", raw_statistic=5.29, false_alarm_prob=0.0078, flagged=True, rank_score=2.11, summary="Out", feature_contributions={"ks_w3": -4.83, "w3_w4": -1.78})
+    vet_lmc = vet_target(lmc_star, [sc_lmc], cfg, tmp_path / "ev_lmc")
+    by_lmc = {v.check: v for v in vet_lmc}
+    assert by_lmc["wise_quality"].status == "fail"
+    assert by_lmc["neighbours"].status == "fail"
+    tier_lmc, _ = assign_tier([sc_lmc], vet_lmc, cfg)
+    assert tier_lmc == "Rejected"
+
+    # 3. hh00 cc_flags and low w4nm/w4m frame detection fraction fail wise_quality
+    from oddstar.vet.ir_checks import check_wise_quality
+    hh_star = dict(ir_star, allwise=dict(ir_star["allwise"], cc_flags="hh00"))
+    assert check_wise_quality(hh_star, cfg, tmp_path / "ev_hh").status == "fail"
+    low_nm_star = dict(ir_star, allwise=dict(ir_star["allwise"], ph_qual="AABB", w4m=41, w4nm=3))
+    assert check_wise_quality(low_nm_star, cfg, tmp_path / "ev_nm").status == "fail"
+
+    # 4. Southern Dec <= -30 queries NOIRLab DECam ls_dr10.tractor via CSV
+    class _Resp:
+        def __init__(self, status_code: int, text: str = "", json_data: Any = None) -> None:
+            self.status_code = status_code
+            self.text = text
+            self._json = json_data or {"metadata": [], "data": []}
+        def json(self) -> Any:
+            return self._json
+
+    seen_ls = []
+    def fake_post(url: str, data: dict[str, Any] | None = None, timeout: int = 15) -> _Resp:
+        q = (data or {}).get("QUERY", "")
+        if "ls_dr10.tractor" in q:
+            seen_ls.append((data or {}).get("FORMAT"))
+            return _Resp(200, text="ls_id,ra,dec,type,flux_g,flux_r,flux_z,flux_w3,flux_w4,flux_ivar_w4\n1,292.061395,-36.551841,EXP,0,0,0,131.8,0,0\n")
+        return _Resp(200)
+
+    def fake_get(url: str, params: dict[str, Any] | None = None, timeout: int = 15) -> _Resp:
+        return _Resp(200, text="# empty\n")
+
+    monkeypatch.setattr(requests, "post", fake_post)
+    monkeypatch.setattr(requests, "get", fake_get)
+    cache = RawCache(tmp_path / "raw_ls", max_cache_gb=1.0)
+    south_star = {
+        "source_id": "6739572937544816000",
+        "name": "Gaia DR3 6739572937544816000",
+        "ra_deg": 292.061921,
+        "dec_deg": -36.552873,
+        "mags": {"G": 13.93, "W4": 8.05},
+        "flux_mjy": {"W4": 5.0},
+        "allwise": {"ra_deg": 292.0619, "dec_deg": -36.5528},
+        "neowise": {"mjd": [], "w1_mjy": [], "w2_mjy": [], "w1_err_mjy": [], "w2_err_mjy": []},
+        "lightcurves": {"ztf_flux": []},
+        "vetting_archive": {"radio_sources_within_10arcsec": [], "deep_imaging_available": False, "deep_imaging_offset_galaxy": None},
+        "wise_single_frames_w4_mjy": [],
+        "live_enriched": False,
+    }
+    enriched, _ = enrich_star_live_for_vetting(south_star, cfg, cache)
+    assert seen_ls == ["csv"]
+    assert enriched["vetting_archive"]["deep_imaging_available"] is True
+    assert enriched["vetting_archive"]["deep_imaging_offset_galaxy"] is not None

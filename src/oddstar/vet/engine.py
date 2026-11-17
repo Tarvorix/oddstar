@@ -69,7 +69,7 @@ def vet_target(
             for feat, contrib in os_score.feature_contributions.items():
                 if abs(contrib) >= 2.0:
                     drivers.add(feat)
-        if any(k in drivers for k in ("chi_w4", "w4_ratio", "chi_w3")):
+        if any(k in drivers for k in ("chi_w4", "w4_ratio", "chi_w3", "ks_w3", "w3_w4")):
             _merge(run_ir_vetting(star_or_cadence, cfg, out_dir))
         has_lc_or_ir = bool(
             star_or_cadence.get("lightcurves", {}).get("tess_flux_qlp")

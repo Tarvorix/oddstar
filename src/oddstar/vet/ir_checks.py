@@ -46,16 +46,36 @@ def check_wise_quality(star: dict[str, Any], cfg: PipelineConfig, out_dir: Path)
     ph_qual = str(aw.get("ph_qual", "AAAA"))
     w4rchi2 = float(aw.get("w4rchi2", 1.0))
     w4m = int(aw.get("w4m", 12))
-    # Fail on artifact flags in W3/W4, extended flag > 1, poor quality U/X, or bad PSF chi2
-    bad_cc = any(c in "DHOPdhop" for c in cc[2:])
+    w4nm = aw.get("w4nm")
+    # Fail on artifact/halo flags in any WISE band (W1/W2 halos corrupt local background),
+    # extended flag > 1, poor quality U/X, bad PSF chi2, or spurious W4 coadds with <15% frame detections.
+    bad_cc = any(c in "DHOPdhop" for c in cc)
     bad_qual = len(ph_qual) >= 4 and ph_qual[3] in {"U", "X"}
-    ok = (not bad_cc) and (ext_flg <= 1) and (not bad_qual) and (w4rchi2 < 3.5) and (w4m >= 5)
+    low_frame_det = (
+        w4nm is not None
+        and w4m >= 5
+        and len(ph_qual) >= 4
+        and ph_qual[3] in {"A", "B", "C"}
+        and (int(w4nm) / max(1, w4m)) < 0.15
+    )
+    ok = (not bad_cc) and (ext_flg <= 1) and (not bad_qual) and (w4rchi2 < 3.5) and (w4m >= 5) and (not low_frame_det)
+    note = f"cc_flags={cc}, ext_flg={ext_flg}, ph_qual={ph_qual}, w4rchi2={w4rchi2:.2f}, w4m={w4m}"
+    if w4nm is not None:
+        note += f", w4nm={int(w4nm)}/{w4m}"
     return make_vet_result(
         out_dir,
         check="wise_quality",
         status="pass" if ok else "fail",
-        note=f"cc_flags={cc}, ext_flg={ext_flg}, ph_qual={ph_qual}, w4rchi2={w4rchi2:.2f}, w4m={w4m}",
-        metrics={"cc_flags": cc, "ext_flg": ext_flg, "ph_qual": ph_qual, "w4rchi2": w4rchi2, "w4m": w4m},
+        note=note,
+        metrics={
+            "cc_flags": cc,
+            "ext_flg": ext_flg,
+            "ph_qual": ph_qual,
+            "w4rchi2": w4rchi2,
+            "w4m": w4m,
+            "w4nm": int(w4nm) if w4nm is not None else None,
+            "low_w4_frame_detection_fraction": low_frame_det,
+        },
     )
 
 

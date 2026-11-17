@@ -163,6 +163,53 @@ def _tap_query_cached(
     )
 
 
+def _tap_csv_query_cached(
+    *,
+    url: str,
+    query: str,
+    archive: str,
+    release: str,
+    cache: RawCache,
+    timeout_s: int = 25,
+) -> tuple[list[dict[str, Any]], ManifestRecord, bool]:
+    """Execute a TAP sync query with FORMAT=csv (used for NOIRLab DataLab) and RawCache provenance."""
+    import csv
+    import io
+
+    sig = hashlib.sha256(f"{url}|csv|{query}".encode("utf-8")).hexdigest()[:24]
+    cached = cache.lookup(archive, release, sig)
+    if cached is not None and not cached.offline_fixture:
+        rows = json.loads(cache.read_bytes(cached).decode("utf-8"))
+        return rows, cached, True
+
+    resp = requests.post(
+        url,
+        data={"REQUEST": "doQuery", "LANG": "ADQL", "FORMAT": "csv", "QUERY": query},
+        timeout=timeout_s,
+    )
+    if resp.status_code != 200 or resp.text.lstrip().startswith("<"):
+        raise ArchiveAccessError(
+            f"CSV TAP query to {archive} failed (HTTP {resp.status_code}): {resp.text[:250]}",
+            retryable=True,
+        )
+    reader = csv.DictReader(io.StringIO(resp.text))
+    rows = [
+        {k: (None if v in {"", "null", "NULL", "NaN", "nan"} else v) for k, v in r.items()}
+        for r in reader
+    ]
+    payload = json.dumps(rows, sort_keys=True).encode("utf-8")
+    manifest = cache.put(
+        archive=archive,
+        release=release,
+        request_signature=sig,
+        query_text=query,
+        payload=payload,
+        row_count=len(rows),
+        offline_fixture=False,
+    )
+    return rows, manifest, False
+
+
 def _gator_cone_cached(
     *,
     catalog: str,
@@ -814,7 +861,7 @@ def enrich_star_live_for_vetting(
         except Exception:
             try:
                 q_aw_dl = (
-                    f"SELECT ra, dec, w4rchi2, w4m, cc_flags, ext_flg, ph_qual "
+                    f"SELECT ra, dec, w4rchi2, w4m, w4nm, w4snr, cc_flags, ext_flg, ph_qual "
                     f"FROM allwise.source WHERE q3c_radial_query(ra, dec, {ra:.6f}, {dec:.6f}, 0.0015)"
                 )
                 aw_rows, m_aw, _ = _tap_query_cached(url=NOIRLAB_TAP_URL, query=q_aw_dl, archive="allwise", release="datalab", cache=cache, timeout_s=20)
@@ -826,10 +873,19 @@ def enrich_star_live_for_vetting(
         best = min(aw_rows, key=lambda r: angular_separation_arcsec(ra, dec, float(r["ra"]), float(r["dec"])))
         w4r = _safe_float(best.get("w4rchi2"))
         w4m = _safe_float(best.get("w4m"))
+        w4nm = _safe_float(best.get("w4nm"))
+        w3nm = _safe_float(best.get("w3nm"))
+        w4snr = _safe_float(best.get("w4snr"))
         if w4r is not None:
             out["allwise"]["w4rchi2"] = w4r
         if w4m is not None:
             out["allwise"]["w4m"] = int(w4m)
+        if w4nm is not None:
+            out["allwise"]["w4nm"] = int(w4nm)
+        if w3nm is not None:
+            out["allwise"]["w3nm"] = int(w3nm)
+        if w4snr is not None:
+            out["allwise"]["w4snr"] = w4snr
         if best.get("cc_flags"):
             out["allwise"]["cc_flags"] = str(best["cc_flags"])
         if best.get("ph_qual"):
@@ -866,8 +922,13 @@ def enrich_star_live_for_vetting(
         w4_frames_mjy: list[float] = []
         for lr in l1b_rows:
             w4_mag = _safe_float(lr.get("w4mpro"))
-            if w4_mag is not None:
+            w4_sig = _safe_float(lr.get("w4sigmpro"))
+            w4_snr = _safe_float(lr.get("w4snr"))
+            if w4_mag is not None and w4_sig is not None and (w4_snr is None or w4_snr >= 2.0):
                 w4_frames_mjy.append(float(mag_to_flux_mjy("W4", w4_mag)))
+            elif w4_mag is not None:
+                # Upper-limit / non-detection frame contributes 0.0 detected flux to single-frame consistency
+                w4_frames_mjy.append(0.0)
         if w4_frames_mjy:
             out["wise_single_frames_w4_mjy"] = w4_frames_mjy
 
@@ -1002,10 +1063,12 @@ def enrich_star_live_for_vetting(
             hits.append({"survey": "NVSS", "sep_arcsec": round(sep, 2), "flux_mjy": rr.get("S1_4") or rr.get("flux_mjy")})
         out["vetting_archive"]["radio_sources_within_10arcsec"] = hits
 
-    # 6. Deep sub-arcsec optical imaging (MAST PS1 DR2 primary -> VizieR CfA TSV -> VizieR TAP -> NOIRLab LS DR10)
+    # 6. Deep sub-arcsec optical imaging:
+    #    - Northern/Equatorial sky (Dec > -30): MAST PS1 DR2 primary -> VizieR PS1 TSV fallback
+    #    - All sky including Southern Dec <= -30: NOIRLab DECam Legacy Survey DR10 fallback
+    deep_evaluated = False
+    offset_galaxy: dict[str, Any] | None = None
     if dec > -30.0:
-        deep_evaluated = False
-        offset_galaxy: dict[str, Any] | None = None
         try:
             p_rows, m_ps1, _ = _mast_ps1_cone_cached(ra=ra, dec=dec, radius_deg=0.0028, cache=cache, timeout_s=20)
             manifests.append(m_ps1)
@@ -1060,30 +1123,54 @@ def enrich_star_live_for_vetting(
             except Exception:
                 pass
 
-        if not deep_evaluated:
-            try:
-                q_ls = (
-                    f"SELECT ls_id, ra, dec, type, mag_r FROM ls_dr10.tractor "
-                    f"WHERE q3c_radial_query(ra, dec, {ra:.6f}, {dec:.6f}, 0.0028)"
-                )
-                ls_rows, m_ls, _ = _tap_query_cached(url=NOIRLAB_TAP_URL, query=q_ls, archive="deep_optical", release="ls_dr10", cache=cache, timeout_s=20)
-                manifests.append(m_ls)
-                if ls_rows:
-                    deep_evaluated = True
-                    for lr in ls_rows:
-                        sep = angular_separation_arcsec(ra, dec, float(lr["ra"]), float(lr["dec"]))
-                        mtype = str(lr.get("type") or "")
-                        rmag = _safe_float(lr.get("mag_r"))
-                        if (sep < 1.5 and mtype not in {"PSF", "DUP", ""}) or (1.8 <= sep <= 8.0 and (rmag is None or rmag > 17.5)):
-                            offset_galaxy = {"sep_arcsec": round(sep, 2), "r_mag": rmag, "ls_type": mtype}
-                            break
-            except Exception:
-                pass
+    if not deep_evaluated:
+        try:
+            cos_dec = max(0.1, math.cos(math.radians(dec)))
+            dra = (12.0 / 3600.0) / cos_dec
+            ddec = 12.0 / 3600.0
+            q_ls = (
+                f"SELECT ls_id, ra, dec, type, flux_g, flux_r, flux_z, flux_w3, flux_w4, flux_ivar_w4 "
+                f"FROM ls_dr10.tractor "
+                f"WHERE ra BETWEEN {ra - dra:.6f} AND {ra + dra:.6f} "
+                f"AND dec BETWEEN {dec - ddec:.6f} AND {dec + ddec:.6f}"
+            )
+            ls_rows, m_ls, _ = _tap_csv_query_cached(
+                url=NOIRLAB_TAP_URL,
+                query=q_ls,
+                archive="deep_optical",
+                release="ls_dr10",
+                cache=cache,
+                timeout_s=25,
+            )
+            manifests.append(m_ls)
+            if ls_rows:
+                deep_evaluated = True
+                for lr in ls_rows:
+                    l_ra = _safe_float(lr.get("ra"))
+                    l_dec = _safe_float(lr.get("dec"))
+                    if l_ra is None or l_dec is None:
+                        continue
+                    sep = angular_separation_arcsec(ra, dec, l_ra, l_dec)
+                    mtype = str(lr.get("type") or "")
+                    fr = _safe_float(lr.get("flux_r"))
+                    rmag = (22.5 - 2.5 * math.log10(fr)) if (fr is not None and fr > 0.0) else None
+                    fw3 = _safe_float(lr.get("flux_w3")) or 0.0
+                    fw4 = _safe_float(lr.get("flux_w4")) or 0.0
+                    ivar_w4 = _safe_float(lr.get("flux_ivar_w4")) or 0.0
+                    if sep < 1.5 and ivar_w4 > 0.0:
+                        out["vetting_archive"]["unwise_w4_snr"] = round(fw4 * math.sqrt(ivar_w4), 2)
+                    if (
+                        (sep < 1.5 and mtype not in {"PSF", "DUP", ""})
+                        or (1.8 <= sep <= 8.0 and (rmag is None or rmag > 17.5 or mtype not in {"PSF", "DUP", ""}))
+                        or (1.8 <= sep <= 12.0 and mtype not in {"PSF", "DUP", ""} and (fw3 > 100.0 or fw4 > 500.0))
+                    ):
+                        offset_galaxy = {"sep_arcsec": round(sep, 2), "r_mag": round(rmag, 2) if rmag is not None else None, "ls_type": mtype}
+                        break
+        except Exception:
+            pass
 
-        out["vetting_archive"]["deep_imaging_available"] = deep_evaluated
-        out["vetting_archive"]["deep_imaging_offset_galaxy"] = offset_galaxy
-    else:
-        out["vetting_archive"]["deep_imaging_available"] = False
+    out["vetting_archive"]["deep_imaging_available"] = deep_evaluated
+    out["vetting_archive"]["deep_imaging_offset_galaxy"] = offset_galaxy
 
     out["live_enriched"] = True
     return out, manifests
