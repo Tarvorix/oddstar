@@ -9,6 +9,11 @@ from oddstar.io.fixtures_data import (
     generate_field_sample,
     get_named_object,
 )
+from oddstar.io.live_survey import (
+    enrich_star_live_for_vetting,
+    fetch_live_halo_bulge_sample,
+    fetch_single_star_live,
+)
 from oddstar.io.storage import TableStore, equatorial_to_galactic, healpix_nest_to_radec, ra_dec_to_healpix
 
 __all__ = [
@@ -19,7 +24,10 @@ __all__ = [
     "RADIO_CADENCES",
     "RawCache",
     "TableStore",
+    "enrich_star_live_for_vetting",
     "equatorial_to_galactic",
+    "fetch_live_halo_bulge_sample",
+    "fetch_single_star_live",
     "generate_field_sample",
     "get_named_object",
     "healpix_nest_to_radec",

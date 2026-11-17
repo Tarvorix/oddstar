@@ -277,8 +277,14 @@ def test_m6_review_kit_isolation_and_lessons(tmp_path: Path) -> None:
     with pytest.raises(RuntimeError, match="R6 isolation violation"):
         vt.assert_path_allowed(root / "runs" / "foo.json")
 
-    # Verify Round 1 packet creation mixes targets, controls, known positives & impostors cleanly
-    code, pay = dispatch(["review", "packet", "4582145718700356096", "--round", "1", "--json"])
+    # Verify Round 1 packet creation inside tmp_path mixes targets, controls, known positives & impostors cleanly
+    (tmp_path / "configs").mkdir()
+    (tmp_path / "configs" / "default.yaml").write_text((root / "configs" / "default.yaml").read_text(), encoding="utf-8")
+    (tmp_path / "review" / "prompts").mkdir(parents=True)
+    (tmp_path / "review" / "prompts" / "round1_blind.md").write_text(
+        (root / "review" / "prompts" / "round1_blind.md").read_text(), encoding="utf-8"
+    )
+    code, pay = dispatch(["review", "packet", "4582145718700356096", "--round", "1", "--json"], root=tmp_path)
     assert code == 0
     pkt_path = Path(pay["artifacts"][0])
     pkt_data = json.loads(pkt_path.read_text(encoding="utf-8"))
@@ -354,8 +360,8 @@ def test_m13_bit_for_bit_reproducibility_and_dr4_adapter() -> None:
         json.dumps(d2, sort_keys=True).encode()
     ).hexdigest()
 
-    # Check DR3 vs DR4 comparison artifact & DR4 certificates exist
-    comp_path = root / "runs" / "dr3_vs_dr4_comparison.json"
+    # Check DR3 vs DR4 comparison artifact & DR4 certificates exist (tracked in validation/certificates/)
+    comp_path = root / "validation" / "certificates" / "dr3_vs_dr4_comparison.json"
     assert comp_path.exists()
     comp = json.loads(comp_path.read_text(encoding="utf-8"))
     assert comp["channels_revalidated"] == 8

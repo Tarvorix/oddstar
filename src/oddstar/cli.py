@@ -16,7 +16,19 @@ from oddstar.config import PipelineConfig, compute_config_hash, current_git_comm
 from oddstar.dossier import write_dossier, write_null_report
 from oddstar.errors import ArtifactNotFoundError, OddstarError, PolicyViolationError
 from oddstar.fuse import fuse_results
-from oddstar.io import ArchiveFetcher, RawCache, RADIO_CADENCES, generate_field_sample, get_named_object, list_archives_info
+from oddstar.io import (
+    ArchiveFetcher,
+    RADIO_CADENCES,
+    RawCache,
+    TableStore,
+    enrich_star_live_for_vetting,
+    fetch_live_halo_bulge_sample,
+    fetch_single_star_live,
+    generate_field_sample,
+    get_named_object,
+    list_archives_info,
+    ra_dec_to_healpix,
+)
 from oddstar.review import add_lesson, build_review_packet, ingest_review_record
 from oddstar.sample import build_parent_sample, resolve_star_record
 from oddstar.schemas import (
@@ -126,17 +138,36 @@ def _cmd_sample_build(args: argparse.Namespace, cfg: PipelineConfig, short_hash:
     if args.dry_run:
         return CLIResponse(
             ok=True,
-            summary=f"[dry-run] Would build parent sample for '{args.channel}' (limit={args.limit})",
+            summary=f"[dry-run] Would build parent sample for '{args.channel}' (limit={args.limit}, live={bool(args.live)})",
         )
-    ch = build_channel(args.channel, cfg, root)
-    spec = ch.sample(cfg, limit=args.limit)
+    if args.live:
+        cache = RawCache(root / cfg.storage.raw_dir, max_cache_gb=cfg.storage.max_cache_gb)
+        n_lim = int(args.limit if args.limit is not None else 300)
+        stars, _ = fetch_live_halo_bulge_sample(cfg, cache, limit=n_lim)
+        nside = cfg.storage.healpix_nside
+        store = TableStore(root / cfg.storage.tables_dir, nside=nside)
+        store.write_partitioned(f"sample_live_{args.channel}_{cfg.gaia.release}", stars)
+        cells = sorted({ra_dec_to_healpix(float(s["ra_deg"]), float(s["dec_deg"]), nside=nside) for s in stars})
+        spec = SampleSpec(
+            channel=args.channel,
+            gaia_release=cfg.gaia.release,
+            config_hash=short_hash,
+            seed=cfg.sample.seed,
+            cuts=[],
+            total_count=len(stars),
+            healpix_cells=cells,
+            source_ids=[str(s["source_id"]) for s in stars],
+        )
+    else:
+        ch = build_channel(args.channel, cfg, root)
+        spec = ch.sample(cfg, limit=args.limit)
     out_dir = root / cfg.storage.runs_dir
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f"sample_{args.channel}_{cfg.gaia.release}.json"
     out_path.write_text(spec.model_dump_json(indent=2) + "\n", encoding="utf-8")
     return CLIResponse(
         ok=True,
-        summary=f"Built parent sample for '{args.channel}' ({spec.total_count} stars across {len(spec.healpix_cells)} HEALPix cells)",
+        summary=f"Built parent sample for '{args.channel}' ({spec.total_count} stars across {len(spec.healpix_cells)} HEALPix cells, live={bool(args.live)})",
         artifacts=[str(out_path)],
         data={"sample": spec.model_dump(exclude={"source_ids"})},
         next=f"oddstar validate {args.channel} --json",
@@ -187,19 +218,45 @@ def _cmd_search(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, 
 
     seed = int(args.seed if args.seed is not None else cfg.sample.seed)
     n_stars = int(args.limit if args.limit is not None else min(1000, cfg.sample.field_sample_size))
+    is_live = bool(args.live)
+    cache = RawCache(root / cfg.storage.raw_dir, max_cache_gb=cfg.storage.max_cache_gb)
 
     extra_stars: list[dict[str, Any]] = []
     if args.extra_ids:
         for raw_id in args.extra_ids.split(","):
             cid = raw_id.strip()
             if cid:
-                extra_stars.append(resolve_star_record(cid, cfg))
+                if is_live:
+                    st, _ = fetch_single_star_live(cid, cfg, cache)
+                    extra_stars.append(st)
+                else:
+                    extra_stars.append(resolve_star_record(cid, cfg))
 
     ch = build_channel(args.channel, cfg, root)
     if args.channel == "radio_narrowband":
         stars = [dict(v) for v in RADIO_CADENCES.values()]
         cuts = []
         healpix_cells = []
+    elif is_live:
+        stars, _ = fetch_live_halo_bulge_sample(cfg, cache, limit=n_stars)
+        if extra_stars:
+            by_id = {s["source_id"]: s for s in stars}
+            for es in extra_stars:
+                by_id[es["source_id"]] = es
+            stars = list(by_id.values())
+        if args.channel == "ir_timedomain":
+            # Enrich up to 25 targets with live NEOWISE-R multi-epoch data per Section 5.2 cost control
+            stars = [enrich_star_live_for_vetting(s, cfg, cache)[0] for s in stars[: min(25, len(stars))]]
+        nside = cfg.storage.healpix_nside
+        cuts = [
+            {
+                "cut_name": "gaia_halo_bulge_live",
+                "description": "Gaia DR3 parallax_snr>15, parallax 2..25 mas, RUWE<1.4, |b|>12 deg, v_tan>65 km/s, unique AllWISE+2MASS",
+                "count_before": len(stars),
+                "count_after": len(stars),
+            }
+        ]
+        healpix_cells = sorted({ra_dec_to_healpix(float(s["ra_deg"]), float(s["dec_deg"]), nside=nside) for s in stars})
     else:
         spec, stars = build_parent_sample(
             args.channel,
@@ -222,6 +279,7 @@ def _cmd_search(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, 
     measurements: list[dict[str, Any]] = []
     scores: list[dict[str, Any]] = []
     flagged_ids: list[str] = []
+    stars_by_id = {str(s["source_id"]): s for s in stars}
     for star in stars:
         m = ch.measure(star, {})
         sc = ch.score(m)
@@ -234,6 +292,13 @@ def _cmd_search(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, 
         scores.append(sc.model_dump())
         if sc.flagged:
             flagged_ids.append(sc.source_id)
+
+    if is_live and flagged_ids:
+        live_flagged: dict[str, Any] = {}
+        for fsid in flagged_ids:
+            enriched, _ = enrich_star_live_for_vetting(stars_by_id[fsid], cfg, cache)
+            live_flagged[fsid] = enriched
+        (run_dir / "live_stars.json").write_text(json.dumps(live_flagged, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
     payload = {
         "run_id": run_id,
@@ -288,12 +353,22 @@ def _cmd_vet(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, roo
 
     vet_by_star: dict[str, list[dict[str, Any]]] = {}
     ev_base = run_dir / "vet_evidence"
+    live_stars_file = run_dir / "live_stars.json"
+    live_stars_map = json.loads(live_stars_file.read_text(encoding="utf-8")) if live_stars_file.exists() else {}
+    cache = RawCache(root / cfg.storage.raw_dir, max_cache_gb=cfg.storage.max_cache_gb) if args.live else None
     for sf in search_files:
         sdata = json.loads(sf.read_text(encoding="utf-8"))
         scores_by_id = {row["source_id"]: ChannelScore.model_validate(row) for row in sdata["scores"]}
         meas_by_id = {m["source_id"]: m.get("values", {}) for m in sdata.get("measurements", [])}
         for sid in sdata.get("flagged_ids", []):
-            star = dict(RADIO_CADENCES[sid]) if sid in RADIO_CADENCES else resolve_star_record(sid, cfg)
+            if sid in live_stars_map:
+                star = dict(live_stars_map[sid])
+            elif args.live and cache is not None and sid not in RADIO_CADENCES:
+                star, _ = fetch_single_star_live(sid, cfg, cache)
+            elif sid in RADIO_CADENCES:
+                star = dict(RADIO_CADENCES[sid])
+            else:
+                star = resolve_star_record(sid, cfg)
             mvals = meas_by_id.get(sid, {})
             if "drift_hz_s" in mvals:
                 star["drift_hz_s"] = mvals["drift_hz_s"]
@@ -400,20 +475,26 @@ def _inspect_single_target(
     root: Path,
     *,
     run_id: str | None = None,
+    live: bool = False,
 ) -> tuple[Any, Path, Path]:
     clean_id = source_id.replace("Gaia DR3 ", "").replace("Gaia DR4 ", "").strip()
     rid = run_id or f"inspect-{clean_id}-{cfg.gaia.release}-{short_hash}"
     cache = RawCache(root / cfg.storage.raw_dir, max_cache_gb=cfg.storage.max_cache_gb)
 
-    # Record stage-1 raw fetch manifests across primary archives
-    manifests: list[str] = []
-    for arc in ("gaia", "2mass", "allwise", "neowise", "tess", "simbad", "radio_continuum", "deep_optical", "mid_far_ir"):
-        fetcher = ArchiveFetcher(arc, cfg, cache)
-        _, man, _ = fetcher.fetch(ids=[clean_id])
-        manifests.append(man.manifest_id)
+    if live:
+        star, live_mans = fetch_single_star_live(clean_id, cfg, cache)
+        sample_stars, bg_mans = fetch_live_halo_bulge_sample(cfg, cache, limit=200)
+        manifests = [m.manifest_id for m in (*live_mans, *bg_mans)]
+    else:
+        # Record stage-1 raw fetch manifests across primary archives
+        manifests = []
+        for arc in ("gaia", "2mass", "allwise", "neowise", "tess", "simbad", "radio_continuum", "deep_optical", "mid_far_ir"):
+            fetcher = ArchiveFetcher(arc, cfg, cache)
+            _, man, _ = fetcher.fetch(ids=[clean_id])
+            manifests.append(man.manifest_id)
 
-    star = RADIO_CADENCES.get(clean_id) or resolve_star_record(clean_id, cfg)
-    sample_stars = generate_field_sample(n_stars=300, seed=cfg.sample.seed, gaia_release=cfg.gaia.release)
+        star = RADIO_CADENCES.get(clean_id) or resolve_star_record(clean_id, cfg)
+        sample_stars = generate_field_sample(n_stars=300, seed=cfg.sample.seed, gaia_release=cfg.gaia.release)
 
     measurements: list[Measurement] = []
     scores: list[ChannelScore] = []
@@ -490,7 +571,7 @@ def _inspect_single_target(
 def _cmd_inspect(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, root: Path) -> CLIResponse:
     if args.dry_run:
         return CLIResponse(ok=True, summary=f"[dry-run] Would inspect {args.source_id} across all channels and write dossier")
-    dossier, json_p, md_p = _inspect_single_target(args.source_id, cfg, short_hash, root, run_id=args.run_id)
+    dossier, json_p, md_p = _inspect_single_target(args.source_id, cfg, short_hash, root, run_id=args.run_id, live=bool(args.live))
     flagged = [c.name for c in dossier.channels if c.flagged]
     holes = [v.check for v in dossier.vetting if v.status == "not_evaluated"]
     return CLIResponse(
@@ -505,7 +586,7 @@ def _cmd_inspect(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str,
 def _cmd_dossier(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, root: Path) -> CLIResponse:
     if args.dry_run:
         return CLIResponse(ok=True, summary=f"[dry-run] Would generate dossier for {args.source_id}")
-    dossier, json_p, md_p = _inspect_single_target(args.source_id, cfg, short_hash, root, run_id=args.run_id)
+    dossier, json_p, md_p = _inspect_single_target(args.source_id, cfg, short_hash, root, run_id=args.run_id, live=bool(args.live))
     return CLIResponse(
         ok=True,
         summary=f"Dossier generated for {dossier.source_id} (Tier {dossier.tier})",
@@ -625,6 +706,8 @@ def _cmd_status(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, 
     certified: dict[str, list[str]] = {}
     if certs_dir.exists():
         for cf in sorted(certs_dir.glob("*.json")):
+            if cf.name == "dr3_vs_dr4_comparison.json":
+                continue
             c = ValidationCertificate.model_validate_json(cf.read_text(encoding="utf-8"))
             if c.passed:
                 certified.setdefault(c.gaia_release, []).append(c.channel)
@@ -720,6 +803,7 @@ def build_parser() -> argparse.ArgumentParser:
     common.add_argument("--limit", type=int, default=None, help="Bound row/star count")
     common.add_argument("--config", type=str, default=None, help="Path to pipeline YAML config")
     common.add_argument("--release", type=str, default=None, choices=["dr3", "dr4"], help="Override Gaia data release")
+    common.add_argument("--live", action="store_true", help="Query live public sky archives instead of offline fixtures")
 
     parser = argparse.ArgumentParser(prog="oddstar", description="Reproducible multi-channel anomalous star search pipeline", parents=[common])
     sub = parser.add_subparsers(dest="command", required=True)
@@ -735,7 +819,6 @@ def build_parser() -> argparse.ArgumentParser:
     p_fetch.add_argument("--ids", type=str, default=None)
     p_fetch.add_argument("--cone", nargs=3, type=float, default=None, metavar=("RA", "DEC", "ARCSEC"))
     p_fetch.add_argument("--adql", type=str, default=None)
-    p_fetch.add_argument("--live", action="store_true")
 
     p_sample = sub.add_parser("sample", parents=[common], help="Stage 2 parent sample construction")
     sample_sub = p_sample.add_subparsers(dest="sample_cmd", required=True)

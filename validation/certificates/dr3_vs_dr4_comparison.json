@@ -1,0 +1,96 @@
+{
+  "channels_revalidated": 8,
+  "open_case_parallax_snr_dr3": 119.22824659732167,
+  "open_case_parallax_snr_dr4": 168.11182770222354,
+  "snr_improvement_factor": 1.41,
+  "comparison": [
+    {
+      "channel": "ir_excess",
+      "dr3_passed": true,
+      "dr4_passed": true,
+      "dr3_blind_rate": 1.0,
+      "dr4_blind_rate": 1.0,
+      "dr3_far": 0.0,
+      "dr4_far": 0.0,
+      "dr3_inj_dp": 1.0,
+      "dr4_inj_dp": 1.0
+    },
+    {
+      "channel": "ir_timedomain",
+      "dr3_passed": true,
+      "dr4_passed": true,
+      "dr3_blind_rate": 1.0,
+      "dr4_blind_rate": 1.0,
+      "dr3_far": 0.0,
+      "dr4_far": 0.0,
+      "dr3_inj_dp": 1.0,
+      "dr4_inj_dp": 1.0
+    },
+    {
+      "channel": "optical_dips",
+      "dr3_passed": true,
+      "dr4_passed": true,
+      "dr3_blind_rate": 1.0,
+      "dr4_blind_rate": 1.0,
+      "dr3_far": 0.0,
+      "dr4_far": 0.0,
+      "dr3_inj_dp": 1.0,
+      "dr4_inj_dp": 1.0
+    },
+    {
+      "channel": "radio_narrowband",
+      "dr3_passed": true,
+      "dr4_passed": true,
+      "dr3_blind_rate": 1.0,
+      "dr4_blind_rate": 1.0,
+      "dr3_far": 0.0,
+      "dr4_far": 0.0,
+      "dr3_inj_dp": 1.0,
+      "dr4_inj_dp": 1.0
+    },
+    {
+      "channel": "underluminous",
+      "dr3_passed": true,
+      "dr4_passed": true,
+      "dr3_blind_rate": 1.0,
+      "dr4_blind_rate": 1.0,
+      "dr3_far": 0.0,
+      "dr4_far": 0.0,
+      "dr3_inj_dp": 0.95,
+      "dr4_inj_dp": 1.0
+    },
+    {
+      "channel": "generic_outlier",
+      "dr3_passed": true,
+      "dr4_passed": true,
+      "dr3_blind_rate": 1.0,
+      "dr4_blind_rate": 1.0,
+      "dr3_far": 0.0,
+      "dr4_far": 0.0033333333333333335,
+      "dr3_inj_dp": 0.95,
+      "dr4_inj_dp": 1.0
+    },
+    {
+      "channel": "spectral_lines",
+      "dr3_passed": true,
+      "dr4_passed": true,
+      "dr3_blind_rate": 1.0,
+      "dr4_blind_rate": 1.0,
+      "dr3_far": 0.0,
+      "dr4_far": 0.0,
+      "dr3_inj_dp": 1.0,
+      "dr4_inj_dp": 1.0
+    },
+    {
+      "channel": "vanishing",
+      "dr3_passed": true,
+      "dr4_passed": true,
+      "dr3_blind_rate": 1.0,
+      "dr4_blind_rate": 1.0,
+      "dr3_far": 0.0,
+      "dr4_far": 0.0,
+      "dr3_inj_dp": 1.0,
+      "dr4_inj_dp": 1.0
+    }
+  ]
+}
