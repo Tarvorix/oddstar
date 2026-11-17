@@ -891,6 +891,22 @@ def _cmd_evidence_export(args: argparse.Namespace, cfg: PipelineConfig, short_ha
     )
 
 
+def _cmd_report(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, root: Path) -> CLIResponse:
+    from oddstar.report import stale_documents, write_documents
+
+    if args.report_cmd == "check" or args.dry_run:
+        stale = stale_documents(root, cfg.storage.registry_dir)
+        if stale and args.report_cmd == "check":
+            raise PolicyViolationError(
+                "Generated documents differ from a fresh build: " + ", ".join(stale),
+                hint="Run `oddstar report build` and commit the result; edit commentary only in docs/notes/",
+            )
+        return CLIResponse(ok=True, summary=f"{len(stale)} generated document(s) would change" if stale else "Generated documents are current",
+                           data={"stale": stale})
+    changed = write_documents(root, cfg.storage.registry_dir)
+    return CLIResponse(ok=True, summary=f"Rebuilt generated documents ({len(changed)} changed)", artifacts=changed, data={"changed": changed})
+
+
 def _cmd_runs_export(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, root: Path) -> CLIResponse:
     from oddstar.run_records import build_run_record, export_run_record
 
@@ -1271,6 +1287,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_evv = ev_sub.add_parser("verify", parents=[common], help="Re-hash evidence and check ledger references")
     p_evv.add_argument("source_id", nargs="?", default=None)
 
+    p_rep = sub.add_parser("report", parents=[common], help="Generated documents (docs/candidates.md, reviewed_candidate.md)")
+    rep_sub = p_rep.add_subparsers(dest="report_cmd", required=True)
+    rep_sub.add_parser("build", parents=[common], help="Rebuild the candidate documents from committed outputs")
+    rep_sub.add_parser("check", parents=[common], help="Fail if a generated document differs from a fresh build")
+
     p_runs = sub.add_parser("runs", parents=[common], help="Committed run records (registry/runs, registry/samples)")
     runs_sub = p_runs.add_subparsers(dest="runs_cmd", required=True)
     p_rx = runs_sub.add_parser("export", parents=[common], help="Write the compact committed record of search or fusion runs")
@@ -1380,6 +1401,8 @@ def dispatch(argv: list[str] | None = None, *, root: Path | None = None) -> tupl
             resp = _cmd_evidence_export(args, cfg, short_hash, base)
         elif cmd == "evidence" and args.evidence_cmd == "verify":
             resp = _cmd_evidence_verify(args, cfg, short_hash, base)
+        elif cmd == "report":
+            resp = _cmd_report(args, cfg, short_hash, base)
         elif cmd == "runs" and args.runs_cmd == "export":
             resp = _cmd_runs_export(args, cfg, short_hash, base)
         elif cmd == "runs" and args.runs_cmd == "verify":

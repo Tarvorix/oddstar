@@ -36,6 +36,7 @@
 | `oddstar evidence verify [<source_id>]` | Verify ledger evidence references against directories and SHA-256 hashes; count `legacy_without_evidence` |
 | `oddstar runs export <run_id>...` | Write the compact committed record of search or fusion runs to `registry/runs/` (sample ids to `registry/samples/`; no ledger write) |
 | `oddstar runs verify` | Check every committed run record against its sample files and its own counts |
+| `oddstar report build` / `oddstar report check` | Rebuild `docs/candidates.md` and `reviewed_candidate.md` from committed outputs; fail if they differ from a fresh build |
 | `oddstar review packet <ids>` | Build blinded reviewer packet mixed with controls and known objects |
 | `oddstar review ingest <file>` | Validate and record reviewer JSON, flagging discrepancies |
 | `oddstar review ingest --all` | Ingest every stored record under `review/records/` (idempotent; stored records are never rewritten) |
