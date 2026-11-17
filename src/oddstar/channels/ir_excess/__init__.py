@@ -5,6 +5,7 @@ from oddstar.channels.ir_excess.channel import (
     build_empirical_locus,
     fit_excess_blackbody_and_shell,
     fit_photosphere_model,
+    literature_locus,
     predict_from_empirical_locus,
 )
 
@@ -13,5 +14,6 @@ __all__ = [
     "build_empirical_locus",
     "fit_excess_blackbody_and_shell",
     "fit_photosphere_model",
+    "literature_locus",
     "predict_from_empirical_locus",
 ]

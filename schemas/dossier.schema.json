@@ -40,6 +40,11 @@
           "title": "Flagged",
           "type": "boolean"
         },
+        "labels": {
+          "additionalProperties": true,
+          "title": "Labels",
+          "type": "object"
+        },
         "measurements": {
           "additionalProperties": {
             "anyOf": [
@@ -228,6 +233,30 @@
           "default": null,
           "title": "Distance Pc"
         },
+        "ebv_star": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ebv Star"
+        },
+        "ebv_star_source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ebv Star Source"
+        },
         "gaia_release": {
           "default": "dr3",
           "title": "Gaia Release",
@@ -353,6 +382,19 @@
       },
       "title": "Cross Channel Patterns",
       "type": "array"
+    },
+    "extinction_cases": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Extinction Cases"
     },
     "hypotheses": {
       "items": {

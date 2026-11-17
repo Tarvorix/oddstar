@@ -163,6 +163,8 @@ class StarMetadata(BaseModel):
     simbad_type: str | None = None
     known_in_literature: bool = False
     gaia_release: str = "dr3"
+    ebv_star: float | None = None
+    ebv_star_source: str | None = None
 
 
 class ChannelDossierEntry(BaseModel):
@@ -174,6 +176,7 @@ class ChannelDossierEntry(BaseModel):
     epochs: list[str] = Field(default_factory=list)
     caveats: list[str] = Field(default_factory=list)
     evidence: list[str] = Field(default_factory=list)
+    labels: dict[str, Any] = Field(default_factory=dict)
 
 
 class DossierReviewSummary(BaseModel):
@@ -197,6 +200,7 @@ class Dossier(BaseModel):
     what_would_settle_it: list[str] = Field(default_factory=list)
     lead_lines: list[str] = Field(default_factory=list)
     reproduce: str
+    extinction_cases: dict[str, Any] | None = None
 
 
 class ReviewFinding(BaseModel):

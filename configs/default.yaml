@@ -38,6 +38,20 @@ channels:
     design_point_frac_lum: 0.01
     chi_distribution_mean_tol: 0.15
     chi_distribution_std_tol: 0.20
+    locus_bp_rp_min: -0.2
+    locus_bp_rp_max: 2.8
+    locus_n_bins: 15
+    locus_min_stars_per_bin: 5
+    locus_clip_sigma: 3.0
+    locus_clip_max_iter: 5
+    locus_intrinsic_scatter_floor_mag: 0.01
+    locus_extrapolation_scatter_mag: 0.10
+    locus_persist_min_stars: 100
+    literature_locus_scatter_mag: [0.03, 0.04, 0.05, 0.08]
+    excess_significance_sigma: 3.0
+    dust_temp_interval_delta_chi2: 1.0
+    colour_temp_min_k: 30.0
+    colour_temp_max_k: 3000.0
 
   ir_timedomain:
     visit_bin_days: 180.0
@@ -163,6 +177,10 @@ vetting:
   evolved_mg_bright_limit: 0.5
   binary_ruwe_max: 1.4
   extinction_disagreement_mag: 0.20
+  extinction_heavy_dust_ebv: 0.30
+  extinction_los_excess_summary_ebv: 0.05
+  sfd_to_sf11_factor: 0.86
+  bayestar19_ebv_per_unit: 0.884
   tess_pixel_arcsec: 21.0
   # --- 1.1.0 (2026-11-17): measured infrared vetting inputs (see configs/CHANGELOG.md) ---
   chance_alignment_p_max: 0.01

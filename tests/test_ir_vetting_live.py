@@ -542,7 +542,9 @@ def test_reference_star_regression(ref_star: dict[str, Any], cfg: Any, tmp_path:
     assert cir.metrics["ebv_sfd_los"] == 0.2414 and cir.metrics["ebv_sf11_los"] == 0.2076 and cir.metrics["i100_mjy_sr"] == 8.25
     assert cir.status == "pass" and "0.2414" in cir.note
     assert ref_star["vetting_archive"]["dust"]["ebv_sfd_los"] == 0.2414
-    assert ref_star["ebv_sfd"] == pytest.approx(0.07 / 1.31)  # stellar value untouched
+    # The Gaia per-star reddening lives in ebv_star; ebv_sfd is reserved for true line-of-sight map values
+    assert ref_star["ebv_sfd"] is None and ref_star["ebv_star"] == pytest.approx(0.07 / 1.31)
+    assert ref_star["ebv_star_source"] == "gaia_gspphot"
     # ROSAT non-detection at 232 pc cannot reach 1e29 erg/s; GALEX NUV 22.44+/-0.43 is photospheric
     y = res["youth"]
     assert y.status == "not_evaluated"
