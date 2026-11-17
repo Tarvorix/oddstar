@@ -11,7 +11,7 @@ from typing import Any
 import numpy as np
 
 from oddstar.config import PipelineConfig, compute_config_hash
-from oddstar.io.physics import BAND_EXTINCTION_AV
+from oddstar.io.physics import BAND_EXTINCTION_AV, extinction_two_case_summary, star_applied_ebv
 from oddstar.sample.builder import build_parent_sample
 from oddstar.schemas import ChannelScore, EvidenceRef, Measurement, SampleSpec
 
@@ -71,7 +71,9 @@ class UnderluminousChannel:
     def measure(self, star: dict[str, Any], data: dict[str, Any]) -> Measurement:
         dist = float(star["distance_pc"])
         g_mag = float(star["mags"]["G"])
-        ebv = float(star.get("ebv_sfd", 0.02))
+        # Reddening applied to the star (ebv_star), never a line-of-sight map value; missing -> no correction, labelled
+        ebv_val, ebv_src = star_applied_ebv(star)
+        ebv = 0.0 if ebv_val is None else ebv_val
         ag = 3.1 * ebv * BAND_EXTINCTION_AV["G"] if self.extinction_correction_enabled else 0.0
         mg_obs = g_mag - 5.0 * math.log10(max(1.0, dist) / 10.0) - ag
 
@@ -91,6 +93,18 @@ class UnderluminousChannel:
         # Energy balance check if IR excess exists
         l_missing_frac = max(0.0, 1.0 - 10.0 ** (-0.4 * max(0.0, delta_m_xp)))
 
+        vcfg = self.cfg.vetting
+        ext_cases = extinction_two_case_summary(
+            star,
+            min_los_excess_ebv=float(vcfg["extinction_los_excess_summary_ebv"]),
+            sfd_to_sf11=float(vcfg["sfd_to_sf11_factor"]),
+        )
+        caveats = ["Requires dual parameter agreement and 3D dust map agreement."]
+        if ebv_val is None:
+            caveats.append("No reddening estimate for this star (ebv_star missing): M_G is not extinction-corrected.")
+        if ext_cases is not None:
+            caveats.append(f"Reddening uncertain: {ext_cases['summary']}")
+
         return Measurement(
             source_id=str(star["source_id"]),
             channel=self.name,
@@ -106,10 +120,17 @@ class UnderluminousChannel:
                 "ruwe": float(star.get("ruwe", 1.0)),
                 "parallax_snr": float(plx_snr),
                 "extinction_applied": 1.0 if self.extinction_correction_enabled else 0.0,
+                "ebv_star_applied": float(ebv if self.extinction_correction_enabled else 0.0),
+                "a_g_applied": float(ag),
             },
             uncertainties={"delta_m_xp": float(comb_sig)},
             epochs=["Gaia-DR3"],
-            caveats=["Requires dual parameter agreement and 3D dust map agreement."],
+            caveats=caveats,
+            extra={
+                "ebv_star": ebv_val,
+                "ebv_star_source": ebv_src,
+                "extinction_cases": ext_cases,
+            },
         )
 
     def score(self, m: Measurement) -> ChannelScore:

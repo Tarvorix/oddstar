@@ -36,6 +36,9 @@ oddstar = "oddstar.cli:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+"oddstar.refdata" = ["*.json"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-m 'not network'"

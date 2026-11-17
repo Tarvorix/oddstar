@@ -379,8 +379,13 @@ def _row_to_star_dict(row: dict[str, Any], gaia_release: str = "dr3") -> dict[st
     teff = float(row.get("teff_gspphot") or 5500.0)
     logg = float(row.get("logg_gspphot") or 4.4)
     feh = float(row.get("mh_gspphot") or -0.5)
-    ebv = max(0.0, float(row.get("ebpminrp_gspphot") or 0.03) / 1.31)
-    av = 3.1 * ebv
+    # Reddening APPLIED to the star: Gaia GSP-Phot E(BP-RP) / 1.31 when present, else None (never a silent default).
+    # Line-of-sight map values (ebv_sfd / ebv_planck) are not in this row; vetting enrichment adds them under
+    # vetting_archive.dust, so they are left None here.
+    ebv_gaia = row.get("ebpminrp_gspphot")
+    ebv_star = max(0.0, float(ebv_gaia) / 1.31) if ebv_gaia is not None else None
+    ebv_star_source = "gaia_gspphot" if ebv_star is not None else "missing"
+    av = 3.1 * (ebv_star or 0.0)
 
     mags = {
         "G": float(row["phot_g_mean_mag"]),
@@ -446,8 +451,11 @@ def _row_to_star_dict(row: dict[str, Any], gaia_release: str = "dr3") -> dict[st
         "feh": feh,
         "luminosity_lsun": lum_lsun,
         "abs_g_mag": abs_g,
-        "ebv_sfd": ebv,
-        "ebv_planck": ebv,
+        "ebv_star": ebv_star,
+        "ebv_star_source": ebv_star_source,
+        "abs_g_extinction_applied": ebv_star is not None,
+        "ebv_sfd": None,
+        "ebv_planck": None,
         "mags": mags,
         "mag_errs": mag_errs,
         "flux_mjy": flux_mjy,
@@ -1222,6 +1230,22 @@ def enrich_star_live_for_vetting(
     if enrich_optical:
         opt_mans = _enrich_optical_timeseries(out, cache)
         manifests.extend(opt_mans)
+
+    # --- [star-model] 3D dust (Bayestar19) at the star's distance; self-contained block, see oddstar.io.dust3d ---
+    from oddstar.io.dust3d import query_bayestar19_at_distance
+
+    d3, m_d3 = query_bayestar19_at_distance(
+        ra_deg=ra,
+        dec_deg=dec,
+        distance_pc=out.get("distance_pc"),
+        parallax_mas=out.get("parallax_mas"),
+        parallax_err_mas=out.get("parallax_err_mas"),
+        cache=cache,
+        ebv_per_unit=float(cfg.vetting["bayestar19_ebv_per_unit"]),
+    )
+    manifests.extend(m_d3)
+    out["vetting_archive"]["dust3d"] = d3
+    # --- [star-model] end 3D dust block ---
 
     out["live_enriched"] = True
     return out, manifests

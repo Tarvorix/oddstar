@@ -260,6 +260,9 @@ def _make_base_star(
         "feh": float(feh),
         "luminosity_lsun": float(luminosity_lsun),
         "abs_g_mag": float(abs_g),
+        # Synthetic stars are reddened by exactly ebv_sfd (see av_true above), so the applied value equals it
+        "ebv_star": float(ebv_sfd),
+        "ebv_star_source": "fixture",
         "ebv_sfd": float(ebv_sfd),
         "ebv_planck": float(fdict.get("ebv_planck", ebv_sfd + rng.normal(0.0, 0.005))),
         "mags": mags,
@@ -469,7 +472,8 @@ def generate_field_sample(
 ) -> list[dict[str, Any]]:
     """Generate a deterministic, realistic N-star parent sample matching Section 5.1 cuts.
 
-    Photometric fluxes follow Planck + realistic calibration scatter with exact Gaussian errors
+    Photometric fluxes follow the `physics.stellar_photosphere_flux_mjy` photosphere (Planck shape with the empirical
+    Pecaut & Mamajek dwarf Ks - W1..W4 colours imposed at the WISE bands) + realistic calibration scatter with exact Gaussian errors
     so that the chi distribution of ir_excess on ordinary stars is centered near 0 with unit width.
     """
     rng = np.random.default_rng(seed)
@@ -551,6 +555,8 @@ def generate_field_sample(
                 "feh": float(rng.normal(0.0, 0.15)),
                 "luminosity_lsun": float(lum),
                 "abs_g_mag": float(abs_g),
+                "ebv_star": ebv,
+                "ebv_star_source": "fixture",
                 "ebv_sfd": ebv,
                 "ebv_planck": float(ebv + rng.normal(0.0, 0.004)),
                 "mags": mags,
