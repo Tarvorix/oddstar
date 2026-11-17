@@ -289,6 +289,15 @@ def test_m6_review_kit_isolation_and_lessons(tmp_path: Path) -> None:
 
 def test_m7_m11_remaining_channels_validation(tmp_path: Path) -> None:
     cfg, _, _ = load_config()
+    root = repo_root()
+    (tmp_path / "validation" / "benchmarks").mkdir(parents=True)
+    (tmp_path / "validation" / "impostors").mkdir(parents=True)
+    (tmp_path / "validation" / "benchmarks" / "benchmarks.json").write_text(
+        (root / "validation" / "benchmarks" / "benchmarks.json").read_text(), encoding="utf-8"
+    )
+    (tmp_path / "validation" / "impostors" / "impostors.json").write_text(
+        (root / "validation" / "impostors" / "impostors.json").read_text(), encoding="utf-8"
+    )
     for ch_name in ("ir_timedomain", "optical_dips", "radio_narrowband", "underluminous", "spectral_lines", "vanishing"):
         cert, _ = run_validation(ch_name, cfg, tmp_path, split="all", field_limit=450)
         assert cert.passed is True
