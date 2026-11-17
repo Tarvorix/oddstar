@@ -891,6 +891,48 @@ def _cmd_evidence_export(args: argparse.Namespace, cfg: PipelineConfig, short_ha
     )
 
 
+def _cmd_runs_export(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, root: Path) -> CLIResponse:
+    from oddstar.run_records import build_run_record, export_run_record
+
+    if args.dry_run:
+        for rid in args.run_ids:
+            build_run_record(root / cfg.storage.runs_dir / rid)
+        return CLIResponse(ok=True, summary=f"[dry-run] Would export {len(args.run_ids)} run record(s)")
+    written: list[str] = []
+    rows: list[dict[str, Any]] = []
+    for rid in args.run_ids:
+        out = export_run_record(root, rid, runs_dir=cfg.storage.runs_dir, registry_dir=cfg.storage.registry_dir, replace=args.replace)
+        written.extend(out["written"])
+        rec = out["record"]
+        rows.append({
+            "run_id": rid,
+            "record_path": out["record_path"],
+            "record_sha256": out["record_sha256"],
+            "searches": [{"channel": s["channel"], "n_sample": s["sample"]["n"], "n_searched": s["n_searched"], "n_flagged": s["n_flagged"]}
+                         for s in rec.get("searches", [])],
+            "fusion_tier_counts": (rec.get("fusion") or {}).get("tier_counts"),
+        })
+    return CLIResponse(
+        ok=True,
+        summary=f"Exported {len(rows)} run record(s) ({len(written)} file(s) written) under {cfg.storage.registry_dir}/",
+        artifacts=sorted(set(written)),
+        data={"records": rows},
+        next="oddstar runs verify --json",
+    )
+
+
+def _cmd_runs_verify(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, root: Path) -> CLIResponse:
+    from oddstar.run_records import verify_run_records
+
+    rep = verify_run_records(root, cfg.storage.registry_dir)
+    if rep["problems"]:
+        raise PolicyViolationError(
+            "Run record verification failed: " + "; ".join(rep["problems"][:20]),
+            hint="Re-export the run with `oddstar runs export <run_id> --replace` from the machine that holds runs/",
+        )
+    return CLIResponse(ok=True, summary=f"{rep['n_records']} run record(s) and {rep['n_samples']} sample file(s) verified", data=rep)
+
+
 def _cmd_evidence_verify(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, root: Path) -> CLIResponse:
     rep = verify_evidence(root, cfg.storage, args.source_id)
     scope = clean_source_id(args.source_id) if args.source_id else "all sources"
@@ -1229,6 +1271,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_evv = ev_sub.add_parser("verify", parents=[common], help="Re-hash evidence and check ledger references")
     p_evv.add_argument("source_id", nargs="?", default=None)
 
+    p_runs = sub.add_parser("runs", parents=[common], help="Committed run records (registry/runs, registry/samples)")
+    runs_sub = p_runs.add_subparsers(dest="runs_cmd", required=True)
+    p_rx = runs_sub.add_parser("export", parents=[common], help="Write the compact committed record of search or fusion runs")
+    p_rx.add_argument("run_ids", nargs="+")
+    p_rx.add_argument("--replace", action="store_true", help="Overwrite an existing record whose content differs")
+    runs_sub.add_parser("verify", parents=[common], help="Check every committed run record against its sample files")
+
     p_rev = sub.add_parser("review", parents=[common], help="Stage 7 isolated adversarial review")
     rev_sub = p_rev.add_subparsers(dest="review_cmd", required=True)
     p_rp = rev_sub.add_parser("packet", parents=[common], help="Build blinded reviewer packet")
@@ -1331,6 +1380,10 @@ def dispatch(argv: list[str] | None = None, *, root: Path | None = None) -> tupl
             resp = _cmd_evidence_export(args, cfg, short_hash, base)
         elif cmd == "evidence" and args.evidence_cmd == "verify":
             resp = _cmd_evidence_verify(args, cfg, short_hash, base)
+        elif cmd == "runs" and args.runs_cmd == "export":
+            resp = _cmd_runs_export(args, cfg, short_hash, base)
+        elif cmd == "runs" and args.runs_cmd == "verify":
+            resp = _cmd_runs_verify(args, cfg, short_hash, base)
         elif cmd == "null-report":
             resp = _cmd_null_report(args, cfg, short_hash, base)
         elif cmd == "status":

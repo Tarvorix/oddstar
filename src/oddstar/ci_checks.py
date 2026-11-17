@@ -235,6 +235,16 @@ def check_evidence_store(root: Path, notices: list[str] | None = None) -> list[s
     return list(rep["problems"])
 
 
+def check_run_records(root: Path, notices: list[str] | None = None) -> list[str]:
+    """Every committed run record matches its sample file (ids hash and count) and its own counts."""
+    from oddstar.run_records import verify_run_records
+
+    rep = verify_run_records(root)
+    if notices is not None:
+        notices.append(f"run_records: {rep['n_records']} run record(s), {rep['n_samples']} sample file(s)")
+    return list(rep["problems"])
+
+
 # ------------------------------------------------------------------------------------ review ingestion (B)
 
 
@@ -425,6 +435,7 @@ def run_all_ci_checks(root: Path, notices: list[str] | None = None) -> dict[str,
         "r4_separation": check_git_commit_separation(root, notices),
         "config_version": check_config_version(root),
         "evidence_store": check_evidence_store(root, notices),
+        "run_records": check_run_records(root, notices),
         "review_ingestion": check_review_ingestion(root),
         "lesson_commits": check_lesson_commits(root, notices),
         "review_independence": check_review_independence_wording(root),
