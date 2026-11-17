@@ -9,5 +9,10 @@
   "linked_test": "tests/test_lessons.py::test_lesson_l004_known_pulsating_variable_simbad_types",
   "added_to_impostors": false,
   "skill_updated": null,
-  "commit_sha": "3de0fd0487cced1e0259e9aa4c03216ee2bc2549"
+  "commit_sha": "75c40e4ba1529a6fe501ca5a3fa2d0ad3dd5df2b",
+  "commit_sha_note": "",
+  "closes_finding": true,
+  "related_finding_ids": [],
+  "finding_source": "",
+  "additional_linked_tests": []
 }

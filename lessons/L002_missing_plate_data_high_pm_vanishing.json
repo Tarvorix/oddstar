@@ -9,5 +9,10 @@
   "linked_test": "tests/test_lessons.py::test_lesson_l002_missing_plate_data_no_spurious_vanishing_on_high_pm_stars",
   "added_to_impostors": false,
   "skill_updated": null,
-  "commit_sha": "d6a7123df7e754fe5f44507b973296ebd72fa40f"
+  "commit_sha": "c678696db380cc1995290c47ea90f547bb8d502e",
+  "commit_sha_note": "",
+  "closes_finding": true,
+  "related_finding_ids": [],
+  "finding_source": "",
+  "additional_linked_tests": []
 }

@@ -9,5 +9,10 @@
   "linked_test": "tests/test_lessons.py::test_lesson_l001_single_epoch_w4_background_galaxy_cap",
   "added_to_impostors": false,
   "skill_updated": "skills/wise_w4_vetting/SKILL.md",
-  "commit_sha": "594748c54f25de3c259f600b5c662227c9d70208"
+  "commit_sha": "f7ec8a65eed728799f6a046395e46b0a1c23a1bb",
+  "commit_sha_note": "",
+  "closes_finding": true,
+  "related_finding_ids": [],
+  "finding_source": "",
+  "additional_linked_tests": []
 }

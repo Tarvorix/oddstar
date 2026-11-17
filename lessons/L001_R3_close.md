@@ -5,6 +5,7 @@
 - **Automated Check / Vetting Rule**: `oddstar.fuse.engine.assign_tier`
 - **Linked Test**: `tests/test_lessons.py::test_lesson_l001_single_epoch_w4_background_galaxy_cap`
 - **Added to Impostors**: `False`
+- **Commit (introduced the lesson files)**: `f7ec8a65eed728799f6a046395e46b0a1c23a1bb`
 
 ## What Happened
 Round 3 independent model family review confirmed W4 excess and human checklist over not_evaluated rows.
