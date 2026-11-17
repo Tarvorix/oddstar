@@ -17,6 +17,7 @@ Defined in `configs/default.yaml` under `channels.ir_timedomain`:
 - `reduced_chi2_threshold: 5.0`, `slope_snr_threshold: 4.0`, `jump_snr_threshold: 4.5`
 - `optical_flat_max_chi2: 2.5`, `min_visits: 6`
 - `neowise_bulk_max_attempts: 3`, `neowise_bulk_retry_backoff_s: 2.0` (survey NEOWISE fetch, since 1.1.0)
+- `neowise_bulk_workers: 4` (concurrent IRSA requests of the survey fetch under one shared rate limit, since 1.1.1)
 
 ## Known Impostors
 - Bright blended W1/W2 neighbours, Mira/LPV long-period variables, and scan-direction detector systematics.

@@ -12,6 +12,7 @@ import copy
 import io
 import json
 import math
+import re
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +23,7 @@ import requests
 from oddstar.config import load_config
 from oddstar.errors import ArchiveAccessError
 from oddstar.io import cutouts as cut_mod
+from oddstar.io import live_survey as live_mod
 from oddstar.io.cache import RawCache
 from oddstar.io.live_survey import _row_to_star_dict, enrich_star_live_for_vetting
 from oddstar.io.physics import BAND_ZERO_POINT_JY, mag_to_flux_mjy, propagate_position
@@ -145,9 +147,33 @@ def _sia_votable(ra: float, dec: float) -> bytes:
         rows.append((f"{base}-w{b}-unc-3.fits.gz", ra + 0.05, dec - 0.05))
         rows.append((f"{far}-w{b}-int-3.fits", ra + 1.2, dec))
     t = Table(rows=rows, names=("access_url", "s_ra", "s_dec"), dtype=(str, float, float))
+    vot = from_table(t)
+    # IRSA's SIA answer gives every FIELD an opaque ID (col_0, col_1, ...) beside its name; astropy keys the table by
+    # ID unless asked for names, which is how the live answer lost its `access_url` column.
+    for i, field in enumerate(vot.get_first_table().fields):
+        field.ID = f"col_{i}"
     buf = io.BytesIO()
-    writeto(from_table(t), buf)
+    writeto(vot, buf)
     return buf.getvalue()
+
+
+def _heasarc_votable(cols: list[str], rows: list[dict[str, Any]]) -> bytes:
+    """A HEASARC TAP answer: QUERY_STATUS OK and one table (string `name`, float everything else)."""
+    fields = "".join(
+        f'<FIELD name="{c}" datatype="char" arraysize="*"/>' if c == "name" else f'<FIELD name="{c}" datatype="double"/>' for c in cols
+    )
+    body = "".join("<TR>" + "".join(f"<TD>{'' if r.get(c) is None else r[c]}</TD>" for c in cols) + "</TR>" for r in rows)
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>\n<VOTABLE version="1.3" xmlns="http://www.ivoa.net/xml/VOTable/v1.3">'
+        '<RESOURCE type="results"><INFO name="QUERY_STATUS" value="OK">Search completed</INFO>'
+        f'<TABLE>{fields}<DATA><TABLEDATA>{body}</TABLEDATA></DATA></TABLE></RESOURCE></VOTABLE>'
+    ).encode("utf-8")
+
+
+def _adql_circle(q: str) -> tuple[float, float]:
+    m = re.search(r"CIRCLE\('ICRS',\s*([-\d.]+),\s*([-\d.]+)", q)
+    assert m is not None, q
+    return float(m.group(1)), float(m.group(2))
 
 
 DUST_XML = """<?xml version="1.0" encoding="UTF-8"?>
@@ -179,7 +205,9 @@ class FakeArchives:
     """Routes `requests.get`/`requests.post` to per-service fakes. `fail` names services that raise ConnectionError."""
 
     def __init__(self, *, fail: set[str] | None = None, bad: set[str] | None = None, caom_rows: list[dict[str, Any]] | None = None,
-                 http500: set[str] | None = None) -> None:
+                 http500: set[str] | None = None, not_held: set[str] | None = None, no_target: set[str] | None = None) -> None:
+        self.not_held = set(not_held or ())
+        self.no_target = set(no_target or ())
         self.fail = set(fail or ())
         self.bad = set(bad or ())
         self.http500 = set(http500 or ())
@@ -194,12 +222,19 @@ class FakeArchives:
                 return "allwise_density" if "selcols" in p else "allwise_coadd"
             return {"allsky_4band_p1bs_psd": "wise_l1b", "neowiser_p1bs_psd": "neowise"}.get(str(cat), "second_instrument")
         if "asu-tsv" in url:
-            return {"VIII/65/nvss": "radio", "II/349/ps1": "ps1_vizier", "II/335/galex_ais": "galex", "IX/47/2rxs": "rosat",
-                    "J/A+A/682/A34/erass1-m": "erass1"}[p["-source"]]
+            # GALEX and the X-ray catalogues must never go through a VizieR mirror again (KeyError here if they do)
+            return {"VIII/65/nvss": "radio", "II/349/ps1": "ps1_vizier"}[p["-source"]]
         if "panstarrs" in url:
             return "ps1_cat"
         if "api/v0/invoke" in url:
-            return "caom"
+            return {"Mast.Caom.Filtered.Position": "caom", "Mast.Galex.Catalog": "galex"}[json.loads(p["request"])["service"]]
+        if "heasarc" in url:
+            q = str(p.get("QUERY", ""))
+            if "FROM rass2rxs" in q:
+                return "rosat"
+            if "FROM erass1main" in q:
+                return "erass1"
+            raise AssertionError(f"unrouted HEASARC query {q[:80]}")
         if "skybot" in url:
             return "skybot"
         if "DUST" in url:
@@ -276,20 +311,39 @@ class FakeArchives:
                              "w3mpro": "9.000" if bright else "12.500", "w3snr": "20" if bright else "1.5",
                              "w4mpro": "6.500" if bright else "9.200", "w4snr": "8" if bright else "1.2"})
             return _Resp(200, _ipac(["ra", "dec", "w3mpro", "w3snr", "w4mpro", "w4snr"], rows))
-        if svc == "radio":
-            rows = [{"RAJ2000": f"{RA + 2.0 / 3600.0:.6f}", "DEJ2000": f"{DEC:.6f}", "S1.4": "4.1"}] if bad else []
-            return _Resp(200, _tsv(["RAJ2000", "DEJ2000", "S1.4"], rows))
-        if svc == "ps1_vizier":
-            return _Resp(200, _tsv(["RAJ2000", "DEJ2000", "rmag"], []))
+        if svc in {"radio", "ps1_vizier"}:
+            c_ra, c_dec = (float(v) for v in p["-c"].split())
+            canary = live_mod.VIZIER_CANARY_CONES[p["-source"]]
+            cols = ["RAJ2000", "DEJ2000", "S1.4"] if svc == "radio" else ["RAJ2000", "DEJ2000", "rmag"]
+            if abs(c_ra - canary[0]) < 1e-3 and abs(c_dec - canary[1]) < 1e-3:
+                if svc in self.not_held:
+                    return _Resp(200, _tsv(cols, []))
+                return _Resp(200, _tsv(cols, [{"RAJ2000": f"{c_ra:.6f}", "DEJ2000": f"{c_dec:.6f}", cols[2]: "12.5"}]))
+            rows = [{"RAJ2000": f"{RA + 2.0 / 3600.0:.6f}", "DEJ2000": f"{DEC:.6f}", "S1.4": "4.1"}] if (bad and svc == "radio") else []
+            return _Resp(200, _tsv(cols, rows))
         if svc == "galex":
-            c_ra, c_dec = (float(v) for v in p["-c"].split())
-            row = {"RAJ2000": f"{c_ra:.6f}", "DEJ2000": f"{c_dec + 1.9 / 3600.0:.6f}", "NUVmag": "18.00" if bad else "22.44",
-                   "e_NUVmag": "0.05" if bad else "0.43", "FUVmag": None}
-            return _Resp(200, _tsv(["RAJ2000", "DEJ2000", "NUVmag", "e_NUVmag", "FUVmag"], [row]))
+            req = json.loads(p["request"])
+            c_ra, c_dec = float(req["params"]["ra"]), float(req["params"]["dec"])
+            if svc in self.not_held:  # field never observed by GALEX
+                return _Resp(200, json_data={"status": "COMPLETE", "data": [], "paging": {"rowsTotal": 0}})
+            rows = [
+                {"ra": c_ra, "dec": c_dec + 1.9 / 3600.0, "nuv_mag": 18.00 if bad else 22.44, "nuv_magerr": 0.05 if bad else 0.43,
+                 "fuv_mag": -999.0, "fuv_magerr": -999.0, "survey": "AIS", "nuv_exptime": 207.0},
+                {"ra": c_ra + 0.05, "dec": c_dec - 0.04, "nuv_mag": 20.1, "nuv_magerr": 0.11, "fuv_mag": 21.0, "fuv_magerr": 0.3,
+                 "survey": "AIS", "nuv_exptime": 207.0},
+            ]
+            if svc in self.no_target:  # observed field, nothing at the star
+                rows = rows[1:]
+            radius_as = float(req["params"]["radius"]) * 3600.0
+            rows = [r for r in rows if math.hypot((r["ra"] - c_ra) * 3600.0 * math.cos(math.radians(c_dec)), (r["dec"] - c_dec) * 3600.0) <= radius_as]
+            total = 9000 if (svc in self.no_target and radius_as > 100.0) else len(rows)  # a deep field overflows one page
+            return _Resp(200, json_data={"status": "COMPLETE", "data": rows, "paging": {"rowsTotal": total}})
         if svc == "rosat":
-            c_ra, c_dec = (float(v) for v in p["-c"].split())
-            rows = [{"RAJ2000": f"{c_ra:.5f}", "DEJ2000": f"{c_dec + 8.0 / 3600.0:.5f}", "Rate": "0.10", "HR1": "0.0"}] if bad else []
-            return _Resp(200, _tsv(["RAJ2000", "DEJ2000", "Rate", "HR1"], rows))
+            c_ra, c_dec = _adql_circle(str(p["QUERY"]))
+            cols = ["name", "ra", "dec", "count_rate", "count_rate_error", "hardness_ratio_1"]
+            rows = [{"name": "2RXS J025411.6+055306", "ra": f"{c_ra:.5f}", "dec": f"{c_dec + 8.0 / 3600.0:.5f}", "count_rate": "0.10",
+                     "count_rate_error": "0.02", "hardness_ratio_1": "0.0"}] if bad else []
+            return _Resp(200, content=_heasarc_votable(cols, rows))
         if svc == "erass1":
             raise AssertionError("eRASS1 must not be queried at Galactic l < 180")
         if svc == "ps1_cat":
@@ -308,7 +362,7 @@ class FakeArchives:
                        "# Num | Name | RA(h) | DE(deg) | Class | Mv | Err(arcsec) | d(arcsec) | dRA(arcsec/h) | dDEC(arcsec/h) | Dg(ua) | Dh(ua)\n"
                        f"99999 | Testbody | {_hms(ra_c)} | {_dms(dec_c)} | MB>Middle | 17.9 | 0.15 | 0.4 | 0.0 | 0.0 | 1.6 | 2.5\n")
                 return _Resp(200, txt)
-            return _Resp(200, "# Flag: 0\n# Ticket: 1\n")
+            return _Resp(204)  # SkyBoT answers "no body in the field" with HTTP 204 and an empty body
         if svc == "dust":
             return _Resp(200, DUST_XML.format(ra=RA, dec=DEC, ebv="0.6120" if bad else "0.2414", sf="0.5263" if bad else "0.2076",
                                               i100="21.3" if bad else "8.25"))

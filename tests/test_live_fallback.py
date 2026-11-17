@@ -5,9 +5,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import pytest
 import requests
 
 from oddstar.config import load_config
+from oddstar.errors import ArchiveAccessError
 from oddstar.io.cache import RawCache
 from oddstar.io.live_survey import (
     _parse_ipac_table,
@@ -156,13 +158,79 @@ def test_live_region_queries_halo_and_bulge(tmp_path: Path, monkeypatch: Any) ->
 
     fetch_live_halo_bulge_sample(cfg, cache, limit=100, region="halo", after_random_index=999)
     fetch_live_halo_bulge_sample(cfg, cache, limit=100, region="bulge")
+    # Halo and bulge go straight to the Gaia-only index query (the single-shot join timed out live on every attempt);
+    # the cursor is applied to the index rows, not in SQL.
     assert len(seen_queries) == 2
+    assert all(q.startswith("SELECT g.source_id, g.random_index FROM gaiadr3.gaia_source") for q in seen_queries)
     assert "ABS(g.b) > 20.0" in seen_queries[0]
     assert "g.mh_gspphot < -0.8" in seen_queries[0]
-    assert "g.random_index > 999" in seen_queries[0]
-    assert "ORDER BY g.random_index ASC" in seen_queries[0]
     assert "g.l <= 12.0 OR g.l >= 348.0" in seen_queries[1]
     assert "ABS(g.b) BETWEEN 3.0 AND 10.0" in seen_queries[1]
+
+
+def test_live_region_uses_a_cached_single_shot_answer(tmp_path: Path, monkeypatch: Any) -> None:
+    """A single-shot sample stored by an earlier run still defines that sample; nothing is re-queried."""
+    from oddstar.io import live_survey as ls
+
+    cfg, _, _ = load_config()
+    cache = RawCache(tmp_path / "raw", max_cache_gb=1.0)
+    queries: list[str] = []
+
+    def record(url: str, data: dict[str, Any] | None = None, timeout: int = 15) -> _DummyResp:
+        queries.append((data or {}).get("QUERY", ""))
+        return _DummyResp(200, json_data={"metadata": [], "data": []})
+
+    monkeypatch.setattr(requests, "post", record)
+    monkeypatch.setattr(ls, "_fetch_live_two_stage", lambda **kw: ([], []))
+    real_lookup = cache.lookup
+    seen_sigs: list[tuple[str, str, str]] = []
+
+    def spy(archive: str, release: str, sig: str) -> Any:
+        seen_sigs.append((archive, release, sig))
+        return real_lookup(archive, release, sig)
+
+    monkeypatch.setattr(cache, "lookup", spy)
+    ls.fetch_live_halo_bulge_sample(cfg, cache, limit=100, region="halo")
+    archive, release, sig = next(s for s in seen_sigs if s[1] == f"{cfg.gaia.release}_halo")
+    assert queries == []  # no single-shot attempt when nothing is cached
+    cache.put(archive=archive, release=release, request_signature=sig, query_text="single-shot halo", payload=b"[]", row_count=0,
+              offline_fixture=False)
+    monkeypatch.setattr(ls, "_fetch_live_two_stage", lambda **kw: (_ for _ in ()).throw(AssertionError("two-stage must not run")))
+    stars, mans = ls.fetch_live_halo_bulge_sample(cfg, cache, limit=100, region="halo")
+    assert stars == [] and len(mans) == 1 and queries == []
+
+
+def test_tap_busy_service_is_retried_after_waits(tmp_path: Path, monkeypatch: Any) -> None:
+    """HTTP 429 means "queue full": the round is retried after each configured wait, then the failure says so."""
+    cache = RawCache(tmp_path / "raw", max_cache_gb=1.0)
+    state = {"n": 0}
+    slept: list[float] = []
+
+    def busy_then_ok(url: str, data: dict[str, Any] | None = None, timeout: int = 15) -> _DummyResp:
+        state["n"] += 1
+        if state["n"] <= 2:
+            return _DummyResp(429)
+        return _DummyResp(200, json_data={"metadata": [{"name": "source_id"}], "data": [[7]]})
+
+    monkeypatch.setattr(requests, "post", busy_then_ok)
+    rows, _, hit = _tap_query_cached(urls=["https://tap.example/sync"], query="SELECT 1", archive="gaia", release="dr3", cache=cache,
+                                     busy_waits_s=(5.0, 9.0, 13.0), sleep=slept.append)
+    assert rows == [{"source_id": 7}] and hit is False and slept == [5.0, 9.0]
+
+    monkeypatch.setattr(requests, "post", lambda url, data=None, timeout=15: _DummyResp(429))
+    slept.clear()
+    with pytest.raises(ArchiveAccessError, match=r"after 2 wait\(s\) on a busy service.*HTTP 429"):
+        _tap_query_cached(urls=["https://tap.example/sync"], query="SELECT 2", archive="gaia", release="dr3", cache=cache,
+                          busy_waits_s=(5.0, 9.0), sleep=slept.append)
+    assert slept == [5.0, 9.0]
+
+    # A plain failure (not "busy") is not waited on
+    monkeypatch.setattr(requests, "post", lambda url, data=None, timeout=15: _DummyResp(500))
+    slept.clear()
+    with pytest.raises(ArchiveAccessError):
+        _tap_query_cached(urls=["https://tap.example/sync"], query="SELECT 3", archive="gaia", release="dr3", cache=cache,
+                          busy_waits_s=(5.0,), sleep=slept.append)
+    assert slept == []
 
 
 def test_live_region_two_stage_fallback_on_timeout(tmp_path: Path, monkeypatch: Any) -> None:
@@ -214,3 +282,4 @@ def test_live_region_two_stage_fallback_on_timeout(tmp_path: Path, monkeypatch: 
     stars, _ = fetch_live_halo_bulge_sample(cfg, cache, limit=10, region="halo", after_random_index=999)
     assert [s["source_id"] for s in stars] == ["222"]
     assert any("WHERE g.source_id IN (222,333)" in q for q in seen_queries)
+    assert not any("SELECT TOP" in q for q in seen_queries)

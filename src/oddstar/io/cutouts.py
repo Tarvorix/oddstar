@@ -78,7 +78,8 @@ def parse_allwise_sia(payload: bytes, ra: float, dec: float) -> dict[str, str]:
     from astropy.io.votable import parse
 
     try:
-        table = parse(io.BytesIO(payload)).get_first_table().to_table()
+        # IRSA gives every FIELD an ID ("col_0" ...); without use_names_over_ids astropy names the columns by ID
+        table = parse(io.BytesIO(payload)).get_first_table().to_table(use_names_over_ids=True)
     except Exception as exc:  # astropy raises several types on a non-VOTable body
         raise ArchiveAccessError(f"IRSA SIA response is not a VOTable: {type(exc).__name__}: {exc}", retryable=True) from exc
     cols = set(table.colnames)

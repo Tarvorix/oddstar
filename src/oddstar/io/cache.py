@@ -2,14 +2,27 @@
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
 import os
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from oddstar.schemas import ManifestRecord
+
+
+def _locked(method: Any) -> Any:
+    """Run a RawCache method under the instance lock."""
+
+    @functools.wraps(method)
+    def wrapper(self: "RawCache", *args: Any, **kwargs: Any) -> Any:
+        with self._lock:
+            return method(self, *args, **kwargs)
+
+    return wrapper
 
 
 class RawCache:
@@ -25,6 +38,9 @@ class RawCache:
         # Running byte total of the blobs on disk; None until first needed (one directory walk per process, not per put)
         self._cached_bytes: int | None = None
         self.recovered_truncated_manifest_line = False
+        # Several fetch workers share one cache (survey NEOWISE ingest); index, byte total and manifest appends are
+        # guarded so a manifest line is never interleaved and the budget count stays right.
+        self._lock = threading.RLock()
         self._load_manifests()
 
     def _load_manifests(self) -> None:
@@ -57,6 +73,7 @@ class RawCache:
         tmp.write_text("\n".join(rows) + ("\n" if rows else ""), encoding="utf-8")
         tmp.replace(self.manifest_path)
 
+    @_locked
     def lookup(self, archive: str, release: str, request_signature: str) -> ManifestRecord | None:
         rec = self._index.get((archive, release, request_signature))
         if rec is None:
@@ -71,6 +88,7 @@ class RawCache:
     def read_bytes(self, rec: ManifestRecord) -> bytes:
         return Path(rec.blob_path).read_bytes()
 
+    @_locked
     def total_cached_bytes(self) -> int:
         total = 0
         for p in self.raw_dir.rglob("*"):
@@ -86,6 +104,7 @@ class RawCache:
         if sha in self._by_sha:
             self._by_sha[sha] = self._by_sha[sha].model_copy(update={"evicted": True})
 
+    @_locked
     def enforce_budget(self, incoming_bytes: int = 0) -> list[str]:
         """Evict oldest raw blobs if cache exceeds max_cache_bytes; preserve manifest hashes."""
         evicted_shas: list[str] = []
@@ -117,6 +136,7 @@ class RawCache:
             self._rewrite_manifests()
         return evicted_shas
 
+    @_locked
     def evict_raw_blob(self, sha256: str) -> bool:
         """Process-and-evict helper for bulky radio/pixel payloads while retaining manifest provenance."""
         rec = self._by_sha.get(sha256)
@@ -132,6 +152,7 @@ class RawCache:
         self._rewrite_manifests()
         return True
 
+    @_locked
     def put(
         self,
         *,

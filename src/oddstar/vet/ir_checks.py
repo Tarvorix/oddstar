@@ -27,6 +27,7 @@ from oddstar.io.physics import (
     angular_separation_arcsec,
     flux_mjy_to_mag,
     propagate_position,
+    star_applied_ebv,
 )
 from oddstar.io.vetting_queries import target_excess_mjy
 from oddstar.schemas import VettingResult
@@ -584,7 +585,13 @@ def check_moving_object(star: dict[str, Any], cfg: PipelineConfig, out_dir: Path
         if sso is None:
             return _not_evaluated(out_dir, "moving_object", "SkyBoT ephemeris search not run", star, queries)
         metrics = {"frame_mjds": sso.get("frame_mjds", []), "visits": sso.get("visits", []), "matches": sso.get("matches", []),
-                   "match_radius_arcsec": r_match, "observer": sso.get("observer")}
+                   "match_radius_arcsec": r_match, "observer": sso.get("observer"),
+                   "max_pos_err_arcsec": sso.get("max_pos_err_arcsec"), "unconstrained_bodies": sso.get("unconstrained_bodies", [])}
+        n_unc = len(metrics["unconstrained_bodies"])
+        unc_note = (
+            f"; {n_unc} catalogued body(ies) in the search cone have an ephemeris uncertainty above "
+            f"{metrics['max_pos_err_arcsec']:.0f}\" and were tested at their nominal position only" if n_unc else ""
+        )
         if sso.get("matches"):
             mt = sso["matches"][0]
             return make_vet_result(
@@ -604,7 +611,7 @@ def check_moving_object(star: dict[str, Any], cfg: PipelineConfig, out_dir: Path
         return make_vet_result(
             out_dir, check="moving_object", status="pass",
             note=f"No known Solar System body within {r_match:.0f}\" at any of {n_frames} 2010 frame epochs "
-            f"({len(sso['visits'])} SkyBoT visit queries, observer {sso.get('observer')})",
+            f"({len(sso['visits'])} SkyBoT visit queries, observer {sso.get('observer')}){unc_note}",
             metrics=metrics,
         )
     mov = va.get("moving_objects_2010")
@@ -675,15 +682,23 @@ R_NUV = 8.2
 
 def _youth_uv(star: dict[str, Any], galex: dict[str, Any], cfg: PipelineConfig) -> dict[str, Any]:
     thr = float(cfg.vetting["youth_uv_excess_mag"])
+    if galex.get("status") == "no_coverage":
+        return {"verdict": "non_constraining", "reason": galex.get("note") or "field not observed by GALEX", "status": "no_coverage"}
     if galex.get("status") != "ok":
         return {"verdict": "not_queried", "status": galex.get("status")}
     match = galex.get("match")
     if match is None:
-        return {"verdict": "non_constraining", "reason": "no GALEX AIS source (coverage gap and faint photosphere are indistinguishable)"}
+        return {"verdict": "non_constraining",
+                "reason": "GALEX observed the field but lists no NUV source at the star (no NUV upper limit is derived from the exposure)",
+                "n_sources_in_coverage_cone": galex.get("n_sources_in_coverage_cone")}
     mags = star.get("mags") or {}
     if mags.get("G") is None or mags.get("BP") is None or mags.get("RP") is None:
         return {"verdict": "non_constraining", "reason": "no Gaia G/BP/RP photometry"}
-    ebv = float(star.get("ebv_sfd") or 0.0)
+    # Reddening applied to the star (`ebv_star`; live stars carry no stellar value under the line-of-sight key `ebv_sfd`)
+    ebv_applied, ebv_source = star_applied_ebv(star)
+    if ebv_applied is None:
+        return {"verdict": "non_constraining", "reason": "no stellar reddening estimate to deredden NUV and Gaia colours", "ebv_source": ebv_source}
+    ebv = float(ebv_applied)
     av = 3.1 * ebv
     bp_rp0 = float(mags["BP"]) - float(mags["RP"]) - av * (BAND_EXTINCTION_AV["BP"] - BAND_EXTINCTION_AV["RP"])
     g0 = float(mags["G"]) - av * BAND_EXTINCTION_AV["G"]
@@ -701,7 +716,7 @@ def _youth_uv(star: dict[str, Any], galex: dict[str, Any], cfg: PipelineConfig) 
     else:
         verdict = "non_constraining"
     return {"verdict": verdict, "nuv_mag": match["nuv_mag"], "nuv_err": match.get("nuv_err"), "sep_arcsec": match.get("sep_arcsec"),
-            "nuv_expected_photosphere": nuv_exp, "nuv_excess_mag": excess, "excess_sigma_mag": sig, "bp_rp0": bp_rp0, "ebv_used": ebv}
+            "nuv_expected_photosphere": nuv_exp, "nuv_excess_mag": excess, "excess_sigma_mag": sig, "bp_rp0": bp_rp0, "ebv_used": ebv, "ebv_source": ebv_source}
 
 
 def _youth_xray(star: dict[str, Any], youth: dict[str, Any], cfg: PipelineConfig) -> dict[str, Any]:

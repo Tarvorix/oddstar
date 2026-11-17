@@ -110,17 +110,43 @@ def parse_bayestar_percentiles(text: str, n_coords: int) -> np.ndarray:
     return arr
 
 
+CONNECT_TIMEOUT_S = 8.0
+UNREACHABLE_HOLD_S = 1800.0
+# Monotonic time until which the server is treated as unreachable in this process (set after a connection failure).
+# The Argonaut host was down on 2026-11-17: without this every star paid three 30 s connect timeouts.
+_unreachable_until: float = 0.0
+
+
+class Bayestar19Unreachable(RuntimeError):
+    """The Bayestar19 server could not be connected to (now, or earlier in this run)."""
+
+
+def reset_unreachable() -> None:
+    """Forget an earlier connection failure (tests; or a caller that knows the server is back)."""
+    global _unreachable_until
+    _unreachable_until = 0.0
+
+
 def _post_with_retries(url: str, body: bytes, *, timeout_s: float, attempts: int, sleep: Sleeper) -> requests.Response:
+    global _unreachable_until
+    if time.monotonic() < _unreachable_until:
+        raise Bayestar19Unreachable(f"{url} was unreachable earlier in this run; not retried for {UNREACHABLE_HOLD_S:.0f} s")
     errors: list[str] = []
     for i in range(attempts):
         try:
-            resp = requests.post(url, data=body, headers={"content-type": "application/json"}, timeout=timeout_s)
+            resp = requests.post(url, data=body, headers={"content-type": "application/json"}, timeout=(CONNECT_TIMEOUT_S, timeout_s))
             if resp.status_code == 200:
                 return resp
             errors.append(f"HTTP {resp.status_code}")
             if resp.status_code < 500 and resp.status_code != 429:
                 break
-        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as exc:
+        except (requests.exceptions.ConnectTimeout, requests.exceptions.ConnectionError) as exc:
+            # Cannot connect at all: one more try, then stop asking for the rest of the run
+            errors.append(type(exc).__name__)
+            if i >= 1 or attempts == 1:
+                _unreachable_until = time.monotonic() + UNREACHABLE_HOLD_S
+                raise Bayestar19Unreachable(f"POST {url} could not connect after {len(errors)} attempt(s): {'; '.join(errors)}") from exc
+        except requests.exceptions.Timeout as exc:
             errors.append(type(exc).__name__)
         if i < attempts - 1:
             sleep(2.0 * (2**i))

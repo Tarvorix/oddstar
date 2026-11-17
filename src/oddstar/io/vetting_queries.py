@@ -144,8 +144,9 @@ def fetch_subarcsec_imaging(
             raise ArchiveAccessError(f"MAST CAOM JSON parse failed: {exc}", retryable=True) from exc
         if not isinstance(js, dict) or "data" not in js:
             raise ArchiveAccessError(f"MAST CAOM response has no 'data': {str(js)[:200]}", retryable=True)
-        if str(js.get("status", "COMPLETE")).upper() not in {"COMPLETE", "EXECUTING", ""}:
-            raise ArchiveAccessError(f"MAST CAOM status={js.get('status')}: {js.get('msg', '')}", retryable=True)
+        # Only a COMPLETE answer is a result: EXECUTING carries no (or partial) rows and would read as "no observations"
+        if str(js.get("status", "")).upper() != "COMPLETE":
+            raise ArchiveAccessError(f"MAST CAOM status={js.get('status')!r}: {js.get('msg', '')}", retryable=True)
         return [dict(r) for r in js["data"]]
 
     payload, man, _ = cached_get(

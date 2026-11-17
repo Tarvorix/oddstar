@@ -8,8 +8,8 @@ This module provides:
   "3c" also uses, with the same status strings ("ok", "no_coverage", "failed: ...").
 - `bin_neowise_visits`: the visit binning shared with section "3c" (per-visit median fluxes, robust errors, Gaia
   proper-motion track residual vectors, `visit_n_frames`).
-- `enrich_sample_neowise`: the survey loop, with the content-addressed `RawCache` (a re-run is free), a rate limit from
-  `cfg.archives["neowise"]`, bounded retries, a per-star status, resumability through the cache, and a progress
+- `enrich_sample_neowise`: the survey loop, with the content-addressed `RawCache` (a re-run is free), a few concurrent
+  workers under one shared rate limit from `cfg.archives["neowise"]`, bounded retries, a per-star status, resumability through the cache, and a progress
   callback. A star whose fetch failed is left with an empty light curve and status `failed: ...`, so the channel
   reports it as not searched rather than scoring it as quiet.
 
@@ -21,8 +21,10 @@ from __future__ import annotations
 
 import json
 import math
+import threading
 import time
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 import numpy as np
@@ -174,7 +176,7 @@ def bin_neowise_visits(
     return neo_dict, v_win, float(np.median([x[1] for x in pts]))
 
 
-def _bulk_settings(cfg: PipelineConfig) -> tuple[float, int, float]:
+def _bulk_settings(cfg: PipelineConfig) -> tuple[float, int, float, int]:
     arch = cfg.archives.get("neowise")
     if arch is None or not arch.enabled:
         raise ArchiveAccessError(
@@ -183,7 +185,30 @@ def _bulk_settings(cfg: PipelineConfig) -> tuple[float, int, float]:
             retryable=False,
         )
     itd = cfg.channels["ir_timedomain"]
-    return float(arch.rate_limit_rps), int(itd["neowise_bulk_max_attempts"]), float(itd["neowise_bulk_retry_backoff_s"])
+    return (float(arch.rate_limit_rps), int(itd["neowise_bulk_max_attempts"]), float(itd["neowise_bulk_retry_backoff_s"]),
+            int(itd["neowise_bulk_workers"]))
+
+
+class _RequestPacer:
+    """Spaces network requests at least `min_interval` apart across all workers.
+
+    After a request that reached the network, the worker reserves the next free start slot and waits for it. With one
+    worker this is the plain "wait until `min_interval` has passed since the request started".
+    """
+
+    def __init__(self, min_interval: float, sleep: Callable[[float], Any]) -> None:
+        self._min_interval = min_interval
+        self._sleep = sleep
+        self._lock = threading.Lock()
+        self._next_start = 0.0
+
+    def after_network_request(self, t_req: float) -> None:
+        with self._lock:
+            slot = max(self._next_start, t_req + self._min_interval)
+            self._next_start = slot + self._min_interval
+        wait = slot - time.monotonic()
+        if wait > 0:
+            self._sleep(wait)
 
 
 def enrich_sample_neowise(
@@ -194,6 +219,7 @@ def enrich_sample_neowise(
     max_stars: int | None = None,
     progress: ProgressCallback | None = None,
     sleep: Callable[[float], Any] = time.sleep,
+    workers: int | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Attach NEOWISE-R visit light curves to every sample star (NEOWISE queries only).
 
@@ -205,33 +231,27 @@ def enrich_sample_neowise(
     are returned untouched with `neowise_fetch.status == "not_fetched"`; stars already through full vetting
     enrichment (`live_enriched`) keep their data and status.
 
-    Rate limit: after every request that reached the network the loop waits until 1 / `archives.neowise.rate_limit_rps`
-    seconds have passed since it started; cache hits do not wait. Resumability: every completed query (including empty
-    results) is in the content-addressed cache, so re-running after an interruption replays finished stars from the
-    cache without network traffic or waiting and continues with the first unfinished one. Failed queries are not
-    cached and are retried on the next run.
+    Concurrency: `workers` requests run at once (default `channels.ir_timedomain.neowise_bulk_workers`). One IRSA
+    cone takes about three seconds to answer, so a single worker needs about seven hours for 7,800 stars; the
+    answers do not depend on the order they are fetched in, and results are always returned in input order.
 
-    `progress(done, n_requested, source_id, status)` is called after each processed star.
+    Rate limit: network requests from all workers together start at least 1 / `archives.neowise.rate_limit_rps`
+    seconds apart; cache hits do not wait. Resumability: every completed query (including empty results) is in the
+    content-addressed cache, so re-running after an interruption replays finished stars from the cache without
+    network traffic or waiting and continues with the unfinished ones. Failed queries are not cached and are retried
+    on the next run.
+
+    `progress(done, n_requested, source_id, status)` is called in input order after each processed star.
     """
-    rps, max_attempts, backoff_s = _bulk_settings(cfg)
-    min_interval = 1.0 / rps
+    rps, max_attempts, backoff_s, cfg_workers = _bulk_settings(cfg)
+    n_workers = max(1, int(cfg_workers if workers is None else workers))
+    pacer = _RequestPacer(1.0 / rps, sleep)
     t_start = time.monotonic()
     n_limit = len(stars) if max_stars is None else max(0, min(int(max_stars), len(stars)))
 
-    out: list[dict[str, Any]] = []
-    counts = {"ok": 0, "no_coverage": 0, "failed": 0}
-    failed_ids: list[str] = []
-    n_network = 0
-    n_cache_hits = 0
-    n_already = 0
-
-    for idx, star in enumerate(stars):
+    def process(idx: int, star: dict[str, Any]) -> tuple[dict[str, Any], str, str, int, int, bool]:
+        """One star -> (copy with results, count key, status, network requests, cache hits, from vetting enrichment)."""
         s = json.loads(json.dumps(star))
-        sid = str(s["source_id"])
-        if idx >= n_limit:
-            s["neowise_fetch"] = {"status": "not_fetched", "reason": f"beyond max_stars={max_stars}"}
-            out.append(s)
-            continue
         qs: dict[str, str] = s.setdefault("vetting_archive", {}).setdefault("query_status", {})
         if s.get("live_enriched") and "neowise" in qs:
             status = qs["neowise"]
@@ -240,14 +260,7 @@ def enrich_sample_neowise(
             if key == "ok" and n_vis == 0:
                 key, status = "no_coverage", "no_coverage"
             s["neowise_fetch"] = {"status": status, "attempts": 0, "n_visits": n_vis, "source": "vetting_enrichment"}
-            counts[key] += 1
-            if key == "failed":
-                failed_ids.append(sid)
-            n_already += 1
-            out.append(s)
-            if progress is not None:
-                progress(idx + 1, n_limit, sid, status)
-            continue
+            return s, key, status, 0, 0, True
 
         ra = float(s["ra_deg"])
         dec = float(s["dec_deg"])
@@ -259,6 +272,8 @@ def enrich_sample_neowise(
         status = "failed: not attempted"
         from_cache = False
         attempts = 0
+        n_net = 0
+        n_hit = 0
         for attempt in range(1, max_attempts + 1):
             attempts = attempt
             t_req = time.monotonic()
@@ -266,12 +281,10 @@ def enrich_sample_neowise(
                 ra, dec, cache, gator_selcols=BULK_GATOR_SELCOLS, tap_columns=BULK_TAP_COLUMNS
             )
             if from_cache:
-                n_cache_hits += 1
+                n_hit += 1
             else:
-                n_network += 1
-                wait = min_interval - (time.monotonic() - t_req)
-                if wait > 0:
-                    sleep(wait)
+                n_net += 1
+                pacer.after_network_request(t_req)
             if not status.startswith("failed"):
                 break
             if attempt < max_attempts:
@@ -296,16 +309,49 @@ def enrich_sample_neowise(
         if note:
             rec["note"] = note
         s["neowise_fetch"] = rec
-        if status == "ok":
-            counts["ok"] += 1
-        elif status == "no_coverage":
-            counts["no_coverage"] += 1
-        else:
-            counts["failed"] += 1
+        key = "ok" if status == "ok" else ("no_coverage" if status == "no_coverage" else "failed")
+        return s, key, status, n_net, n_hit, False
+
+    out: list[dict[str, Any]] = []
+    counts = {"ok": 0, "no_coverage": 0, "failed": 0}
+    failed_ids: list[str] = []
+    n_network = 0
+    n_cache_hits = 0
+    n_already = 0
+
+    def collect(idx: int, res: tuple[dict[str, Any], str, str, int, int, bool]) -> None:
+        nonlocal n_network, n_cache_hits, n_already
+        s, key, status, n_net, n_hit, already = res
+        sid = str(s["source_id"])
+        counts[key] += 1
+        if key == "failed":
             failed_ids.append(sid)
+        n_network += n_net
+        n_cache_hits += n_hit
+        n_already += 1 if already else 0
         out.append(s)
         if progress is not None:
             progress(idx + 1, n_limit, sid, status)
+
+    todo = stars[:n_limit]
+    if n_workers == 1 or len(todo) <= 1:
+        for idx, star in enumerate(todo):
+            collect(idx, process(idx, star))
+    else:
+        pool = ThreadPoolExecutor(max_workers=n_workers, thread_name_prefix="neowise")
+        try:
+            futures = [pool.submit(process, idx, star) for idx, star in enumerate(todo)]
+            for idx, fut in enumerate(futures):
+                collect(idx, fut.result())
+        except BaseException:
+            # Interrupted (or a programming error): drop the queued stars; finished ones are already in the cache
+            pool.shutdown(wait=False, cancel_futures=True)
+            raise
+        pool.shutdown(wait=True)
+    for star in stars[n_limit:]:
+        s = json.loads(json.dumps(star))
+        s["neowise_fetch"] = {"status": "not_fetched", "reason": f"beyond max_stars={max_stars}"}
+        out.append(s)
 
     summary: dict[str, Any] = {
         "n_input": len(stars),
@@ -320,6 +366,7 @@ def enrich_sample_neowise(
         "n_from_vetting_enrichment": n_already,
         "rate_limit_rps": rps,
         "max_attempts": max_attempts,
+        "workers": n_workers,
         "elapsed_s": round(time.monotonic() - t_start, 3),
     }
     return out, summary

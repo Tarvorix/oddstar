@@ -2,6 +2,43 @@
 
 All threshold, sample-cut, and prompt changes must be logged here under Ground Rule R4 before running validation or search.
 
+## [1.1.1] - 2026-11-17
+
+### Fixes from the first live archive run of 1.1.0
+The 2026-11-17 live run of the reference star against the real archives exposed answers the 1.1.0 code misread.
+No channel threshold changes. Three keys are new; the config hash changes, so every certificate is regenerated
+(in a separate commit).
+
+- `version: "1.1.1"` (was "1.1.0").
+- `vetting.sso_max_pos_err_arcsec: 30.0` (new). SkyBoT lists lost and single-opposition bodies whose ephemeris
+  uncertainty reaches degrees (seen live: 2021 VU98, 225,012" uncertainty, nominal position 561" from the star).
+  The match test adds a body's uncertainty to `sso_match_radius_arcsec`, so such a body matched any target in the
+  field and failed `moving_object`. A body with an uncertainty above this cap is now tested at its nominal position
+  only and listed under `unconstrained_bodies` in the check's metrics and note. 30" is twice the 15" match radius
+  and 2.5 times the 12" W4 beam: beyond that the catalogue position no longer says whether the body was in the beam.
+- `vetting.youth_galex_coverage_radius_arcsec: 600.0` (new). GALEX did not observe the whole sky. A field with no
+  GALEX source of any kind within this radius was not observed (`galex: no_coverage`), which is different from an
+  observed field with no NUV source at the star. An observed AIS field holds of order a hundred catalogue sources
+  within 10 arcmin.
+- `channels.ir_timedomain.neowise_bulk_workers: 4` (new). Concurrent IRSA requests of the survey NEOWISE fetch; all
+  workers share the `archives.neowise.rate_limit_rps` limit. Results do not depend on the worker count (tested).
+
+Source changes without a config key (recorded here because they change which archive answers a check):
+- GALEX now comes from MAST `Mast.Galex.Catalog` and ROSAT 2RXS / eRASS1 from the HEASARC TAP tables `rass2rxs` /
+  `erass1main`. The CfA VizieR mirror answered HTTP 200 with zero rows for GALEX and eRASS1 everywhere (it does not
+  serve those tables), which was recorded as "queried, no counterpart", and the 2RXS identifier `IX/47/2rxs` does
+  not exist. Match radii and flux limits are unchanged.
+- The remaining VizieR `asu-tsv` tables (NVSS, PS1 fallback) accept an empty answer from a mirror only after that
+  mirror returned rows at a known position for the table (`VIZIER_CANARY_CONES` in `io/live_survey.py`).
+- The Legacy Survey DR10 neighbour query is a 17" `q3c_radial_query` cone (circumscribes the former +/-12" box,
+  which timed out); rows are still filtered by separation downstream.
+- SkyBoT HTTP 204 is "no body in the field", not a failure. IRSA image-search columns are read by name. A MAST
+  answer counts only when its status is `COMPLETE`. `_youth_uv` dereddens with the reddening applied to the star
+  (`ebv_star`), not the line-of-sight key, which is empty for live stars since 1.1.0.
+- Operational only (no effect on results): Bayestar19 stops being asked for 30 minutes after a failed connection;
+  a TAP service answering HTTP 429 is retried after 20, 60, 180 and 480 s; halo and bulge samples skip the
+  single-shot join that timed out and use the index + batch route unless a single-shot answer is already cached.
+
 ## [1.1.0] - 2026-11-17
 
 ### Infrared vetting inputs

@@ -1,4 +1,4 @@
-version: "1.1.0"
+version: "1.1.1"
 
 storage:
   max_cache_gb: 10.0
@@ -85,6 +85,8 @@ channels:
     # Survey-scale NEOWISE-only fetch (oddstar.io.neowise_bulk); rate limit comes from archives.neowise
     neowise_bulk_max_attempts: 3
     neowise_bulk_retry_backoff_s: 2.0
+    # Concurrent IRSA requests of the survey fetch; all workers share the archives.neowise rate limit
+    neowise_bulk_workers: 4
 
   optical_dips:
     detrend_window_days: 5.0
@@ -203,12 +205,14 @@ vetting:
   youth_nuv_locus_sigma_mag: 0.5
   youth_uv_constraint_nsigma: 2.0
   youth_galex_match_radius_arcsec: 3.0
+  youth_galex_coverage_radius_arcsec: 600.0
   youth_rosat_match_radius_arcsec: 30.0
   youth_rosat_flux_limit_erg_cm2_s: 1.0e-13
   youth_erass1_match_radius_arcsec: 15.0
   youth_erass1_flux_limit_erg_cm2_s: 5.0e-14
   sso_visit_gap_days: 3.0
   sso_max_rate_arcsec_per_hr: 120.0
+  sso_max_pos_err_arcsec: 30.0
   w1_beam_arcsec: 6.1
   w2_beam_arcsec: 6.4
   wise_atlas_psf_broadening: 1.414
