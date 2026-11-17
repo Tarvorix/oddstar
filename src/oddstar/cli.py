@@ -291,8 +291,14 @@ def _cmd_vet(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, roo
     for sf in search_files:
         sdata = json.loads(sf.read_text(encoding="utf-8"))
         scores_by_id = {row["source_id"]: ChannelScore.model_validate(row) for row in sdata["scores"]}
+        meas_by_id = {m["source_id"]: m.get("values", {}) for m in sdata.get("measurements", [])}
         for sid in sdata.get("flagged_ids", []):
-            star = RADIO_CADENCES.get(sid) or resolve_star_record(sid, cfg)
+            star = dict(RADIO_CADENCES[sid]) if sid in RADIO_CADENCES else resolve_star_record(sid, cfg)
+            mvals = meas_by_id.get(sid, {})
+            if "drift_hz_s" in mvals:
+                star["drift_hz_s"] = mvals["drift_hz_s"]
+            if "off_scan_hits" in mvals:
+                star["off_scan_hits"] = int(mvals["off_scan_hits"])
             sc = scores_by_id[sid]
             vres = vet_target(star, [sc], cfg, ev_base / sid)
             vet_by_star.setdefault(sid, []).extend([v.model_dump() for v in vres])

@@ -120,7 +120,7 @@ class RawCache:
     ) -> ManifestRecord:
         sha = hashlib.sha256(payload).hexdigest()
         existing = self.lookup(archive, release, request_signature)
-        if existing is not None and existing.sha256 == sha:
+        if existing is not None and existing.sha256 == sha and existing.offline_fixture == offline_fixture:
             return existing
 
         self.enforce_budget(incoming_bytes=len(payload))

@@ -8,11 +8,43 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
+import numpy as np
+
 from oddstar.config import PipelineConfig
 from oddstar.errors import ArchiveAccessError, PolicyViolationError
 from oddstar.io.cache import RawCache
 from oddstar.io.fixtures_data import RADIO_CADENCES, generate_field_sample, get_named_object
 from oddstar.schemas import ManifestRecord
+
+
+def _json_default(obj: Any) -> Any:
+    """Serialize astropy/numpy scalar and masked values safely to standard JSON types."""
+    if isinstance(obj, np.ma.core.MaskedConstant):
+        return None
+    if isinstance(obj, np.generic):
+        return obj.item()
+    if isinstance(obj, bytes):
+        return obj.decode("utf-8", errors="replace")
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+
+
+def _table_to_rows(tbl: Any) -> list[dict[str, Any]]:
+    """Convert an astropy Table to plain Python JSON-serializable row dicts."""
+    rows: list[dict[str, Any]] = []
+    for row in tbl:
+        clean: dict[str, Any] = {}
+        for col in tbl.colnames:
+            val = row[col]
+            if isinstance(val, np.ma.core.MaskedConstant) or np.ma.is_masked(val):
+                clean[col] = None
+            elif isinstance(val, np.generic):
+                clean[col] = val.item()
+            elif isinstance(val, bytes):
+                clean[col] = val.decode("utf-8", errors="replace")
+            else:
+                clean[col] = val
+        rows.append(clean)
+    return rows
 
 
 @dataclass(frozen=True)
@@ -176,7 +208,7 @@ class ArchiveFetcher:
         sig = self.build_signature("query", query_spec)
         rel = self.release()
         cached = self.cache.lookup(self.archive, rel, sig)
-        if cached is not None:
+        if cached is not None and not (live and cached.offline_fixture):
             rows = json.loads(self.cache.read_bytes(cached).decode("utf-8"))
             return rows, cached, True
 
@@ -189,7 +221,7 @@ class ArchiveFetcher:
                     rows = self._query_live_archive(ids=ids, cone=cone, adql=adql, release=rel)
                 else:
                     rows = self._query_offline_archive(ids=ids, cone=cone, adql=adql, release=rel)
-                payload = json.dumps(rows, sort_keys=True).encode("utf-8")
+                payload = json.dumps(rows, sort_keys=True, default=_json_default).encode("utf-8")
                 query_text = adql or json.dumps(query_spec, sort_keys=True)
                 manifest = self.cache.put(
                     archive=self.archive,
@@ -362,12 +394,12 @@ class ArchiveFetcher:
             if adql:
                 job = Gaia.launch_job(adql)
                 tbl = job.get_results()
-                return [dict(zip(tbl.colnames, row)) for row in tbl]
+                return _table_to_rows(tbl)
             if ids:
                 id_csv = ",".join(str(x) for x in ids)
                 q = f"SELECT TOP 500 source_id, ra, dec, parallax, parallax_error, pmra, pmdec, ruwe, phot_g_mean_mag, phot_bp_mean_mag, phot_rp_mean_mag FROM {table_name} WHERE source_id IN ({id_csv})"
                 tbl = Gaia.launch_job(q).get_results()
-                return [dict(zip(tbl.colnames, row)) for row in tbl]
+                return _table_to_rows(tbl)
         if self.archive in {"allwise", "2mass", "neowise", "wise_single_exposure"}:
             from astroquery.ipac.irsa import Irsa
 
@@ -377,7 +409,7 @@ class ArchiveFetcher:
 
                 coord = SkyCoord(ra=cone[0] * u.deg, dec=cone[1] * u.deg, frame="icrs")
                 tbl = Irsa.query_region(coord, catalog=self.spec.table_or_service, radius=cone[2] * u.arcsec)
-                return [dict(zip(tbl.colnames, row)) for row in tbl]
+                return _table_to_rows(tbl)
         if self.archive == "simbad" and ids:
             from astroquery.simbad import Simbad
 
@@ -385,7 +417,7 @@ class ArchiveFetcher:
             for sid in ids:
                 tbl = Simbad.query_object(f"Gaia DR3 {sid}")
                 if tbl is not None:
-                    out.extend(dict(zip(tbl.colnames, row)) for row in tbl)
+                    out.extend(_table_to_rows(tbl))
             return out
         raise ArchiveAccessError(
             f"Live query requires explicit cone, ids, or ADQL supported by {self.archive}",

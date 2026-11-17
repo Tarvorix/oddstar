@@ -310,7 +310,7 @@ def fuse_results(
         patterns = detect_cross_channel_patterns(cal_scores)
         if patterns:
             cross_patterns_summary.append({"source_id": sid, "patterns": patterns})
-        holes = [v.check for v in vet if v.status == "not_evaluated"]
+        holes = sorted({v.check for v in vet if v.status == "not_evaluated"})
 
         rows.append(
             CandidateFusionRow(
