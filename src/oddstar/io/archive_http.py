@@ -81,16 +81,23 @@ def cached_get(
     """Fetch raw bytes once into the content-addressed cache.
 
     `validate` is called on fresh payloads before caching; it raises to reject an error page so that a bad
-    response is never cached as data. With `no_content_ok`, an HTTP 204 answer is cached as an empty payload
-    without validation (an empty body with HTTP 200 still goes through `validate`).
+    response is never cached as data. It is also called on a cached payload: one stored under an older, laxer rule
+    (for example an unfinished MAST job once accepted as an empty result) is fetched again instead of being served
+    forever. With `no_content_ok`, an HTTP 204 answer is cached as an empty payload without validation (an empty
+    body with HTTP 200 still goes through `validate`).
     """
     desc, sig = request_signature(url, params)
     cached = cache.lookup(archive, release, sig)
     if cached is not None and not cached.offline_fixture:
         try:
-            return cache.read_bytes(cached), cached, True
+            payload = cache.read_bytes(cached)
+            if validate is not None and not (no_content_ok and payload == b""):
+                validate(payload)
+            return payload, cached, True
         except FileNotFoundError:
             pass  # evicted blob: refetch
+        except ArchiveAccessError:
+            pass  # cached payload no longer passes validation: refetch and replace it
     resp = get_with_retries(url, params, timeout_s=timeout_s, attempts=attempts, sleep=sleep, no_content_ok=no_content_ok)
     if no_content_ok and resp.status_code == 204:
         payload = b""

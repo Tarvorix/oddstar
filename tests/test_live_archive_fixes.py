@@ -331,6 +331,49 @@ def test_vizier_header_without_rows_is_empty() -> None:
 # --------------------------------------------------------------------------------------------------- MAST
 
 
+def test_cached_payload_that_fails_todays_validation_is_fetched_again(tmp_path: Path, monkeypatch: Any) -> None:
+    """An unfinished MAST job cached by the older, laxer rule must not be served forever."""
+    from oddstar.io.archive_http import cached_get, request_signature
+
+    cache = RawCache(tmp_path / "raw", max_cache_gb=1.0)
+    url, params = "https://archive.example/q", {"a": 1}
+    desc, sig = request_signature(url, params)
+    cache.put(archive="x", release="y", request_signature=sig, query_text=desc, payload=b'{"status": "EXECUTING"}', row_count=0)
+    calls: list[str] = []
+
+    def get(u: str, params: Any = None, timeout: float = 0) -> _Resp:
+        calls.append(u)
+        return _Resp(200, '{"status": "COMPLETE"}')
+
+    def validate(b: bytes) -> None:
+        if b"COMPLETE" not in b:
+            raise ArchiveAccessError("not complete", retryable=True)
+
+    monkeypatch.setattr(requests, "get", get)
+    kw = dict(url=url, params=params, archive="x", release="y", cache=cache, timeout_s=5.0, sleep=NO_SLEEP, validate=validate)
+    payload, _, hit = cached_get(**kw)
+    assert payload == b'{"status": "COMPLETE"}' and hit is False and len(calls) == 1
+    payload, _, hit = cached_get(**kw)
+    assert payload == b'{"status": "COMPLETE"}' and hit is True and len(calls) == 1
+    assert RawCache(tmp_path / "raw", max_cache_gb=1.0).lookup("x", "y", sig).sha256 == _.sha256  # replacement survives a reload
+
+
+def test_vizier_answers_cached_before_the_mirror_check_are_not_reused(tmp_path: Path) -> None:
+    import hashlib
+
+    cache = RawCache(tmp_path / "raw", max_cache_gb=1.0)
+    desc = f"VIZIER_TSV VIII/65/nvss cone({1.0:.6f}, {2.0:+.6f}, {10.0:.2f} arcsec)"
+    old_sig = hashlib.sha256(f"{'|'.join(ls.VIZIER_TSV_URLS)}|{desc}".encode("utf-8")).hexdigest()[:24]
+    cache.put(archive="radio_continuum", release="nvss", request_signature=old_sig, query_text=desc, payload=b"[]", row_count=0)
+    fake = FakeArchives()
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(requests, "get", fake.get)
+        rows, _, hit = ls._vizier_tsv_cone_cached(source="VIII/65/nvss", ra=1.0, dec=2.0, radius_arcsec=10.0, archive="radio_continuum",
+                                                  release="nvss", cache=cache)
+    assert rows == [] and hit is False
+    assert [svc for svc, _ in fake.calls] == ["radio", "radio"]  # the cone, then the canary that shows the mirror holds NVSS
+
+
 def test_unfinished_mast_job_is_not_an_empty_result(tmp_path: Path, monkeypatch: Any) -> None:
     monkeypatch.setattr(requests, "get", lambda url, params=None, timeout=0: _Resp(200, json_data={"status": "EXECUTING", "data": []}))
     with pytest.raises(ArchiveAccessError):

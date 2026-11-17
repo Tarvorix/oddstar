@@ -420,7 +420,9 @@ def _vizier_tsv_cone_cached(
     An empty answer is accepted only from a mirror shown to hold the table (see `VIZIER_CANARY_CONES`).
     """
     query_desc = f"VIZIER_TSV {source} cone({ra:.6f}, {dec:+.6f}, {radius_arcsec:.2f} arcsec)"
-    sig = hashlib.sha256(f"{'|'.join(VIZIER_TSV_URLS)}|{query_desc}".encode("utf-8")).hexdigest()[:24]
+    # "held-checked" keeps answers stored before the mirror check apart: an old cached empty list may have come from
+    # a mirror that does not hold the table, so it is not reused.
+    sig = hashlib.sha256(f"{'|'.join(VIZIER_TSV_URLS)}|held-checked|{query_desc}".encode("utf-8")).hexdigest()[:24]
     cached = cache.lookup(archive, release, sig)
     if cached is not None and not cached.offline_fixture:
         rows = json.loads(cache.read_bytes(cached).decode("utf-8"))
