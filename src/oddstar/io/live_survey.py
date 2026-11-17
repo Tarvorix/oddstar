@@ -13,6 +13,11 @@ import requests
 from oddstar.config import PipelineConfig
 from oddstar.errors import ArchiveAccessError
 from oddstar.io.cache import RawCache
+from oddstar.io.optical_timeseries import (
+    fetch_asassn_lightcurve,
+    fetch_tess_pipeline_pair,
+    fetch_ztf_lightcurve,
+)
 from oddstar.io.physics import (
     BAND_EXTINCTION_AV,
     angular_separation_arcsec,
@@ -30,7 +35,6 @@ GAIA_TAP_URLS = [
 ]
 IRSA_GATOR_URL = "https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-query"
 IRSA_TAP_URL = "https://irsa.ipac.caltech.edu/TAP/sync"
-IRSA_ZTF_URL = "https://irsa.ipac.caltech.edu/cgi-bin/ZTF/nph_light_curves"
 NOIRLAB_TAP_URL = "https://datalab.noirlab.edu/tap/sync"
 MAST_PS1_DR2_URL = "https://catalogs.mast.stsci.edu/api/v0.1/panstarrs/dr2/mean.json"
 VIZIER_TAP_URL = "https://tapvizier.cds.unistra.fr/TAPVizieR/tap/sync"
@@ -746,10 +750,51 @@ def _safe_float(val: Any) -> float | None:
     return f
 
 
+def _enrich_optical_timeseries(out: dict[str, Any], cache: RawCache) -> list[ManifestRecord]:
+    """Attach TESS QLP/TESScut pairs and ZTF + ASAS-SN seasonal photometry used by light-curve vetting."""
+    ra = float(out["ra_deg"])
+    dec = float(out["dec_deg"])
+    pmra = float(out.get("pmra_mas_yr", 0.0) or 0.0)
+    pmdec = float(out.get("pmdec_mas_yr", 0.0) or 0.0)
+    sid = str(out["source_id"])
+    lc = out.setdefault("lightcurves", {})
+    surveys: dict[str, Any] = {}
+    manifests: list[ManifestRecord] = []
+    try:
+        ztf, m = fetch_ztf_lightcurve(ra=ra, dec=dec, pmra=pmra, pmdec=pmdec, cache=cache)
+        manifests.extend(m)
+        if ztf is not None:
+            surveys["ztf"] = ztf
+    except Exception as exc:
+        surveys["ztf"] = {"survey": "ZTF", "n_epochs": 0, "status": "query_failed", "query_log": [f"{type(exc).__name__}: {exc}"]}
+    try:
+        asn, m = fetch_asassn_lightcurve(ra=ra, dec=dec, pmra=pmra, pmdec=pmdec, cache=cache)
+        manifests.extend(m)
+        surveys["asassn"] = asn if asn is not None else {
+            "survey": "ASAS-SN", "n_epochs": 0, "status": "client_unavailable",
+            "query_log": ["pyasassn (pip package 'skypatrol') not installed"],
+        }
+    except Exception as exc:
+        surveys["asassn"] = {"survey": "ASAS-SN", "n_epochs": 0, "status": "query_failed", "query_log": [f"{type(exc).__name__}: {exc}"]}
+    lc["optical_surveys"] = surveys
+    try:
+        tess, m = fetch_tess_pipeline_pair(ra=ra, dec=dec, pmra=pmra, pmdec=pmdec, gaia_id=sid, cache=cache)
+        manifests.extend(m)
+        if tess is not None:
+            lc["tess_tic_id"] = tess.get("tic_id")
+            lc["tess_sectors"] = tess.get("sectors", [])
+            lc["tess_query_log"] = tess.get("query_log", [])
+    except Exception as exc:
+        lc["tess_query_log"] = [f"{type(exc).__name__}: {exc}"]
+    return manifests
+
+
 def enrich_star_live_for_vetting(
     star: dict[str, Any],
     cfg: PipelineConfig,
     cache: RawCache,
+    *,
+    enrich_optical: bool = True,
 ) -> tuple[dict[str, Any], list[ManifestRecord]]:
     """Enrich one real star using primary + backup mirrors across Gaia, SIMBAD, IRSA Gator/TAP, MAST PS1, VizieR, and Data Lab."""
     if star.get("live_enriched"):
@@ -1171,6 +1216,12 @@ def enrich_star_live_for_vetting(
 
     out["vetting_archive"]["deep_imaging_available"] = deep_evaluated
     out["vetting_archive"]["deep_imaging_offset_galaxy"] = offset_galaxy
+
+    # 7. Optical time series for light-curve vetting only (pipeline_agreement, second_survey).
+    #    Stored under lightcurves.tess_sectors / lightcurves.optical_surveys so channel inputs stay unchanged.
+    if enrich_optical:
+        opt_mans = _enrich_optical_timeseries(out, cache)
+        manifests.extend(opt_mans)
 
     out["live_enriched"] = True
     return out, manifests

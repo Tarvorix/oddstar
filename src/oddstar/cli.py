@@ -258,7 +258,7 @@ def _cmd_search(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, 
             stars = list(by_id.values())
         if args.channel == "ir_timedomain":
             # Enrich up to 25 targets with live NEOWISE-R multi-epoch data per Section 5.2 cost control
-            stars = [enrich_star_live_for_vetting(s, cfg, cache)[0] for s in stars[: min(25, len(stars))]]
+            stars = [enrich_star_live_for_vetting(s, cfg, cache, enrich_optical=False)[0] for s in stars[: min(25, len(stars))]]
         nside = cfg.storage.healpix_nside
         cuts = [
             {
