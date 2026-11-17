@@ -13,7 +13,7 @@ Out of **1,800 stars** searched across the local thick-disk/halo (`300`), all-sk
 | **Sky Position (J2016.0)** | $\text{RA} = 43.54827286^\circ$, $\text{Dec} = +5.88271224^\circ$ ($b = -45.609^\circ$) |
 | **Distance & Tangential Velocity** | $\varpi = 4.3149 \pm 0.0162\text{ mas}$ ($d = 231.76\text{ pc}$), $\mu = (+37.914, -97.175)\text{ mas yr}^{-1}$, $v_{\text{tan}} = 114.60\text{ km s}^{-1}$ |
 | **Stellar Parameters (Gaia DR3)** | $T_{\text{eff}} = 4509.8\text{ K}$ (GSP-Phot, K4V), $\log g = 4.55$, $[\text{M/H}] = +0.036\text{ dex}$, $M_G = 6.532$ (`6.605` unreddened), $L = 0.1817\,L_\odot$ (FLAME `0.223 L_sun`) |
-| **Pipeline Tier & Disposition** | **Tier C** (`ir_excess`, `ir_timedomain`, `generic_outlier` flagged; **19 passed**, **0 failed**, **4 `not_evaluated` open holes**) |
+| **Pipeline Tier & Disposition** | **Tier C** (`ir_excess`, `ir_timedomain`, `generic_outlier` flagged; **21 passed**, **0 failed**, **2 `not_evaluated` open holes**) |
 | **Full Dossier & Review Evidence** | [dossier.md](dossiers/5628404318169472/dossier.md) · [adversarial-2026-11-17.md](review/adversarial-2026-11-17.md) · [R1](review/records/REV-20261117-R1-5628404318169472.json) / [R2](review/records/REV-20261117-R2-5628404318169472.json) / [R3](review/records/REV-20261117-R3-5628404318169472.json) |
 
 ---
@@ -42,12 +42,10 @@ Out of **1,800 stars** searched across the local thick-disk/halo (`300`), all-sk
 
 ## 3. Vetting Status & Critical Caveats
 
-- **Passed checks (19)**: `xmatch_integrity` (`0.064"` propagated), `wise_quality` (`0000`, `ext_flg=0`, `AAAA`), `centroid_offset` (`0.06"` propagated), `neighbours` (`0` inside `12"`), `radio_counterpart` (`0` NVSS within `10"`), `deep_imaging` (PS1 DR2 PSF), `chance_alignment` (`P=0.0090`), `extragalactic_colours` (`W1-W2=0.39`, `W2-W3=1.57`), `cirrus` (`E(B-V)=0.030`), `single_frames` (`19/19`), `moving_object`, `youth` *(archival UV/X-ray/association only; age remains open)*, `evolved`, `vision_rubric`, `neighbour_signal`, `systematics_window`, `sso_crossing`, `known_variable`, `metallicity`.
-- **Open holes (`not_evaluated` → Tier C cap; 4 checks)**:
+- **Passed checks (21)**: `xmatch_integrity` (`0.064"` propagated), `wise_quality` (`0000`, `ext_flg=0`, `AAAA`), `centroid_offset` (`0.06"` propagated), `neighbours` (`0` inside `12"`), `radio_counterpart` (`0` NVSS within `10"`), `deep_imaging` (PS1 DR2 PSF), `chance_alignment` (`P=0.0090`), `extragalactic_colours` (`W1-W2=0.39`, `W2-W3=1.57`), `cirrus` (`E(B-V)=0.030`), `single_frames` (`19/19`), `moving_object`, `youth` *(archival UV/X-ray/association only; age remains open)*, `evolved`, `vision_rubric`, `neighbour_signal`, `systematics_window`, `sso_crossing`, `known_variable`, `metallicity`, `pipeline_agreement` (`L006` matched `5 d` detrending, `TIC 387517877`, 7 sectors: QLP max dip `0.028` vs. TESScut `0.027`, `6 h` binned $r = 0.76–0.99$), `second_survey` (`L006` live ZTF `1,044` g/r epochs, 2018–2024 seasonal range `0.060`/`0.053 mag`; ASAS-SN Sky Patrol `1,800` g + `633` V epochs, seasonal range `0.062`/`0.048 mag`).
+- **Open holes (`not_evaluated` → Tier C cap; 2 checks)**:
   1. `second_instrument` — No archival Spitzer, AKARI, or IRAS `12–22 um` counterpart (`SPHEREx` stops at `5 um`).
   2. `binary` — Gaia DR3 faint-star RVS (`rv_method_used = 2`, `13` transits, `SNR = 11.16`, `rv_chisq_pvalue = None`) gives `3.78 +/- 2.13 km/s` uncertainty on the combined median (implied scatter `~6.13 km/s`); despite `RUWE = 1.078` and `NSS = 0`, close SB1 companions remain unconstrained.
-  3. `pipeline_agreement` — QLP vs. TESScut light curves exist across 7 TESS sectors, needing matched detrending before ingestion.
-  4. `second_survey` — IRSA ZTF CGI timed out in programmatic live vetting (mitigated offline via [adversarial-2026-11-17.md](review/adversarial-2026-11-17.md), leaving onset/short dips less constrained).
 - **Physical modeling caveats from review**:
   - The automated `585.8 K` / `f_dust = 4.4%` single-blackbody fit underpredicts $W4$ by ~`2x` when normalized to $W3$; the flat $12–22\,\mu\text{m}$ $F_\nu$ spectrum ($\Delta W3/\Delta W4 \approx 0.90$) corresponds to `~305 K` (`~1.7%` conditional luminosity) across $W3–W4$ alone, requiring multi-temperature dust, silicate emission, or a subarcsecond blend to link `2010 W3/W4` and `2017–2021 W1/W2`.
   - `generic_outlier` shares WISE features with `ir_excess` and `ir_timedomain`, so its `1e-12` analytic floor is not an independent third detection.
@@ -58,4 +56,4 @@ Out of **1,800 stars** searched across the local thick-disk/halo (`300`), all-sk
 
 1. **High-resolution `5–25 um` imaging & spectroscopy (e.g., JWST MIRI)** to verify `< 0.3"` spatial association with the K4V star, test whether the `2010` $W3/W4$ flux decayed post-`2021`, and check for silicate emission vs. an obscured subarcsecond background source.
 2. **Optical spectroscopy & multi-epoch RV monitoring (`R >= 20,000`)** to measure H$\alpha$, Li I $\lambda 6708$, spectral subtype, and orbital binarity across phases.
-3. **Subarcsecond AO optical/NIR imaging + matched TESS detrending** to bound close companions/faint red blends and close `pipeline_agreement`.
+3. **Subarcsecond AO optical/NIR imaging** to bound close companions/faint red blends (`pipeline_agreement` closed by `L006` matched TESS detrending).
