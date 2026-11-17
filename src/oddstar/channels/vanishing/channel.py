@@ -44,14 +44,6 @@ class VanishingChannel:
     def measure(self, star: dict[str, Any], data: dict[str, Any]) -> Measurement:
         vd = star.get("vanishing_data", {})
         usno_epoch = float(vd.get("usno_epoch", 1953.4))
-        usno_ra = float(vd.get("usno_ra_deg", star["ra_deg"]))
-        usno_dec = float(vd.get("usno_dec_deg", star["dec_deg"]))
-        usno_mag = float(vd.get("usno_mag_r", star["mags"]["G"] + 0.2))
-        n_plates = int(vd.get("early_plates_count", 2))
-        ps1_present = bool(vd.get("present_in_panstarrs", True))
-        gaia_present = bool(vd.get("present_in_gaia", True))
-        ps1_depth = float(vd.get("panstarrs_depth_mag", 21.8))
-
         if self.proper_motion_correction_enabled:
             pred_ra, pred_dec = propagate_position(
                 float(star["ra_deg"]),
@@ -64,10 +56,27 @@ class VanishingChannel:
         else:
             pred_ra, pred_dec = float(star["ra_deg"]), float(star["dec_deg"])
 
+        has_plate_record = bool(
+            vd and ("usno_ra_deg" in vd or "usno_dec_deg" in vd or "early_plates_count" in vd)
+        )
+        usno_ra = float(vd["usno_ra_deg"]) if "usno_ra_deg" in vd else pred_ra
+        usno_dec = float(vd["usno_dec_deg"]) if "usno_dec_deg" in vd else pred_dec
+        usno_mag = float(vd.get("usno_mag_r", star["mags"]["G"] + 0.2))
+        n_plates = int(vd.get("early_plates_count", 2 if has_plate_record else 0))
+        ps1_present = bool(vd.get("present_in_panstarrs", True))
+        gaia_present = bool(vd.get("present_in_gaia", True))
+        ps1_depth = float(vd.get("panstarrs_depth_mag", 21.8))
+
         sep_arcsec = angular_separation_arcsec(pred_ra, pred_dec, usno_ra, usno_dec)
         match_rad = float(self.ch_cfg["match_radius_arcsec"])
         modern_matched = (ps1_present or gaia_present) and (sep_arcsec <= match_rad)
         depth_margin = ps1_depth - usno_mag
+
+        caveats = [
+            "Historical plate mismatches are overwhelmingly artifacts/high-PM stars without deep multi-plate vetting."
+        ]
+        if not has_plate_record:
+            caveats.append("No historical plate catalog (USNO-B1.0) record provided; vanishing channel not triggered.")
 
         return Measurement(
             source_id=str(star["source_id"]),
@@ -83,7 +92,7 @@ class VanishingChannel:
             },
             uncertainties={"sep_arcsec": 0.4},
             epochs=[f"USNO-B1.0 ({usno_epoch:.1f})", "Pan-STARRS/Gaia"],
-            caveats=["Historical plate mismatches are overwhelmingly artifacts/high-PM stars without deep multi-plate vetting."],
+            caveats=caveats,
         )
 
     def score(self, m: Measurement) -> ChannelScore:

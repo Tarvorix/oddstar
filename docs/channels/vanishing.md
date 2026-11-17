@@ -25,3 +25,4 @@ Defined in `configs/default.yaml` under `channels.vanishing`:
 
 ## Lessons Applied
 - Mandatory multi-plate verification and proper-motion track back-propagation.
+- `L002_missing_plate_data_high_pm_vanishing`: When archival `vanishing_data` is absent (e.g., live multi-archive queries without USNO-B1.0 plates), do not default early-epoch coordinates to J2016 Gaia coordinates or assume `early_plates_count = 2`, preventing synthetic PM-propagation mismatches on high-PM stars.

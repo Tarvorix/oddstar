@@ -14,8 +14,6 @@ from oddstar.vet.common import make_vet_result
 def check_proper_motion(star: dict[str, Any], cfg: PipelineConfig, out_dir: Path) -> VettingResult:
     vd = star.get("vanishing_data", {})
     usno_epoch = float(vd.get("usno_epoch", 1953.4))
-    usno_ra = float(vd.get("usno_ra_deg", star["ra_deg"]))
-    usno_dec = float(vd.get("usno_dec_deg", star["dec_deg"]))
     pred_ra, pred_dec = propagate_position(
         float(star["ra_deg"]),
         float(star["dec_deg"]),
@@ -24,6 +22,8 @@ def check_proper_motion(star: dict[str, Any], cfg: PipelineConfig, out_dir: Path
         2016.0,
         usno_epoch,
     )
+    usno_ra = float(vd["usno_ra_deg"]) if "usno_ra_deg" in vd else pred_ra
+    usno_dec = float(vd["usno_dec_deg"]) if "usno_dec_deg" in vd else pred_dec
     pm_resid = angular_separation_arcsec(pred_ra, pred_dec, usno_ra, usno_dec)
     raw_sep = angular_separation_arcsec(float(star["ra_deg"]), float(star["dec_deg"]), usno_ra, usno_dec)
     is_fast_pm = (raw_sep > 3.0) and (pm_resid <= float(cfg.channels["vanishing"].get("max_pm_residual_arcsec", 1.5))) and bool(vd.get("present_in_gaia", True))
@@ -38,7 +38,10 @@ def check_proper_motion(star: dict[str, Any], cfg: PipelineConfig, out_dir: Path
 
 def check_plate_defect(star: dict[str, Any], cfg: PipelineConfig, out_dir: Path) -> VettingResult:
     vd = star.get("vanishing_data", {})
-    n_plates = int(vd.get("early_plates_count", 2))
+    has_plate_record = bool(
+        vd and ("usno_ra_deg" in vd or "usno_dec_deg" in vd or "early_plates_count" in vd)
+    )
+    n_plates = int(vd.get("early_plates_count", 2 if has_plate_record else 0))
     min_plates = int(cfg.channels["vanishing"].get("min_early_plates", 2))
     ok = n_plates >= min_plates
     return make_vet_result(

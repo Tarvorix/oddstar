@@ -143,7 +143,13 @@ def _cmd_sample_build(args: argparse.Namespace, cfg: PipelineConfig, short_hash:
     if args.live:
         cache = RawCache(root / cfg.storage.raw_dir, max_cache_gb=cfg.storage.max_cache_gb)
         n_lim = int(args.limit if args.limit is not None else 300)
-        stars, _ = fetch_live_halo_bulge_sample(cfg, cache, limit=n_lim)
+        stars, _ = fetch_live_halo_bulge_sample(
+            cfg,
+            cache,
+            limit=n_lim,
+            region=args.region,
+            after_random_index=args.after_random_index,
+        )
         nside = cfg.storage.healpix_nside
         store = TableStore(root / cfg.storage.tables_dir, nside=nside)
         store.write_partitioned(f"sample_live_{args.channel}_{cfg.gaia.release}", stars)
@@ -238,7 +244,13 @@ def _cmd_search(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, 
         cuts = []
         healpix_cells = []
     elif is_live:
-        stars, _ = fetch_live_halo_bulge_sample(cfg, cache, limit=n_stars)
+        stars, _ = fetch_live_halo_bulge_sample(
+            cfg,
+            cache,
+            limit=n_stars,
+            region=args.region,
+            after_random_index=args.after_random_index,
+        )
         if extra_stars:
             by_id = {s["source_id"]: s for s in stars}
             for es in extra_stars:
@@ -250,8 +262,8 @@ def _cmd_search(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, 
         nside = cfg.storage.healpix_nside
         cuts = [
             {
-                "cut_name": "gaia_halo_bulge_live",
-                "description": "Gaia DR3 parallax_snr>15, parallax 2..25 mas, RUWE<1.4, |b|>12 deg, v_tan>65 km/s, unique AllWISE+2MASS",
+                "cut_name": f"gaia_{args.region}_live",
+                "description": f"Live Gaia DR3 x AllWISE x 2MASS region='{args.region}' (n={len(stars)}, after_random_index={args.after_random_index})",
                 "count_before": len(stars),
                 "count_after": len(stars),
             }
@@ -804,6 +816,8 @@ def build_parser() -> argparse.ArgumentParser:
     common.add_argument("--config", type=str, default=None, help="Path to pipeline YAML config")
     common.add_argument("--release", type=str, default=None, choices=["dr3", "dr4"], help="Override Gaia data release")
     common.add_argument("--live", action="store_true", help="Query live public sky archives instead of offline fixtures")
+    common.add_argument("--region", type=str, default="halo", choices=["halo", "bulge", "local"], help="Live sky region preset")
+    common.add_argument("--after-random-index", type=int, default=None, help="Keyset pagination cursor for live Gaia random_index")
 
     parser = argparse.ArgumentParser(prog="oddstar", description="Reproducible multi-channel anomalous star search pipeline", parents=[common])
     sub = parser.add_subparsers(dest="command", required=True)
