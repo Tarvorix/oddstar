@@ -1,0 +1,40 @@
+{
+  "review_id": "REV-PKT-R1-30203531d2-R1-4582145718700356096",
+  "round": 1,
+  "source_id": "4582145718700356096",
+  "reviewer_model": "Argon-Blind-R1",
+  "timestamp_utc": "2026-11-17T05:59:37.294510+00:00",
+  "measurements": {
+    "teff_independent_k": 6234.974045973124,
+    "w3_obs_mjy": 29.70621016704762,
+    "w3_pred_mjy": 3.682517130684627,
+    "w3_ratio": 8.066821989644039,
+    "w4_obs_mjy": 58.576232409528814,
+    "w4_pred_mjy": 1.0592609054992657,
+    "w4_ratio": 55.29915444384294
+  },
+  "uncertainties": {
+    "teff_independent_k": 120.0,
+    "w4_ratio": 5.529915444384294
+  },
+  "queries_run": [
+    "GAIA_DR3_CONE(266.50635, 25.60274, 2\")",
+    "2MASS_PSC_CONE(266.50635, 25.60274, 2\")",
+    "ALLWISE_CONE(266.50635, 25.60274, 3\")"
+  ],
+  "findings": [
+    {
+      "finding_id": "F-4582145718700356096-R1-W4GAP",
+      "severity": "material",
+      "summary": "W4 excess reproduces from 2010 AllWISE photometry, but remains single-epoch and lacks deep sub-arcsec imaging to exclude a radio-quiet background galaxy.",
+      "evidence": "Independent W4_obs/W4_pred=55.30; deep_imaging_available=False",
+      "reproduce_cmd": "oddstar inspect 4582145718700356096",
+      "status": "open",
+      "linked_test": null,
+      "lesson_id": null,
+      "unautomated_reason": null
+    }
+  ],
+  "verdict": "reproduced",
+  "notes": "Independent Round 1 review by Argon-Blind-R1; W4 ratio=55.30."
+}

@@ -1,0 +1,13 @@
+{
+  "lesson_id": "L001_R3_close",
+  "finding_id": "F-4582145718700356096-R3-W4GAP",
+  "source_id": "4582145718700356096",
+  "title": "Round 3 confirmation of single-epoch W4 Tier-C cap",
+  "what_happened": "Round 3 independent model family review confirmed W4 excess and human checklist over not_evaluated rows.",
+  "generic_lesson": "Same generic check L001: human checklist explicitly flags deep_imaging and second_instrument.",
+  "automated_check": "oddstar.fuse.engine.assign_tier",
+  "linked_test": "tests/test_lessons.py::test_lesson_l001_single_epoch_w4_background_galaxy_cap",
+  "added_to_impostors": false,
+  "skill_updated": "skills/wise_w4_vetting/SKILL.md",
+  "commit_sha": "594748c54f25de3c259f600b5c662227c9d70208"
+}

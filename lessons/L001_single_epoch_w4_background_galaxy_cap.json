@@ -1,0 +1,13 @@
+{
+  "lesson_id": "L001_single_epoch_w4_background_galaxy_cap",
+  "finding_id": "F-4582145718700356096-R1-W4GAP",
+  "source_id": "4582145718700356096",
+  "title": "Single-epoch W4 excess and radio-quiet background galaxy ambiguity",
+  "what_happened": "Three independent review rounds confirmed the ~56-60x 22um WISE excess for Gaia DR3 4582145718700356096 from raw archive photometry, while identifying that radio_counterpart passing does not exclude the >90% radio-quiet dusty galaxy population without deep sub-arcsec optical/NIR imaging.",
+  "generic_lesson": "Passing radio_counterpart never moves background_galaxy out of untested when deep_imaging is not_evaluated; single-epoch W4 candidates missing deep imaging or second-instrument 22um data must remain capped at Tier C.",
+  "automated_check": "oddstar.fuse.engine.build_hypothesis_table + assign_tier",
+  "linked_test": "tests/test_lessons.py::test_lesson_l001_single_epoch_w4_background_galaxy_cap",
+  "added_to_impostors": false,
+  "skill_updated": "skills/wise_w4_vetting/SKILL.md",
+  "commit_sha": "594748c54f25de3c259f600b5c662227c9d70208"
+}

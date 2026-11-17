@@ -1,0 +1,16 @@
+{
+  "packet_id": "PKT-R2-352c4a9abe",
+  "round": 2,
+  "created_at_utc": "2026-11-17T05:59:36.567191+00:00",
+  "prompt_template_path": "review/prompts/round2_adversarial.md",
+  "prompt_text": "# Round 2: Adversarial Re-Verification Prompt\n\nA measurement has been reported for Gaia DR3 <id>: <one-sentence\nnumerical claim, e.g. \"W4 flux is N times the photospheric prediction\">.\nTreat the claim as likely wrong. Starting from raw archive data, not\nfrom any provided file, try to reproduce the number. Then list every\nmundane way the number could arise without anything unusual about the\nstar, and test each one you can. Report what you reproduced, what you\ncould not, what you ruled out with evidence, and what remains untested.\nReturn a JSON record following review_record.schema.json.\n",
+  "targets": [
+    {
+      "packet_target_id": "PKT-R2-352c4a9abe-T000",
+      "source_id": "4582145718700356096",
+      "ra_deg": 266.50634765625,
+      "dec_deg": 25.602741937003994,
+      "claim": "Reported mid-infrared 22 um flux for Gaia DR3 4582145718700356096 exceeds photospheric prediction at W4 (see archive photometry at RA=266.5063, Dec=25.6027)."
+    }
+  ]
+}

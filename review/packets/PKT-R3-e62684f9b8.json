@@ -1,0 +1,16 @@
+{
+  "packet_id": "PKT-R3-e62684f9b8",
+  "round": 3,
+  "created_at_utc": "2026-11-17T05:59:36.572925+00:00",
+  "prompt_template_path": "review/prompts/round3_different_eyes.md",
+  "prompt_text": "# Round 3: Different Eyes & Human Checklist Prompt\n\nRepeat Round 2 adversarial re-verification using an independent model\nfamily where available. Starting solely from public archive queries at the\ntarget coordinates, attempt to refute the reported numerical claim.\nExplicitly verify every `not_evaluated` hole from the candidate dossier\nand produce a one-page human checklist covering all remaining archival gaps.\nReturn a JSON record following review_record.schema.json.\n",
+  "targets": [
+    {
+      "packet_target_id": "PKT-R3-e62684f9b8-T000",
+      "source_id": "4582145718700356096",
+      "ra_deg": 266.50634765625,
+      "dec_deg": 25.602741937003994,
+      "claim": "Reported mid-infrared 22 um flux for Gaia DR3 4582145718700356096 exceeds photospheric prediction at W4 (see archive photometry at RA=266.5063, Dec=25.6027)."
+    }
+  ]
+}

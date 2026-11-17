@@ -1,0 +1,51 @@
+{
+  "packet_id": "PKT-R1-30203531d2",
+  "round": 1,
+  "created_at_utc": "2026-11-17T05:59:36.561041+00:00",
+  "prompt_template_path": "review/prompts/round1_blind.md",
+  "prompt_text": "# Round 1: Blind Characterisation Prompt\n\nYou are given a list of sky positions with Gaia DR3 source IDs.\nFor each one, use public archive data to describe the object at that\nposition across all wavelengths you can access. Report measurements\nwith uncertainties, the queries you ran, and anything about the object\nor its surroundings that a careful astronomer would note, including\n\"nothing notable\". Do not assume any of these objects is unusual.\nReturn one JSON record per position following review_record.schema.json.\n",
+  "targets": [
+    {
+      "packet_target_id": "PKT-R1-30203531d2-T000",
+      "source_id": "4418120359123456128",
+      "ra_deg": 227.252197265625,
+      "dec_deg": -1.884087493200327,
+      "claim": null
+    },
+    {
+      "packet_target_id": "PKT-R1-30203531d2-T001",
+      "source_id": "910000000000000000",
+      "ra_deg": 101.43362032914054,
+      "dec_deg": -76.60213046155563,
+      "claim": null
+    },
+    {
+      "packet_target_id": "PKT-R1-30203531d2-T002",
+      "source_id": "4129384756102938112",
+      "ra_deg": 256.563720703125,
+      "dec_deg": -18.662137442204006,
+      "claim": null
+    },
+    {
+      "packet_target_id": "PKT-R1-30203531d2-T003",
+      "source_id": "115725517896200320",
+      "ra_deg": 46.16455078125,
+      "dec_deg": 27.164255577705394,
+      "claim": null
+    },
+    {
+      "packet_target_id": "PKT-R1-30203531d2-T004",
+      "source_id": "6133409280036818688",
+      "ra_deg": 190.1590735556121,
+      "dec_deg": -43.89139082884236,
+      "claim": null
+    },
+    {
+      "packet_target_id": "PKT-R1-30203531d2-T005",
+      "source_id": "4582145718700356096",
+      "ra_deg": 266.50634765625,
+      "dec_deg": 25.602741937003994,
+      "claim": null
+    }
+  ]
+}
