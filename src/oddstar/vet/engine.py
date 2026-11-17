@@ -74,6 +74,7 @@ def vet_target(
             _merge(run_ir_vetting(star_or_cadence, cfg, out_dir))
         has_lc_or_ir = bool(
             star_or_cadence.get("lightcurves", {}).get("tess_flux_qlp")
+            or star_or_cadence.get("lightcurves", {}).get("tess_sectors")
             or star_or_cadence.get("lightcurves", {}).get("ztf_flux")
             or star_or_cadence.get("neowise", {}).get("w2_mjy")
         )

@@ -107,14 +107,13 @@ def check_xmatch_integrity(star: dict[str, Any], cfg: PipelineConfig, out_dir: P
             [],
             {"allwise_ra_deg": aw.get("ra_deg"), "gaia_xmatch_count": n_neigh},
         )
-    prop_ra, prop_dec = propagate_position(
-        float(star["ra_deg"]),
-        float(star["dec_deg"]),
-        float(star.get("pmra_mas_yr", 0.0)),
-        float(star.get("pmdec_mas_yr", 0.0)),
-        2016.0,
-        2010.2,
-    )
+    if star.get("pmra_mas_yr") is None or star.get("pmdec_mas_yr") is None:
+        return _not_evaluated(
+            out_dir, "xmatch_integrity", "Gaia proper motion not available to propagate the position to the AllWISE epoch",
+            star, [], {"allwise_ra_deg": aw.get("ra_deg"), "gaia_xmatch_count": int(n_neigh)},
+        )
+    pmra, pmdec = float(star["pmra_mas_yr"]), float(star["pmdec_mas_yr"])
+    prop_ra, prop_dec = propagate_position(float(star["ra_deg"]), float(star["dec_deg"]), pmra, pmdec, 2016.0, 2010.2)
     sep = angular_separation_arcsec(prop_ra, prop_dec, float(aw["ra_deg"]), float(aw["dec_deg"]))
     ok = (int(n_neigh) == 1) and (sep <= float(cfg.vetting["xmatch_max_sep_arcsec"]))
     return make_vet_result(
@@ -122,7 +121,8 @@ def check_xmatch_integrity(star: dict[str, Any], cfg: PipelineConfig, out_dir: P
         check="xmatch_integrity",
         status="pass" if ok else "fail",
         note=f"Gaia-to-WISE propagated sep={sep:.3f} arcsec, neighbours={int(n_neigh)}",
-        metrics={"propagated_sep_arcsec": sep, "gaia_xmatch_count": int(n_neigh)},
+        metrics={"propagated_sep_arcsec": sep, "gaia_xmatch_count": int(n_neigh), "pmra_mas_yr": pmra, "pmdec_mas_yr": pmdec,
+                 "allwise_ra_deg": float(aw["ra_deg"]), "allwise_dec_deg": float(aw["dec_deg"])},
     )
 
 
@@ -280,7 +280,10 @@ def check_radio_counterpart(star: dict[str, Any], cfg: PipelineConfig, out_dir: 
     srcs = _flat_input(star, "radio_sources_within_10arcsec", "radio_nvss")
     if srcs is None:
         return _not_evaluated(out_dir, "radio_counterpart", "Radio continuum catalogue not queried", star, ["radio_nvss"])
-    hits = [r for r in srcs if float(r.get("sep_arcsec", 99.0)) <= rad]
+    if any(r.get("sep_arcsec") is None for r in srcs):
+        return _not_evaluated(out_dir, "radio_counterpart", "Radio catalogue row without a separation from the target", star,
+                              ["radio_nvss"] if _is_live(star) else [], {"radio_rows": srcs})
+    hits = [r for r in srcs if float(r["sep_arcsec"]) <= rad]
     ok = len(hits) == 0
     return make_vet_result(
         out_dir,
@@ -625,7 +628,14 @@ def check_second_instrument(star: dict[str, Any], cfg: PipelineConfig, out_dir: 
             "No archival Spitzer, AKARI, IRAS, Herschel, or SPHEREx 22um-overlapping photometry at this position",
             star, ["second_instrument"] if _is_live(star) else [], {"second_instrument": None},
         )
-    interp = sec.get("interpretation", "confirmed")
+    interp = sec.get("interpretation")
+    if interp is None and sec.get("confirmed") is True:
+        interp = "confirmed"
+    if interp is None:
+        return _not_evaluated(
+            out_dir, "second_instrument", f"{sec.get('instrument')} record states no comparison outcome (no interpretation, not confirmed)",
+            star, ["second_instrument"] if _is_live(star) else [], {"second_instrument": sec},
+        )
     if interp == "catalogue_match_unverified":
         return _not_evaluated(
             out_dir, "second_instrument",
@@ -806,26 +816,31 @@ def check_youth(star: dict[str, Any], cfg: PipelineConfig, out_dir: Path) -> Vet
 
 
 def check_evolved(star: dict[str, Any], cfg: PipelineConfig, out_dir: Path) -> VettingResult:
-    mg = float(star.get("abs_g_mag", 4.8))
-    teff = float(star.get("teff_k", 5800.0))
     bright_lim = float(cfg.vetting["evolved_mg_bright_limit"])
+    metrics = {"abs_g_mag": star.get("abs_g_mag"), "teff_k": star.get("teff_k"), "teff_k_source": star.get("teff_k_source")}
+    if star.get("abs_g_mag") is None:
+        return _not_evaluated(out_dir, "evolved", "Absolute G magnitude not available (no HR position)", star, [], metrics)
+    mg = float(star["abs_g_mag"])
     teff_default = str(star.get("teff_k_source", "")).startswith("default")
-    metrics = {"abs_g_mag": mg, "teff_k": teff, "teff_k_source": star.get("teff_k_source")}
-    if mg < bright_lim and teff_default:
-        return _not_evaluated(out_dir, "evolved", f"M_G={mg:.2f} is giant-bright but Teff is a default (no GSP-Phot Teff)", star, [], metrics)
+    if mg < bright_lim and (teff_default or star.get("teff_k") is None):
+        return _not_evaluated(out_dir, "evolved", f"M_G={mg:.2f} is giant-bright but Teff is missing or a default (no GSP-Phot Teff)",
+                              star, [], metrics)
+    # Fainter than the giant limit the verdict does not depend on Teff (main sequence either way)
+    teff = float(star["teff_k"]) if star.get("teff_k") is not None else float("nan")
     is_evolved = (mg < bright_lim) and (teff < float(cfg.vetting["evolved_teff_max_k"]))
     metrics["is_evolved"] = is_evolved
     return make_vet_result(
         out_dir,
         check="evolved",
         status="fail" if is_evolved else "pass",
-        note=f"HR position M_G={mg:.2f}, Teff={teff:.0f} K ({'giant branch' if is_evolved else 'main sequence'})",
+        note=f"HR position M_G={mg:.2f}, Teff={teff:.0f} K ({'giant branch' if is_evolved else 'main sequence'}; giant limit M_G < {bright_lim:.2f})",
         metrics=metrics,
     )
 
 
 def check_binary(star: dict[str, Any], cfg: PipelineConfig, out_dir: Path) -> VettingResult:
-    ruwe = float(star.get("ruwe", 1.0))
+    ruwe_raw = star.get("ruwe")
+    ruwe = float("nan") if ruwe_raw is None else float(ruwe_raw)
     va = _va(star)
     nss = _flat_input(star, "nss_flag", "gaia_meta")
     rv_sig = _flat_input(star, "rv_scatter_kms", "gaia_meta")
@@ -842,6 +857,8 @@ def check_binary(star: dict[str, Any], cfg: PipelineConfig, out_dir: Path) -> Ve
     rv_txt = "n/a" if rv_sig is None else f"{float(rv_sig):.2f} km/s"
     if (ruwe > ruwe_max) or (nss is not None and int(nss) > 0) or (rv_sig is not None and float(rv_sig) > rv_max and not rv_faint_unconstrained):
         return make_vet_result(out_dir, check="binary", status="fail", note=f"RUWE={ruwe:.2f}, NSS={nss_txt}, RV scatter={rv_txt}", metrics=metrics)
+    if ruwe_raw is None:
+        return _not_evaluated(out_dir, "binary", f"Gaia RUWE not available (NSS={nss_txt}, RV scatter={rv_txt})", star, [], metrics)
     if nss is None:
         return _not_evaluated(out_dir, "binary", f"RUWE={ruwe:.2f} but Gaia NSS/RV metadata not available", star, ["gaia_meta"], metrics)
     if rv_sig is None:
@@ -866,8 +883,12 @@ def check_vision_rubric(star: dict[str, Any], cfg: PipelineConfig, out_dir: Path
     if _is_fixture(star):
         render_synthetic_fixture_cutouts(star, cutout_path)
         aw = star.get("allwise") or {}
-        offset = float(aw.get("centroid_offset_arcsec", 0.0))
-        bg_rms = float(aw.get("cirrus_bg_rms_mjy", 0.4))
+        if aw.get("centroid_offset_arcsec") is None or aw.get("cirrus_bg_rms_mjy") is None:
+            return _not_evaluated(out_dir, "vision_rubric", "Fixture lacks explicit centroid offset / background rms inputs", star, [],
+                                  {"synthetic_fixture": True, "offset_arcsec": aw.get("centroid_offset_arcsec"),
+                                   "cirrus_bg_rms_mjy": aw.get("cirrus_bg_rms_mjy")})
+        offset = float(aw["centroid_offset_arcsec"])
+        bg_rms = float(aw["cirrus_bg_rms_mjy"])
         has_off_gal = va.get("deep_imaging_offset_galaxy") is not None
         limit = float(cfg.vetting["centroid_offset_max_beam_frac"]) * float(cfg.vetting["w4_beam_arcsec"])
         ok = (offset <= limit) and (bg_rms <= float(cfg.vetting["cirrus_bg_rms_max_mjy"])) and (not has_off_gal)

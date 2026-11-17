@@ -166,7 +166,8 @@ def test_underluminous_checks_do_not_pass_on_defaults(tmp_path: Path) -> None:
     assert check_metallicity(hand, cfg, tmp_path / "i").status == "not_evaluated"
     assert check_parameter_agreement(hand, cfg, tmp_path / "j").status == "not_evaluated"
     hand["vetting_archive"] = {"nss_flag": 0, "galex_uv_excess_mag": 0.1}
-    hand.update({"feh": 0.0, "teff_spec_k": 5050.0})
+    # metallicity also needs a SIMBAD answer (an explicit type; absent means the lookup was not made)
+    hand.update({"feh": 0.0, "teff_spec_k": 5050.0, "simbad_type": "Star"})
     for fn in (check_astrometry, check_companion, check_metallicity, check_parameter_agreement):
         assert fn(hand, cfg, tmp_path / f"k_{fn.__name__}").status == "pass"
 

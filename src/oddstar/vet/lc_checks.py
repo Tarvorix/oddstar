@@ -12,6 +12,14 @@ Live inputs (all vetting-only, never channel inputs):
 - `lightcurves.sso_queries`: SkyBoT results at the flagged TESS event times.
 - `lightcurves.optical_surveys`: ZTF / ASAS-SN seasonal and nightly medians.
 - `neowise`: visit fluxes, per-visit PM-track residual vectors and the field-star `comparison` ensemble.
+
+SIMBAD (`known_variable`): read through `oddstar.vet.common.simbad_lookup`; a failed or missing lookup cannot support a
+pass, "no SIMBAD entry" is a real negative answer.
+
+Detrend edge zone: within `detrend_edge_zone_window_frac` x `detrend_window_days` of a segment edge or data gap the
+matched running median can erase or distort a dip. `analyze_tess_sector` screens that zone against the raw interior
+flux, and the detrend-based checks (pipeline_agreement, systematics_window, neighbour_signal, sso_crossing,
+second_survey) report `not_evaluated` instead of `pass` while a dip candidate lies there.
 """
 
 from __future__ import annotations
@@ -24,7 +32,7 @@ import numpy as np
 
 from oddstar.config import PipelineConfig
 from oddstar.schemas import VettingResult
-from oddstar.vet.common import make_vet_result
+from oddstar.vet.common import make_vet_result, simbad_lookup, simbad_note
 
 BTJD_TO_MJD = 2457000.0 - 2400000.5
 
@@ -95,6 +103,9 @@ def matched_detrend(
     the baseline down (pipeline callers pass `vetting.lc_detrend_low_mask_sigma`; the keyword defaults equal the
     configured values and only serve direct callers). The window is the optical_dips channel's own `detrend_window_days`, so the comparison
     preserves the same dip timescales the detection channel searches.
+
+    Within half a window of a segment edge the `mode="nearest"` padding repeats the edge cadences, so a dip there can be
+    erased or made shallower; `_edge_zone_screen` covers that zone and the checks report it as `not_evaluated`.
     """
     from scipy.ndimage import median_filter
 
@@ -141,6 +152,98 @@ def _edge_distance(tc: float, segs: list[tuple[float, float]]) -> float:
         if lo <= tc <= hi:
             return min(tc - lo, hi - tc)
     return 0.0
+
+
+def _edge_zone_days(cfg: PipelineConfig) -> float:
+    """Width of the detrend edge zone: `detrend_edge_zone_window_frac` x the matched running-median window."""
+    return _od(cfg, "detrend_edge_zone_window_frac") * _od(cfg, "detrend_window_days")
+
+
+def _edge_zone_screen(
+    t: np.ndarray, fq: np.ndarray, fc: np.ndarray, w: np.ndarray, inv: np.ndarray, kept: np.ndarray,
+    dq: np.ndarray, dc: np.ndarray, b_mid: np.ndarray, segs: list[tuple[float, float]], cfg: PipelineConfig,
+) -> dict[str, Any]:
+    """Dip candidates inside the detrend edge zone, measured without the running median.
+
+    Within `_edge_zone_days` of a segment edge or data gap the running median (`mode="nearest"` padding) is
+    dominated by the edge cadences themselves, so a dip there can be erased or made shallower. Each edge-zone
+    cadence is therefore also compared with the median raw flux of the adjacent interior stretch (one detrend window
+    just inside the zone; the whole segment outside the zone, or the whole segment, when that stretch is too short).
+    A kept bin inside the zone is a candidate when either series, detrended or against the interior reference,
+    reaches `min_dip_depth_frac`. Detrend-based checks report `not_evaluated` instead of `pass` when one exists.
+    """
+    zone = _edge_zone_days(cfg)
+    window = _od(cfg, "detrend_window_days")
+    gap = _od(cfg, "tess_segment_gap_days")
+    thr = _od(cfg, "min_dip_depth_frac")
+    eq = np.full(len(t), np.nan)
+    ec = np.full(len(t), np.nan)
+    breaks = np.where(np.diff(t) > gap)[0] + 1
+    for seg in np.split(np.arange(len(t)), breaks):
+        if len(seg) == 0:
+            continue
+        ts = t[seg]
+        for dist in (ts - ts[0], ts[-1] - ts):
+            in_zone = dist < zone
+            if not in_zone.any():
+                continue
+            ref = (dist >= zone) & (dist < zone + window)
+            if int(ref.sum()) < 5:
+                ref = ~in_zone if int((~in_zone).sum()) >= 5 else np.ones(len(seg), dtype=bool)
+            for f, e in ((fq, eq), (fc, ec)):
+                level = max(1e-9, float(np.median(f[seg][ref])))
+                idx = seg[in_zone]
+                e[idx] = np.fmax(e[idx], 1.0 - f[idx] / level)
+    cands: list[dict[str, Any]] = []
+    n_zone = 0
+    max_ref = 0.0
+    for i in kept:
+        dist = _edge_distance(float(b_mid[i]), segs)
+        if dist >= zone:
+            continue
+        n_zone += 1
+        sel = inv == i
+        ref_depths = []
+        for e in (eq, ec):
+            ok = sel & np.isfinite(e)
+            ref_depths.append(float(np.sum(w[ok] * e[ok]) / np.sum(w[ok])) if ok.any() and np.sum(w[ok]) > 0 else float("nan"))
+        rq, rc = ref_depths
+        finite = [d for d in ref_depths if math.isfinite(d)]
+        if finite:
+            max_ref = max(max_ref, *finite)
+        if max([float(dq[i]), float(dc[i]), *finite]) >= thr:
+            cands.append({
+                "btjd": round(float(b_mid[i]), 4), "edge_distance_days": round(dist, 3),
+                "depth_qlp_detrended": round(float(dq[i]), 4), "depth_tesscut_detrended": round(float(dc[i]), 4),
+                "depth_qlp_vs_interior": _r(rq), "depth_tesscut_vs_interior": _r(rc),
+            })
+    return {"zone_days": round(zone, 3), "n_edge_zone_bins": n_zone, "max_depth_vs_interior": round(max_ref, 4), "candidates": cands}
+
+
+def _edge_note(cands: list[dict[str, Any]], cfg: PipelineConfig) -> str:
+    c0 = max(cands, key=lambda c: max(c["depth_qlp_detrended"], c["depth_tesscut_detrended"], c["depth_qlp_vs_interior"] or 0.0,
+                                      c["depth_tesscut_vs_interior"] or 0.0))
+    return (f"{len(cands)} dip candidate bin(s) lie within {_edge_zone_days(cfg):.2f} d of a segment edge or data gap "
+            f"(detrend edge zone = {_od(cfg, 'detrend_edge_zone_window_frac'):.2f} x the {_od(cfg, 'detrend_window_days'):.1f} d window), e.g. "
+            f"{'sector ' + str(c0['sector']) + ' ' if 'sector' in c0 else ''}BTJD {c0['btjd']:.3f}, {c0['edge_distance_days']:.2f} d from the edge "
+            f"(QLP/TESScut depth vs interior {c0['depth_qlp_vs_interior']}/{c0['depth_tesscut_vs_interior']}, detrended "
+            f"{c0['depth_qlp_detrended']:.3f}/{c0['depth_tesscut_detrended']:.3f}); the matched running median can erase or distort a dip "
+            f"there, so the detrend-based test is not evaluated for it")
+
+
+def _sector_edge_candidates(a: dict[str, Any]) -> list[dict[str, Any]]:
+    return [dict(c, sector=a["summary"]["sector"]) for c in a["summary"]["detrend_edge_zone"]["candidates"]]
+
+
+def tess_edge_zone_candidates(lc: dict[str, Any], cfg: PipelineConfig, *, include_legacy: bool = False) -> list[dict[str, Any]]:
+    """Detrend edge-zone dip candidates of every usable TESS sector (see `_edge_zone_screen`)."""
+    secs, _ = _analysis_sectors(lc, include_legacy=include_legacy)
+    out: list[dict[str, Any]] = []
+    for sec in secs:
+        a = analyze_tess_sector(sec, cfg)
+        if a and a["usable"]:
+            out.extend(_sector_edge_candidates(a))
+    return out
 
 
 def _depths_agree(d_primary: float, d_secondary: float, cfg: PipelineConfig) -> bool:
@@ -225,6 +328,7 @@ def analyze_tess_sector(sec: dict[str, Any], cfg: PipelineConfig) -> dict[str, A
             "depth_coincident": round(float(co[i]), 4),
             "n_cadences": int(round(float(cnt[i]))),
             "edge_distance_days": round(_edge_distance(float(b_mid[i]), segs), 3),
+            "in_detrend_edge_zone": bool(_edge_distance(float(b_mid[i]), segs) < _edge_zone_days(cfg)),
             "qlp_exceeds_min_depth": bool(dq[i] >= thr),
             "tesscut_exceeds_min_depth": bool(dc[i] >= thr),
             "coincident_exceeds_min_depth": bool(co[i] >= thr),
@@ -259,6 +363,7 @@ def analyze_tess_sector(sec: dict[str, Any], cfg: PipelineConfig) -> dict[str, A
         disagreement=reasons,
         n_bins_above_min_depth=len(thr_bins),
         legacy_arrays=bool(sec.get("legacy", False)),
+        detrend_edge_zone=_edge_zone_screen(t, fq, fc, n_per, inv, kept, dq, dc, b_mid, segs, cfg),
     )
     return {
         "usable": True, "summary": summary, "_t": t, "_rq": rq, "_rc": rc, "_inv": inv, "_b_lo": b_lo, "_b_hi": b_hi,
@@ -325,12 +430,15 @@ def check_pipeline_agreement(star: dict[str, Any], cfg: PipelineConfig, out_dir:
     if bad:
         why = "; ".join(f"s{p['sector']}: {', '.join(p['disagreement'])}" for p in per_sector if not p["agree"])
         note += f"; disagreement in sector(s) {bad}: {why}"
+    edge_c = [c for a in usable for c in _sector_edge_candidates(a)]
+    if edge_c and not bad:
+        note += "; " + _edge_note(edge_c, cfg)
     note += (". Both extractions use the same TESS FFI pixels, so agreement validates the light-curve extraction, "
              "not the astrophysical origin of the signal")
     return make_vet_result(
         out_dir,
         check="pipeline_agreement",
-        status="fail" if bad else "pass",
+        status="fail" if bad else ("not_evaluated" if edge_c else "pass"),
         note=note,
         metrics={
             "source": source,
@@ -343,6 +451,8 @@ def check_pipeline_agreement(star: dict[str, Any], cfg: PipelineConfig, out_dir:
             "sectors": per_sector,
             "sectors_skipped": skipped,
             "shared_pixels_caveat": True,
+            "detrend_edge_zone_days": _edge_zone_days(cfg),
+            "detrend_edge_zone_candidates": edge_c,
         },
     )
 
@@ -369,6 +479,7 @@ def _tess_systematics(lc: dict[str, Any], cfg: PipelineConfig) -> dict[str, Any]
     jmin = _od(cfg, "systematics_centroid_jump_min_px")
     bin_days = _od(cfg, "min_duration_hours") / 24.0
     table: list[dict[str, Any]] = []
+    edge_c: list[dict[str, Any]] = []
     n_aux = 0
     for sec in secs:
         a = analyze_tess_sector(sec, cfg)
@@ -379,6 +490,7 @@ def _tess_systematics(lc: dict[str, Any], cfg: PipelineConfig) -> dict[str, Any]
         if aux is None:
             continue
         n_aux += 1
+        edge_c.extend(_sector_edge_candidates(a))
         bkg, cx, cy = aux
         b_med, b_sig = float(np.median(bkg)), max(1e-9, _robust_sigma(bkg))
         dt = np.diff(t)
@@ -428,7 +540,11 @@ def _tess_systematics(lc: dict[str, Any], cfg: PipelineConfig) -> dict[str, Any]
         if sub:
             note += f"; {len(sub)} sub-threshold deepest bin(s) coincide with a systematic (not a flagged event)"
         status = "pass"
-    return {"status": status, "note": note, "events": table, "n_sectors": n_aux}
+        if edge_c:
+            note += "; " + _edge_note(edge_c, cfg)
+            status = "not_evaluated"
+    return {"status": status, "note": note, "events": table, "n_sectors": n_aux, "detrend_edge_zone_candidates": edge_c,
+            "edge_blocked": bool(edge_c) and status != "fail"}
 
 
 def _ir_variation(neo: dict[str, Any], cfg: PipelineConfig) -> dict[str, Any]:
@@ -529,7 +645,10 @@ def check_systematics_window(star: dict[str, Any], cfg: PipelineConfig, out_dir:
         notes.append(part["note"])
         metrics[key] = {k: v for k, v in part.items() if k != "note"}
     status = _combine(statuses)
-    if status == "not_evaluated":
+    if status == "pass" and tess.get("edge_blocked"):
+        status = "not_evaluated"
+        notes.insert(0, "A TESS dip candidate inside the detrend edge zone is not evaluated, so the check cannot pass")
+    elif status == "not_evaluated" and not tess.get("edge_blocked"):
         notes.insert(0, "Neither TESS background/centroid series nor a NEOWISE comparison ensemble available")
     return make_vet_result(out_dir, check="systematics_window", status=status, note=" | ".join(notes), metrics=metrics)
 
@@ -548,6 +667,7 @@ def _tess_neighbour(lc: dict[str, Any], cfg: PipelineConfig) -> dict[str, Any]:
     nb_info = lc.get("tess_neighbours") or {}
     sources = nb_info.get("sources") or []
     rows: list[dict[str, Any]] = []
+    edge_c: list[dict[str, Any]] = []
     n_aux = 0
     for sec in secs:
         a = analyze_tess_sector(sec, cfg)
@@ -558,6 +678,7 @@ def _tess_neighbour(lc: dict[str, Any], cfg: PipelineConfig) -> dict[str, Any]:
         if aux is None:
             continue
         n_aux += 1
+        edge_c.extend(_sector_edge_candidates(a))
         _, cx, cy = aux
         excl = set(a["_thr_bins"]) | set(a["_event_bins"])
         out_mask_base = ~np.isin(a["_inv"], list(excl))
@@ -598,9 +719,12 @@ def _tess_neighbour(lc: dict[str, Any], cfg: PipelineConfig) -> dict[str, Any]:
                       f"{brightest:.3f}")
         else:
             nb_txt = f"; Gaia neighbour cone {nb_info.get('status')}"
+    edge_txt = ("; " + _edge_note(edge_c, cfg)) if edge_c else ""
+    edge_m = {"detrend_edge_zone_candidates": edge_c, "edge_blocked": bool(edge_c)}
+    pass_status = "not_evaluated" if edge_c else "pass"
     if not rows:
-        return {"status": "pass", "note": f"TESS: no dip event above {thr:.3f} in {n_aux} sector(s) with centroid series, so no dip to "
-                f"attribute to a neighbour{nb_txt}", "events": [], "n_sectors": n_aux}
+        return {"status": pass_status, "note": f"TESS: no dip event above {thr:.3f} in {n_aux} sector(s) with centroid series, so no dip to "
+                f"attribute to a neighbour{nb_txt}{edge_txt}", "events": [], "n_sectors": n_aux, **edge_m}
     flagged = [r for r in rows if r["flag"]]
     if flagged:
         f0 = flagged[0]
@@ -608,11 +732,11 @@ def _tess_neighbour(lc: dict[str, Any], cfg: PipelineConfig) -> dict[str, Any]:
         note = (f"TESS: flux deficit of sector {f0['sector']} BTJD {f0['btjd']:.3f} located {f0['deficit_offset_px']:.2f} px from the "
                 f"target ({f0['deficit_offset_sigma']:.1f} sigma)" + (f", nearest Gaia neighbour {nn['id']} at {nn['dist_px']:.2f} px" if nn else "")
                 + nb_txt)
-        return {"status": "fail", "note": note, "events": rows, "n_sectors": n_aux}
+        return {"status": "fail", "note": note, "events": rows, "n_sectors": n_aux, **dict(edge_m, edge_blocked=False)}
     worst = max(rows, key=lambda r: r["deficit_offset_sigma"])
-    return {"status": "pass", "note": f"TESS: difference-image flux deficit of {len(rows)} dip event(s) consistent with the target "
+    return {"status": pass_status, "note": f"TESS: difference-image flux deficit of {len(rows)} dip event(s) consistent with the target "
             f"(largest offset {worst['deficit_offset_px']:.2f} px, {worst['deficit_offset_sigma']:.1f} sigma; limit {s_thr:.0f} sigma and "
-            f"{min_px:.2f} px){nb_txt}", "events": rows, "n_sectors": n_aux}
+            f"{min_px:.2f} px){nb_txt}{edge_txt}", "events": rows, "n_sectors": n_aux, **edge_m}
 
 
 def _lsq(X: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -648,8 +772,10 @@ def _neowise_neighbour(star: dict[str, Any], cfg: PipelineConfig) -> dict[str, A
     X = np.column_stack([np.ones(n), parity, t_yr, wfrac])
     bx, sx = _lsq(X, x)
     by, sy = _lsq(X, y)
-    pmra = float(star.get("pmra_mas_yr", 0.0) or 0.0)
-    pmdec = float(star.get("pmdec_mas_yr", 0.0) or 0.0)
+    if star.get("pmra_mas_yr") is None or star.get("pmdec_mas_yr") is None:
+        return {"status": "not_evaluated", "note": "NEOWISE: no Gaia proper motion to define the PM track (pmra/pmdec missing)"}
+    pmra = float(star["pmra_mas_yr"])
+    pmdec = float(star["pmdec_mas_yr"])
     mu = math.hypot(pmra, pmdec) / 1000.0
     sig = _it(cfg, "neighbour_blend_sigma")
     fmax = _vt(cfg, "neighbour_blend_flux_frac")
@@ -720,7 +846,10 @@ def check_neighbour_signal(star: dict[str, Any], cfg: PipelineConfig, out_dir: P
     if lc.get("tess_neighbours"):
         metrics["tess_gaia_neighbours"] = lc["tess_neighbours"]
     status = _combine(statuses)
-    if status == "not_evaluated":
+    if status == "pass" and tess.get("edge_blocked"):
+        status = "not_evaluated"
+        notes.insert(0, "A TESS dip candidate inside the detrend edge zone is not evaluated, so the check cannot pass")
+    elif status == "not_evaluated" and not tess.get("edge_blocked"):
         notes.insert(0, "Neither TESS centroid series nor NEOWISE residual vectors available")
     return make_vet_result(out_dir, check="neighbour_signal", status=status, note=" | ".join(notes), metrics=metrics)
 
@@ -746,14 +875,21 @@ def check_sso_crossing(star: dict[str, Any], cfg: PipelineConfig, out_dir: Path)
     if n_usable == 0:
         return make_vet_result(out_dir, check="sso_crossing", status="not_evaluated",
                                note="TESS sectors loaded but none has enough filled bins to locate an event" + _tess_log(lc))
+    edge_c = tess_edge_zone_candidates(lc, cfg)
     if not events:
         # The hypothesis tested here is "a Solar System body caused the flagged TESS dip". With TESS data actually
         # loaded and analysed for every fetched sector and no coincident dip above the channel threshold, there is no
         # TESS event an SSO could have caused, so the check legitimately passes. Without TESS data it stays
-        # not_evaluated (above), so a pass never stands in for missing data.
+        # not_evaluated (above), so a pass never stands in for missing data; nor does a dip candidate in the detrend
+        # edge zone, where the running median may have erased the event.
+        if edge_c:
+            return make_vet_result(out_dir, check="sso_crossing", status="not_evaluated",
+                                   note=f"No dip event above threshold ({thr:.3f}) found by the detrend in {n_usable} TESS sector(s), but "
+                                        + _edge_note(edge_c, cfg),
+                                   metrics={"n_sectors": n_usable, "events": [], "detrend_edge_zone_candidates": edge_c})
         return make_vet_result(out_dir, check="sso_crossing", status="pass",
                                note=f"No dip event above threshold ({thr:.3f}) in {n_usable} TESS sector(s); no SSO-caused TESS event",
-                               metrics={"n_sectors": n_usable, "events": []})
+                               metrics={"n_sectors": n_usable, "events": [], "detrend_edge_zone_candidates": []})
     records = (lc.get("sso_queries") or {}).get("events") or []
     radius = _vt(cfg, "sso_tess_radius_px") * _vt(cfg, "tess_pixel_arcsec")
     g_mag = (star.get("mags") or {}).get("G")
@@ -779,7 +915,8 @@ def check_sso_crossing(star: dict[str, Any], cfg: PipelineConfig, out_dir: Path)
         table.append({"sector": ev["sector"], "btjd": ev["btjd"], "depth": ev["depth"], "n_bodies": len(rec.get("bodies") or []), "relevant": relevant})
         if relevant:
             hits.append(f"s{ev['sector']} BTJD {ev['btjd']:.3f}: {relevant[0]['name']} at {relevant[0]['sep_arcsec']}\"")
-    metrics = {"radius_arcsec": radius, "observer": "C57", "events": table, "missing": missing, "query_failed": failed}
+    metrics = {"radius_arcsec": radius, "observer": "C57", "events": table, "missing": missing, "query_failed": failed,
+               "detrend_edge_zone_candidates": edge_c}
     if hits:
         return make_vet_result(out_dir, check="sso_crossing", status="fail",
                                note=f"Solar System body within {radius:.0f}\" at TESS event time: " + "; ".join(hits), metrics=metrics)
@@ -790,6 +927,9 @@ def check_sso_crossing(star: dict[str, Any], cfg: PipelineConfig, out_dir: Path)
         if failed:
             why.append("SkyBoT query failed for " + "; ".join(failed))
         return make_vet_result(out_dir, check="sso_crossing", status="not_evaluated", note="; ".join(why), metrics=metrics)
+    if edge_c:
+        return make_vet_result(out_dir, check="sso_crossing", status="not_evaluated", metrics=metrics,
+                               note=f"SkyBoT (TESS, C57) found no relevant body at {len(table)} event(s), but " + _edge_note(edge_c, cfg))
     return make_vet_result(
         out_dir, check="sso_crossing", status="pass",
         note=(f"SkyBoT (TESS, C57) at {len(table)} event(s): no body within {radius:.0f}\" bright enough (flux >= {min_ratio:.2f} x depth "
@@ -874,10 +1014,12 @@ def _sector_period_search(sec: dict[str, Any], cfg: PipelineConfig) -> dict[str,
 def check_known_variable(star: dict[str, Any], cfg: PipelineConfig, out_dir: Path) -> VettingResult:
     lc = star.get("lightcurves", {})
     secs_any, _ = _analysis_sectors(lc)
-    if star.get("simbad_type") is None and not secs_any:
+    sim = simbad_lookup(star)
+    if not sim["evaluated"] and not secs_any:
         return make_vet_result(out_dir, check="known_variable", status="not_evaluated",
-                               note="No SIMBAD classification and no TESS light curve to search for periodicity" + _tess_log(lc))
-    stype = str(star.get("simbad_type", "Star"))
+                               note=f"{simbad_note(sim)} and no TESS light curve to search for periodicity" + _tess_log(lc),
+                               metrics={"simbad_query_status": sim["query_status"]})
+    stype = sim["simbad_type"]
     t = np.asarray(lc.get("tess_time_btjd", []), dtype=float)
     f = np.asarray(lc.get("tess_flux_qlp", []), dtype=float)
     periodic_eb = False
@@ -892,7 +1034,8 @@ def check_known_variable(star: dict[str, Any], cfg: PipelineConfig, out_dir: Pat
         snr = (best_power - med_power) / max(1e-6, float(np.std(res.power)))
         periodic_eb = snr > _od(cfg, "periodic_bls_veto_snr") and float(np.min(f)) < 1.0 - _od(cfg, "periodic_eb_min_depth_frac")
 
-    metrics: dict[str, Any] = {"simbad_type": stype, "periodic_eb_detected": periodic_eb}
+    metrics: dict[str, Any] = {"simbad_type": stype, "simbad_query_status": sim["query_status"], "simbad_entry": sim["entry"],
+                               "periodic_eb_detected": periodic_eb}
     rot_txt = ""
     secs, _ = _analysis_sectors(lc, include_legacy=False)
     if secs:
@@ -922,12 +1065,15 @@ def check_known_variable(star: dict[str, Any], cfg: PipelineConfig, out_dir: Pat
     if gaia_var:
         metrics["gaia_phot_variable_flag"] = gaia_var
         rot_txt += f"; Gaia phot_variable_flag={gaia_var}"
-    is_known_var = stype in KNOWN_VARIABLE_SIMBAD_TYPES or periodic_eb
+    is_known_var = (sim["evaluated"] and stype in KNOWN_VARIABLE_SIMBAD_TYPES) or periodic_eb
+    # A TESS period search can find an eclipsing binary but cannot show that a star is not a catalogued variable,
+    # so a pass needs the SIMBAD lookup to have succeeded ("no entry" is a real negative answer).
+    status = "fail" if is_known_var else ("pass" if sim["evaluated"] else "not_evaluated")
     return make_vet_result(
         out_dir,
         check="known_variable",
-        status="fail" if is_known_var else "pass",
-        note=f"SIMBAD type={stype}, periodic_EB_detected={periodic_eb}{rot_txt}",
+        status=status,
+        note=f"{simbad_note(sim)}, periodic_EB_detected={periodic_eb}{rot_txt}",
         metrics=metrics,
     )
 
@@ -1144,11 +1290,18 @@ def _ir_context(star: dict[str, Any], series: list[dict[str, Any]], cfg: Pipelin
 def _dip_context(lc: dict[str, Any], series: list[dict[str, Any]], cfg: PipelineConfig) -> dict[str, Any] | None:
     secs, _ = _analysis_sectors(lc)
     events = []
+    edge_c: list[dict[str, Any]] = []
     for sec in secs:
         a = analyze_tess_sector(sec, cfg)
-        if a and a["usable"] and a["summary"]["deepest_coincident"]["coincident_exceeds_min_depth"]:
+        if not a or not a["usable"]:
+            continue
+        edge_c.extend(_sector_edge_candidates(a))
+        if a["summary"]["deepest_coincident"]["coincident_exceeds_min_depth"]:
             events.append(dict(a["summary"]["deepest_coincident"], sector=a["summary"]["sector"]))
     if not events:
+        if edge_c:
+            return {"tess_events": [], "detrend_edge_zone_candidates": edge_c, "status": "not_evaluated",
+                    "note": "No TESS dip event found by the detrend, but " + _edge_note(edge_c, cfg)}
         return None
     pad = _od(cfg, "second_survey_simultaneous_pad_days")
     ratio = _od(cfg, "second_survey_simultaneous_min_depth_ratio")
@@ -1186,7 +1339,7 @@ def _dip_context(lc: dict[str, Any], series: list[dict[str, Any]], cfg: Pipeline
         if best >= min_nights:
             indep.append(f"{sr['survey']} {sr['band']} ({best} consecutive nights >= {thr:.2f} fainter)")
     ev_txt = ", ".join(f"s{e['sector']} BTJD {e['btjd']:.2f} (depth {e['depth_coincident']:.3f})" for e in events)
-    ctx: dict[str, Any] = {"tess_events": events, "simultaneous": simul, "independent_dimming": indep}
+    ctx: dict[str, Any] = {"tess_events": events, "simultaneous": simul, "independent_dimming": indep, "detrend_edge_zone_candidates": edge_c}
     if contra:
         c = contra[0]
         ctx.update({"status": "fail", "note": f"TESS events {ev_txt}: simultaneous {c['survey']} {c['band']} shows depth {c['survey_depth']:.3f} "
@@ -1201,6 +1354,8 @@ def _dip_context(lc: dict[str, Any], series: list[dict[str, Any]], cfg: Pipeline
     else:
         ctx.update({"status": "not_evaluated", "note": f"TESS events {ev_txt}: no survey night within the event bins and no independent "
                     f"dimming episode, so ground surveys do not constrain the dip"})
+    if ctx["status"] == "pass" and edge_c:
+        ctx.update({"status": "not_evaluated", "note": ctx["note"] + "; but " + _edge_note(edge_c, cfg)})
     return ctx
 
 

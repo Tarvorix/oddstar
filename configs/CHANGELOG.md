@@ -128,6 +128,42 @@ certificates now also carry `code_fingerprint` and go stale when the validated c
   for the first 25 sample stars only and drop the rest; it now fetches every sample star through the bulk path
   (`--neowise-max-stars N` bounds a run explicitly, and the stars beyond N are reported as not searched).
 
+### Remaining default-value passes removed
+Vanishing, spectral and radio vetting, the SIMBAD-based checks and the generic_outlier path no longer pass on
+default input values (lessons L007/L008): a check passes or fails only on inputs that are explicitly present (fixtures,
+hand-built dicts) or written by a query recorded as `ok` (live stars); otherwise it reports `not_evaluated` and names the
+missing data product. No existing threshold value changed. The config hash changes, so validation certificates must
+be regenerated for the new hash (not done here).
+
+- `channels.vanishing.vetting_variable_simbad_types: ["Mira", "LPV*", "CV*", "Flare*"]` - SIMBAD types that explain a
+  vanished plate source in `known_variable`; was a literal set in `vet/vanishing_checks.py` (unchanged).
+- `channels.optical_dips.detrend_edge_zone_window_frac: 0.5` (new) - dip candidates within this fraction of
+  `detrend_window_days` (2.5 d) of a TESS segment edge or data gap, where the matched running median can erase or
+  distort a dip, make `pipeline_agreement`, `systematics_window`, `neighbour_signal`, `sso_crossing` and the TESS context
+  of `second_survey` report `not_evaluated` instead of `pass` (a `fail` stands). Edge-zone bins are also compared with the
+  raw interior flux so an erased dip is still seen.
+- `vetting.metallicity_subdwarf_feh_max: -1.0` - [Fe/H] below which `check_metallicity` calls a subdwarf; was the
+  literal `-1.0` in `vet/underluminous_checks.py` (unchanged).
+- Literal fallbacks of config keys removed from vetting source (`.get(key, default)` -> required key, values unchanged):
+  `channels.vanishing.min_early_plates` (2), `min_depth_margin_mag` (2.0), `max_pm_residual_arcsec` (1.5),
+  `channels.radio_narrowband.min_drift_abs_hz_s` (0.05), `channels.spectral_lines.sky_line_exclusion_angstrom` (1.5),
+  `stellar_line_exclusion_angstrom` (1.5).
+- Input defaults removed (now `not_evaluated` when absent): vanishing `usno_epoch` 1953.4, `usno_mag_r` 17.0,
+  `panstarrs_depth_mag` 21.8, `early_plates_count` (2 with any plate record), `known_lpv` False, `sso_on_plate` False,
+  `blend_split_sources` 1, `present_in_gaia` True, proper motion 0.0; spectral `lsf_fwhm_a` 0.45, pixel size 0.25 A,
+  `detector_artifact` False, empty flux arrays; radio `off_scan_hits` 0, `drift_hz_s` 0.0, `in_rfi_band` False,
+  `multi_target_match` False, `reobserved_confirmed` False; SIMBAD type "Star"; generic path `abs_g_mag` 4.8,
+  `teff_k` 5800, `ruwe` 1.0, proper motion 0.0 (xmatch, NEOWISE PM track), radio row separation 99",
+  second-instrument interpretation "confirmed", fixture cutout offset 0.0" / background 0.4 mJy.
+- SIMBAD: live ingestion records `query_status["simbad"]` and `vetting_archive.simbad_entry`; `simbad_type` is None when
+  the lookup failed or SIMBAD has no entry. `known_variable` (light curve and vanishing) and `metallicity` return
+  `not_evaluated` when the lookup did not succeed; "no entry" is a successful negative answer.
+- `vet/engine.py`: a generic_outlier target with a dip/IR driver is routed to the light-curve checks also when it carries
+  only per-sector TESS data (`lightcurves.tess_sectors`, the live format), not just the legacy fixture arrays.
+- Fixture-only channels for live stars: vanishing, spectral_lines and radio_narrowband have no live ingestion, so every
+  check of those suites returns `not_evaluated` for a live star (a SIMBAD-listed Mira can still fail vanishing
+  `known_variable`).
+
 ## [1.0.0] - 2026-11-16
 - Initial frozen baseline configuration for all 8 search channels, 23 archive adapters, and 42 vetting checks.
 - Set `storage.max_cache_gb: 10.0` per workstation disk budget decision (with process-and-evict retention of manifest SHA-256 hashes for heavy raw radio/pixel payloads).

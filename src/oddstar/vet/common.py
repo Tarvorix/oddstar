@@ -1,4 +1,4 @@
-"""Shared vetting helper enforcing evidence-backed tri-state results."""
+"""Shared vetting helpers: evidence-backed tri-state results and the SIMBAD lookup outcome."""
 
 from __future__ import annotations
 
@@ -56,3 +56,41 @@ def make_vet_result(
         note=note,
         metrics=metrics or {},
     )
+
+
+def simbad_lookup(star: dict[str, Any]) -> dict[str, Any]:
+    """Outcome of the SIMBAD classification lookup, keeping "failed", "no entry" and "type X" distinct.
+
+    - A recorded `vetting_archive.query_status["simbad"]` decides for every star: "ok" means the lookup succeeded
+      and `simbad_type` is its answer (None = SIMBAD has no entry, a real negative answer); anything else means
+      the lookup did not succeed and `simbad_type` is ignored.
+    - A live star (`live_enriched` key) without a recorded status was never looked up.
+    - A fixture or hand-built dict without a recorded status counts an explicit, non-None `simbad_type`.
+
+    Returns {"evaluated", "simbad_type", "entry", "query_status"}; `entry` is None when it cannot be told (a
+    record enriched before `vetting_archive.simbad_entry` was written).
+    """
+    va = star.get("vetting_archive") or {}
+    status = (va.get("query_status") or {}).get("simbad")
+    stype = star.get("simbad_type")
+    if status is not None:
+        if status != "ok":
+            return {"evaluated": False, "simbad_type": None, "entry": None, "query_status": str(status)}
+        entry = va.get("simbad_entry")
+        if entry is None and stype is not None:
+            entry = True
+        return {"evaluated": True, "simbad_type": None if stype is None else str(stype), "entry": entry, "query_status": "ok"}
+    if "live_enriched" in star:
+        return {"evaluated": False, "simbad_type": None, "entry": None, "query_status": "not run"}
+    if stype is None:
+        return {"evaluated": False, "simbad_type": None, "entry": None, "query_status": "absent (no explicit simbad_type)"}
+    return {"evaluated": True, "simbad_type": str(stype), "entry": True, "query_status": "explicit"}
+
+
+def simbad_note(sim: dict[str, Any]) -> str:
+    """Short text for a SIMBAD lookup outcome from `simbad_lookup`."""
+    if not sim["evaluated"]:
+        return f"SIMBAD lookup not available (query_status simbad={sim['query_status']})"
+    if sim["simbad_type"] is None:
+        return "SIMBAD: no entry" if sim["entry"] is not True else "SIMBAD: entry without object type"
+    return f"SIMBAD type={sim['simbad_type']}"

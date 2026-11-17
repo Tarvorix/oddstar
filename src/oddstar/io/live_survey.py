@@ -499,7 +499,8 @@ def _row_to_star_dict(row: dict[str, Any], gaia_release: str = "dr3") -> dict[st
         },
         "spectra": {},
         "vanishing_data": {},
-        "simbad_type": "Star",
+        # Set only by a successful SIMBAD lookup (query_status["simbad"] == "ok"); None = not looked up or no entry
+        "simbad_type": None,
         "known_in_literature": False,
         "2mass_clean": all(c in "ABCD" for c in tmass_ph[:3]),
         "live_enriched": False,
@@ -1138,12 +1139,20 @@ def enrich_star_live_for_vetting(
             )
             s_rows, m_sim_id, _ = _tap_query_cached(urls=SIMBAD_TAP_URLS, query=q_sim_id, archive="simbad", release="live", cache=cache, timeout_s=15)
             manifests.append(m_sim_id)
+        # Three distinct outcomes: ok + entry (simbad_type = its otype, None if SIMBAD gives none), ok + no entry
+        # (simbad_type None, simbad_entry False: a real negative answer), failed (simbad_type None, status "failed: ...").
+        va["simbad_entry"] = bool(s_rows)
         if s_rows:
-            out["simbad_type"] = str(s_rows[0].get("otype_txt") or "Star")
+            otype = s_rows[0].get("otype_txt")
+            out["simbad_type"] = str(otype) if otype else None
             out["name"] = str(s_rows[0].get("main_id") or out["name"])
             out["known_in_literature"] = True
+        else:
+            out["simbad_type"] = None
         qs["simbad"] = "ok"
     except Exception as exc:
+        out["simbad_type"] = None
+        va.pop("simbad_entry", None)
         qs["simbad"] = _failed(exc)
 
     # 3a. AllWISE coadd quality (IRSA Gator fast path -> IRSA TAP -> NOIRLab Data Lab backup)
