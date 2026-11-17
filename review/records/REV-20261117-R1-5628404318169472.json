@@ -1,0 +1,28 @@
+{
+  "review_id": "REV-20261117-R1-5628404318169472",
+  "round": 1,
+  "source_id": "5628404318169472",
+  "reviewer_model": "OpenAI GPT-6 family",
+  "timestamp_utc": "2026-11-17T15:54:52.447613+00:00",
+  "verdict": "reproduced",
+  "measurements": {
+    "parallax_mas": 4.3149,
+    "vt_km_s": 114.6,
+    "teff_k": 4510,
+    "w3_mag": 8.701,
+    "w4_mag": 7.29,
+    "neowise_visits": 21,
+    "w2_span_mag": 0.411,
+    "allwise_epoch_sep_arcsec": 0.059
+  },
+  "uncertainties": {
+    "parallax_mas": 0.0162,
+    "w3_mag": 0.026,
+    "w4_mag": 0.102
+  },
+  "queries_run": [
+    "Exact executed ESA Gaia, IRSA and MAST requests and ADQL are listed by source in review/evidence/2026-11-17/round1-queries.txt."
+  ],
+  "notes": "Blind characterization from four unlabeled Gaia positions. This source independently stands out for the long-wave excess and infrared variability. Atlas fits put W3 and W4 within 0.7 arcsec of the motion-corrected star. Close red contaminants and the dust mechanism are open.",
+  "findings": []
+}

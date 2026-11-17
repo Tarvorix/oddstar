@@ -26,3 +26,4 @@ Defined in `configs/default.yaml` under `channels.generic_outlier`:
 
 ## Lessons Applied
 - Channel produces leads only; every driving feature triggers full domain vetting.
+- `L003`: Missing observational modalities (`lightcurves`, `spectra`, `vanishing_data`, `neowise`, `radio`) map deterministically to `0.0` rather than random Gaussian noise; `vet_target` always runs `metallicity` and `evolved` checks on flagged `generic_outlier` stars and only invokes modality-specific vetting when real observations exist.

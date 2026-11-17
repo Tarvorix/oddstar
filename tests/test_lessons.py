@@ -62,3 +62,67 @@ def test_lesson_l002_missing_plate_data_no_spurious_vanishing_on_high_pm_stars(t
     assert meas.values["modern_matched"] == 1.0
     assert score.flagged is False
     assert any("No historical plate catalog" in c for c in meas.caveats)
+
+
+def test_lesson_l003_missing_modality_routing_and_rv_binary_honesty(tmp_path: Path) -> None:
+    """L003: Missing modalities in generic_outlier must stay 0.0 (no random jitter triggering
+    phantom light-curve holes), metal-poor outliers must run metallicity/evolved checks -> Explained,
+    and faint-star Gaia RVS (rv_faint_unconstrained=True) must mark binary=not_evaluated rather than pass.
+    """
+    from oddstar.channels.generic_outlier.channel import extract_raw_feature_vector
+    from oddstar.io.physics import propagate_position
+    from oddstar.schemas import ChannelScore
+    from oddstar.vet.ir_checks import check_binary
+
+    cfg, _, _ = load_config()
+    wise_ra, wise_dec = propagate_position(115.8556, 72.8083, 150.0, -1200.0, 2016.0, 2010.2)
+    subdwarf = {
+        "source_id": "1111149103659931264",
+        "ra_deg": 115.8556,
+        "dec_deg": 72.8083,
+        "pmra_mas_yr": 150.0,
+        "pmdec_mas_yr": -1200.0,
+        "abs_g_mag": 8.47,
+        "teff_k": 4100.0,
+        "feh": -1.09,
+        "ruwe": 1.02,
+        "mags": {"G": 12.53, "BP": 13.32, "RP": 11.66, "J": 10.58, "Ks": 9.85, "W3": 9.66, "W4": 8.38},
+        "flux_mjy": {"Ks": 70.0, "W4": 3.7},
+        "flux_err_mjy": {"W4": 1.0},
+        "allwise": {"ra_deg": wise_ra, "dec_deg": wise_dec, "n_neighbours_gaia_xmatch": 1},
+        "neowise": {},
+        "lightcurves": {},
+        "spectra": {},
+        "vanishing_data": {},
+        "vetting_archive": {"nss_flag": 0, "rv_scatter_kms": 6.12, "rv_faint_unconstrained": True},
+    }
+    raw = extract_raw_feature_vector(subdwarf)
+    assert raw["dip_snr"] == 0.0
+    assert raw["ir_var_chi2"] == 0.0
+    assert raw["spec_line_snr"] == 0.0
+    assert raw["vanished_margin"] == 0.0
+    assert raw["radio_snr"] == 0.0
+
+    # Even if an outlier score had high bp_rp / dip contributions, missing lightcurves do not trigger lc_checks,
+    # and metallicity check explains metal-poor subdwarfs.
+    score = ChannelScore(
+        source_id="1111149103659931264",
+        channel="generic_outlier",
+        raw_statistic=7.35,
+        false_alarm_prob=7.1e-5,
+        flagged=True,
+        rank_score=4.15,
+        summary="Outlier",
+        feature_contributions={"bp_rp": 3.52, "dip_snr": 3.18},
+    )
+    vet = vet_target(subdwarf, [score], cfg, tmp_path / "ev_sub")
+    by_check = {v.check: v for v in vet}
+    assert by_check["metallicity"].status == "fail"
+    assert "pipeline_agreement" not in by_check
+    assert "second_survey" not in by_check
+    tier, reason = assign_tier([score], vet, cfg)
+    assert tier == "Explained"
+    assert reason and "metallicity" in reason
+
+    bin_res = check_binary(subdwarf, cfg, tmp_path / "ev_bin")
+    assert bin_res.status == "not_evaluated"

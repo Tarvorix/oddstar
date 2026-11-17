@@ -1,0 +1,45 @@
+{
+  "review_id": "REV-20261117-R2-5628404318169472",
+  "round": 2,
+  "source_id": "5628404318169472",
+  "reviewer_model": "OpenAI GPT-6 family",
+  "timestamp_utc": "2026-11-17T15:54:52.448669+00:00",
+  "verdict": "reproduced",
+  "measurements": {
+    "varwise_w1_amplitude_mag": 0.18,
+    "varwise_w2_amplitude_mag": 0.279,
+    "varwise_lpv_score": 0.7754,
+    "varwise_suspect_period": 1,
+    "asas_g_differential_nights": 870,
+    "asas_g_seasonal_span_mag": 0.0646
+  },
+  "uncertainties": {},
+  "queries_run": [
+    "https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-query?catalog=varwisepure&spatial=cone&objstr=43.548272861%205.882712239&radius=20&radunits=arcsec&outfmt=1",
+    "https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-query?catalog=varwiseext&spatial=cone&objstr=43.548272861%205.882712239&radius=20&radunits=arcsec&outfmt=1",
+    "https://www.aavso.org/vsx/index.php?view=detail.top&oid=2850403",
+    "http://asassn-lb01.ifa.hawaii.edu:9006/lookup_cone/radius0.004166666666666667_ra43.548272861_dec5.882712239",
+    "http://asassn-lb01.ifa.hawaii.edu:9006/lookup_targets/catalog_list POST catalog=stellar_main; IDs=206159881120,188978877011,206159848699,188978847286,197569643922,257698770733",
+    "SDSS DR19 PhotoObj and SpecObj 30 arcsec cone, centered on the Gaia position.",
+    "NASA NED 30 arcsec coordinate cone; IRSA AKARI IRC cone within 45 arcsec."
+  ],
+  "notes": "Independent review of source identity, prior classification, optical signal and counterpart confusion. VarWISE uses NEOWISE data and is a prior study of the same variable signal. The optical apertures and conservative flags support small changes.",
+  "findings": [
+    {
+      "finding_id": "F-5628404318169472-20261117-R2-PRIOR-IR",
+      "severity": "material",
+      "summary": "The W1/W2 variability is already catalogued. VarWISE cluster 2540580983592406 is flagged suspect_period despite its LPV classifier label.",
+      "evidence": "VarWISE Pure response SHA-256 a50090fc8af97f4c5a19cc90004c9c30b236a19f441dff33a3eda459414daa86. Extended response SHA-256 39daed8f6f250040da02c65bf67e35a9e1b8025d664f344a21ea4e5aaf7e6bf6.",
+      "reproduce_cmd": "curl -fsSL 'https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-query?catalog=varwisepure&spatial=cone&objstr=43.548272861%205.882712239&radius=20&radunits=arcsec&outfmt=1'",
+      "status": "open"
+    },
+    {
+      "finding_id": "F-5628404318169472-20261117-R2-OPTICAL",
+      "severity": "material",
+      "summary": "ASAS-SN finds small optical seasonal changes across the infrared event.",
+      "evidence": "review/evidence/2026-11-17/asassn-seasonal.csv. Six same-image control stars support a 0.065-mag seasonal g range across 870 nights.",
+      "reproduce_cmd": "Use the public SkyPatrolClient query and reduction detailed in review/adversarial-2026-11-17.md.",
+      "status": "open"
+    }
+  ]
+}

@@ -284,14 +284,28 @@ def check_binary(star: dict[str, Any], cfg: PipelineConfig, out_dir: Path) -> Ve
     vet = star.get("vetting_archive", {})
     nss = int(vet.get("nss_flag", 0))
     rv_sig = float(vet.get("rv_scatter_kms", 0.2))
+    rv_faint_unconstrained = bool(vet.get("rv_faint_unconstrained", False))
     ruwe_max = float(cfg.vetting["binary_ruwe_max"])
-    is_bin = (ruwe > ruwe_max) or (nss > 0) or (rv_sig > 5.0)
+    if (ruwe > ruwe_max) or (nss > 0) or (rv_sig > 5.0 and not rv_faint_unconstrained):
+        status = "fail"
+        note = f"RUWE={ruwe:.2f}, NSS={nss}, RV scatter={rv_sig:.2f} km/s"
+    elif rv_sig > 5.0 and rv_faint_unconstrained:
+        status = "not_evaluated"
+        note = f"Faint-star Gaia RVS (RUWE={ruwe:.2f}, implied RV scatter={rv_sig:.2f} km/s without p-value): close SB1 binary unconstrained"
+    else:
+        status = "pass"
+        note = f"RUWE={ruwe:.2f}, NSS={nss}, RV scatter={rv_sig:.2f} km/s"
     return make_vet_result(
         out_dir,
         check="binary",
-        status="fail" if is_bin else "pass",
-        note=f"RUWE={ruwe:.2f}, NSS={nss}, RV scatter={rv_sig:.2f} km/s",
-        metrics={"ruwe": ruwe, "nss_flag": nss, "rv_scatter_kms": rv_sig},
+        status=status,
+        note=note,
+        metrics={
+            "ruwe": ruwe,
+            "nss_flag": nss,
+            "rv_scatter_kms": rv_sig,
+            "rv_faint_unconstrained": rv_faint_unconstrained,
+        },
     )
 
 

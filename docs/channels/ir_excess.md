@@ -35,3 +35,4 @@ Defined in `configs/default.yaml` under `channels.ir_excess`:
 
 ## Lessons Applied
 - `L001`: Single-epoch 22 um W4 excesses lacking deep sub-arcsec imaging and second-instrument 22 um follow-up remain capped at Tier C with `background_galaxy` and `deep_imaging` flagged explicitly as open holes.
+- `L003`: Live Gaia ingest requires `w4mpro_error IS NOT NULL` to prevent `W4 = 'U'` upper-limit leakage, propagates stellar proper motion (`2016.0 -> 2010.2`) before computing `centroid_offset_arcsec`, checks time-resolved NEOWISE proper-motion tracking across visits, and scales `radial_velocity_error * sqrt(2N/pi)` (marking faint `rv_method_used = 2` stars without p-values as `binary = not_evaluated`).

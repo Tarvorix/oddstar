@@ -1,0 +1,24 @@
+{
+  "review_id": "REV-20261117-R1-1111149103659451264",
+  "round": 1,
+  "source_id": "1111149103659451264",
+  "reviewer_model": "OpenAI GPT-6 family",
+  "timestamp_utc": "2026-11-17T15:54:52.448394+00:00",
+  "verdict": "explained",
+  "measurements": {
+    "parallax_mas": 0.5595,
+    "g_mag": 16.4618,
+    "ruwe": 0.984,
+    "w3_signed_snr": -0.4,
+    "w4_signed_snr": -0.3
+  },
+  "uncertainties": {
+    "parallax_mas": 0.0391,
+    "g_mag": 0.0005
+  },
+  "queries_run": [
+    "Exact executed ESA Gaia, IRSA and MAST requests and ADQL are listed by source in review/evidence/2026-11-17/round1-queries.txt."
+  ],
+  "notes": "Blind comparison position. J074325.08+724901.3 is shared with a second Gaia source at 1.67 arcsec. The W3 and W4 values are limits. The 2MASS row is confused.",
+  "findings": []
+}

@@ -300,6 +300,20 @@ def _cmd_search(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, 
 
         cal_fap = calibrate_fap(sc.raw_statistic, cert, sc.false_alarm_prob)
         sc = sc.model_copy(update={"false_alarm_prob": cal_fap})
+        if is_live and args.channel == "ir_excess" and sc.flagged:
+            aw = star.get("allwise", {})
+            phq = str(aw.get("ph_qual", "AAAA"))
+            ccf = str(aw.get("cc_flags", "0000"))
+            w4_upper = len(phq) >= 4 and phq[3] in {"U", "X"}
+            ir_artifact = len(ccf) >= 4 and (ccf[2] != "0" or ccf[3] != "0")
+            if w4_upper or ir_artifact:
+                reason = "W4_upper_limit" if w4_upper else f"cc_flags={ccf}"
+                sc = sc.model_copy(
+                    update={
+                        "flagged": False,
+                        "summary": f"{sc.summary} [filtered_live_ingestion: {reason}]",
+                    }
+                )
         measurements.append(m.model_dump())
         scores.append(sc.model_dump())
         if sc.flagged:
@@ -495,7 +509,7 @@ def _inspect_single_target(
 
     if live:
         star, live_mans = fetch_single_star_live(clean_id, cfg, cache)
-        sample_stars, bg_mans = fetch_live_halo_bulge_sample(cfg, cache, limit=200)
+        sample_stars, bg_mans = fetch_live_halo_bulge_sample(cfg, cache, limit=1000)
         manifests = [m.manifest_id for m in (*live_mans, *bg_mans)]
     else:
         # Record stage-1 raw fetch manifests across primary archives

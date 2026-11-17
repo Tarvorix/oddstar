@@ -1,0 +1,32 @@
+{
+  "review_id": "REV-20261117-R3-1111149103659931264",
+  "round": 3,
+  "source_id": "1111149103659931264",
+  "reviewer_model": "OpenAI GPT-6 family",
+  "timestamp_utc": "2026-11-17T15:54:52.448915+00:00",
+  "verdict": "explained",
+  "measurements": {
+    "gaia_bp_minus_rp_mag": 1.66383,
+    "gaia_corrected_bp_rp_excess": -0.00328,
+    "tmass_j_minus_ks_mag": 0.732,
+    "spectroscopic_feh_dex": -1.32,
+    "spectroscopic_logg": 4.92,
+    "spectroscopic_teff_k": 4040
+  },
+  "uncertainties": {
+    "tmass_j_minus_ks_mag": 0.025,
+    "spectroscopic_feh_dex": 0.05,
+    "spectroscopic_teff_k": 20,
+    "spectroscopic_logg": 0.16
+  },
+  "queries_run": [
+    "https://simbad.cfa.harvard.edu/simbad/sim-id?Ident=Gaia+DR3+1111149103659931264",
+    "https://adsabs.harvard.edu/pdf/1997AJ....113..806G",
+    "https://arxiv.org/pdf/astro-ph/0410452",
+    "https://catalogs.mast.stsci.edu/api/v0.1/panstarrs/dr2/mean.csv?ra=115.855625979&dec=72.808260682&radius=0.008333333",
+    "https://www.lamost.org/dr12/v2.0/voservice/conesearch?ra=115.855625979&dec=72.808260682&sr=0.008333333333333333",
+    "SIMBAD TAP SELECT h.* FROM mesFe_H AS h JOIN ident AS i ON h.oidref=i.oidref WHERE i.id='LHS 236'"
+  ],
+  "notes": "Fresh isolated review in the same model family. Original spectroscopic rows establish an sdK7. PS1 motion fragments and saturated cores limit merged photometry. LAMOST LRS yielded no match. See the report human checklist.",
+  "findings": []
+}

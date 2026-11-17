@@ -1,0 +1,380 @@
+{
+  "a_akari": {
+    "bytes": 4372,
+    "http_status": 200,
+    "sha256": "f33af7d2981d14f651e3120bb25f4ba56b503eff67a50851cf0d7c0bf869f446",
+    "url": "https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-query?catalog=akari_irc&objstr=43.548272861+%2B5.882712239&spatial=cone&radius=25&radunits=arcsec&outfmt=1"
+  },
+  "a_allsky": {
+    "bytes": 14049,
+    "http_status": 200,
+    "sha256": "565478ee272905cde4f33ed37cb05e580ea5d724874df1e6ea2d2ee7f54dfb1e",
+    "url": "https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-query?catalog=allsky_4band_p1bs_psd&objstr=43.5482093+%2B5.8828742&spatial=cone&radius=14&radunits=arcsec&outfmt=1"
+  },
+  "a_allwise": {
+    "bytes": 7523,
+    "http_status": 200,
+    "sha256": "6b44a83de5442cba3bef9821dc4bfb6a31ece1e9e9fbca68eba5c8bb561a385d",
+    "url": "https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-query?catalog=allwise_p3as_psd&objstr=43.5482093+%2B5.8828742&spatial=cone&radius=28&radunits=arcsec&outfmt=1"
+  },
+  "a_allwise_best_neighbour": {
+    "bytes": 174,
+    "http_status": 200,
+    "sha256": "96c8e2a1050f449b33e5e9f1dd43cf1b1074cf53750df74f05243f9cf4be6d53",
+    "url": "https://gaia.ari.uni-heidelberg.de/tap/sync?REQUEST=doQuery&LANG=ADQL&FORMAT=csv&QUERY=SELECT+%2A+FROM+gaiadr3.allwise_best_neighbour+WHERE+source_id%3D5628404318169472"
+  },
+  "a_apsis": {
+    "bytes": 5180,
+    "http_status": 200,
+    "sha256": "d3d631a95115ff43d9ba9d9a9dc98f7f51a8c25c2482721376a8bec9a5443457",
+    "url": "https://gaia.ari.uni-heidelberg.de/tap/sync?REQUEST=doQuery&LANG=ADQL&FORMAT=csv&QUERY=SELECT+%2A+FROM+gaiadr3.astrophysical_parameters+WHERE+source_id%3D5628404318169472"
+  },
+  "a_control_allwise": {
+    "bytes": 38961,
+    "http_status": 200,
+    "sha256": "fd5b8bbcffa4e56187adbee37905123c9a22d80d9397c79786f036acc3a33b11",
+    "url": "https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-query?catalog=allwise_p3as_psd&objstr=43.548272861+%2B5.882712239&spatial=cone&radius=150&radunits=arcsec&outfmt=1"
+  },
+  "a_control_field": {
+    "bytes": 6863191,
+    "http_status": 200,
+    "sha256": "cad95e1317cab4f37c610ff30c1b1297c83001d7cc65df37324f3ade465bfa1b",
+    "url": "https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-query?catalog=neowiser_p1bs_psd&objstr=43.548272861+%2B5.882712239&spatial=cone&radius=150&radunits=arcsec&outfmt=1"
+  },
+  "a_controls": {
+    "bytes": 945,
+    "http_status": 400,
+    "sha256": "64989b1ce98c8ab76fb7371a3cabf1c2b79359880773642434193a7486440d27",
+    "url": "https://gaia.ari.uni-heidelberg.de/tap/sync?REQUEST=doQuery&LANG=ADQL&FORMAT=csv&QUERY=SELECT+TOP+8+source_id%2Cra%2Cdec%2Cphot_g_mean_mag%2Cbp_rp+FROM+gaiadr3.gaia_source+WHERE+1%3DCONTAINS%28POINT%28%27ICRS%27%2Cra%2Cdec%29%2CCIRCLE%28%27ICRS%27%2C43.548272861%2C5.882712239%2C0.11944444444444445%29%29+AND+phot_g_mean_mag+BETWEEN+11.5+AND+16.0+AND+parallax_over_error%3E10+ORDER+BY+ABS%28phot_g_mean_mag-13.43%29"
+  },
+  "a_gaia": {
+    "bytes": 3955,
+    "http_status": 200,
+    "sha256": "b0cbec976b1b3ab4327dfa183db69fcfd3860b43fe8a5a1dc3927bb277d63819",
+    "url": "https://gaia.ari.uni-heidelberg.de/tap/sync?REQUEST=doQuery&LANG=ADQL&FORMAT=csv&QUERY=SELECT+%2A+FROM+gaiadr3.gaia_source+WHERE+source_id%3D5628404318169472"
+  },
+  "a_gaia_near": {
+    "bytes": 172,
+    "http_status": 200,
+    "sha256": "b9929353f2f134d519b379d6dba3c3a88bc8962c8bfabcb3f5415ef9fba95f2b",
+    "url": "https://gaia.ari.uni-heidelberg.de/tap/sync?REQUEST=doQuery&LANG=ADQL&FORMAT=csv&QUERY=SELECT+source_id%2Cra%2Cdec%2Cphot_g_mean_mag%2Cpmra%2Cpmdec%2Cparallax+FROM+gaiadr3.gaia_source+WHERE+1%3DCONTAINS%28POINT%28%27ICRS%27%2Cra%2Cdec%29%2CCIRCLE%28%27ICRS%27%2C43.548272861%2C5.882712239%2C0.011111111111111112%29%29"
+  },
+  "a_iras": {
+    "bytes": 3475,
+    "http_status": 200,
+    "sha256": "aa31c6a185ae0efc18e1a13016cd3233662270ae3a40480fd68dd8f88141a8c3",
+    "url": "https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-query?catalog=iraspsc&objstr=43.548272861+%2B5.882712239&spatial=cone&radius=45&radunits=arcsec&outfmt=1"
+  },
+  "a_neo": {
+    "bytes": 156087,
+    "http_status": 200,
+    "sha256": "68434964e56a27d6d83feabc4ddfe51286c58b2f52dba6871497e7c38455b987",
+    "url": "https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-query?catalog=neowiser_p1bs_psd&objstr=43.548272861+%2B5.882712239&spatial=cone&radius=18&radunits=arcsec&outfmt=1"
+  },
+  "a_ps1": {
+    "bytes": 101264,
+    "http_status": 200,
+    "sha256": "3b8e2e634a036544d4c8381a9f118f08c9b6f86572d77b4961879b60d7307e5a",
+    "url": "https://catalogs.mast.stsci.edu/api/v0.1/panstarrs/dr2/mean.csv?ra=43.548241080500006&dec=5.8827932195&radius=0.0125"
+  },
+  "a_qlp31": {
+    "bytes": 204480,
+    "http_status": 200,
+    "sha256": "b29ff5050e42eb341f8a0f675b498ebd5e7dc8341bc7f2fb2d7ef3fd794ada8d",
+    "url": "https://stpubdata.s3.amazonaws.com/mast/hlsp/qlp/s0031/0000/0003/8751/7877/hlsp_qlp_tess_ffi_s0031-0000000387517877_tess_v01_llc.fits"
+  },
+  "a_qlp4": {
+    "bytes": 69120,
+    "http_status": 200,
+    "sha256": "5e98862e215ab579310d7ba47bf3d25065344684930e33fcf122ecef0978e056",
+    "url": "https://stpubdata.s3.amazonaws.com/mast/hlsp/qlp/s0004/0000/0003/8751/7877/hlsp_qlp_tess_ffi_s0004-0000000387517877_tess_v01_llc.fits"
+  },
+  "a_qlp42": {
+    "bytes": 207360,
+    "http_status": 200,
+    "sha256": "d202b8f2970591277ad6c7c3760980a12d7fb3ff1fea8a0908b4988d112d643d",
+    "url": "https://stpubdata.s3.amazonaws.com/mast/hlsp/qlp/s0042/0000/0003/8751/7877/hlsp_qlp_tess_ffi_s0042-0000000387517877_tess_v01_llc.fits"
+  },
+  "a_qlp43": {
+    "bytes": 201600,
+    "http_status": 200,
+    "sha256": "00fd352df7c94f108f21fd3a2ceeb72e459c1be16f46aca93fa71f235fd49e88",
+    "url": "https://stpubdata.s3.amazonaws.com/mast/hlsp/qlp/s0043/0000/0003/8751/7877/hlsp_qlp_tess_ffi_s0043-0000000387517877_tess_v01_llc.fits"
+  },
+  "a_qlp44": {
+    "bytes": 192960,
+    "http_status": 200,
+    "sha256": "12dbed8b98ad395800d07ae88df5265e4257b410d65762957e81ad49e2800de5",
+    "url": "https://stpubdata.s3.amazonaws.com/mast/hlsp/qlp/s0044/0000/0003/8751/7877/hlsp_qlp_tess_ffi_s0044-0000000387517877_tess_v01_llc.fits"
+  },
+  "a_qlp70": {
+    "bytes": 653760,
+    "http_status": 200,
+    "sha256": "459bd1716599bfc2c0060a58ab44c9bd222a0f5df41ce35a3e021c7e428a9255",
+    "url": "https://stpubdata.s3.amazonaws.com/mast/hlsp/qlp/s0070/0000/0003/8751/7877/hlsp_qlp_tess_ffi_s0070-0000000387517877_tess_v01_llc.fits"
+  },
+  "a_qlp71": {
+    "bytes": 665280,
+    "http_status": 200,
+    "sha256": "210cd4a1e8a8433b0c83554b42a8d5033a155a369a549ee8e5717f867496c564",
+    "url": "https://stpubdata.s3.amazonaws.com/mast/hlsp/qlp/s0071/0000/0003/8751/7877/hlsp_qlp_tess_ffi_s0071-0000000387517877_tess_v01_llc.fits"
+  },
+  "a_simbad": {
+    "bytes": 67,
+    "http_status": 200,
+    "sha256": "31aa045ebb224688864c70313a9c0b09f012790610fb3c1f3ade2507c0c2e7b3",
+    "url": "https://simbad.cfa.harvard.edu/simbad/sim-tap/sync?REQUEST=doQuery&LANG=ADQL&FORMAT=csv&QUERY=SELECT+main_id%2Cotype%2Cra%2Cdec%2Csp_type%2Cpmra%2Cpmdec%2Cplx_value%2Crvz_radvel%2Cnbref+FROM+basic+WHERE+1%3DCONTAINS%28POINT%28%27ICRS%27%2Cra%2Cdec%29%2CCIRCLE%28%27ICRS%27%2C43.548272861%2C5.882712239%2C0.008333333333333333%29%29"
+  },
+  "a_spitzer": {
+    "bytes": 18129,
+    "http_status": 200,
+    "sha256": "2b7a935e77ae17b0da0e04450c2c9ac63ffffebc9c550b752da3b279e6ecfccf",
+    "url": "https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-query?catalog=slphotdr4&objstr=43.548272861+%2B5.882712239&spatial=cone&radius=30&radunits=arcsec&outfmt=1"
+  },
+  "a_tess": {
+    "bytes": 510,
+    "http_status": 200,
+    "sha256": "5c8df635a5744f2c90b10a0f08351f6852621c6166a8da98138d57e4342c53a7",
+    "url": "https://mast.stsci.edu/tesscut/api/v0.1/sector?ra=43.548272861&dec=5.882712239"
+  },
+  "a_tesscut31": {
+    "bytes": 11960896,
+    "http_status": 200,
+    "sha256": "e676122ab58a8f7ffa79140f36b7294375a176365d824c5d7f685c06881782f2",
+    "url": "https://stpubdata.s3.amazonaws.com/tess/public/staged_cutouts/r2pKRpbQKGWOuvja/astrocut_43.54831_5.88259_13.0x13.0px.zip"
+  },
+  "a_tesscut4": {
+    "bytes": 3695296,
+    "http_status": 200,
+    "sha256": "0dc0895aa5e28a655fd3977db173f2e097854e68dc29276dfbc6129630d8e7f2",
+    "url": "https://stpubdata.s3.amazonaws.com/tess/public/staged_cutouts/QJDGcc9FqVwimg44/astrocut_43.54831_5.88259_13.0x13.0px.zip"
+  },
+  "a_tesscut44": {
+    "bytes": 11338816,
+    "http_status": 200,
+    "sha256": "3710722e58636742c5905e5bcfc401ae61fc8e58873c280c9e3eea0dee03699a",
+    "url": "https://stpubdata.s3.amazonaws.com/tess/public/staged_cutouts/bPIFVWcYYz67UxyS/astrocut_43.54831_5.88259_13.0x13.0px.zip"
+  },
+  "a_tic": {
+    "bytes": 6618,
+    "http_status": 200,
+    "sha256": "bffd9ae7a596aad1045ff6c56e92d76a696d28ea94adb65268902acbd01d90b3",
+    "url": "https://mast.stsci.edu/api/v0/invoke?request=%7B%22service%22%3A+%22Mast.Catalogs.Filtered.Tic.Position%22%2C+%22params%22%3A+%7B%22ra%22%3A+43.54827%2C+%22dec%22%3A+5.88271%2C+%22radius%22%3A+0.003%2C+%22columns%22%3A+%22ID%2Cra%2Cdec%2CTmag%2CGAIA%22%2C+%22filters%22%3A+%5B%5D%7D%2C+%22format%22%3A+%22json%22%2C+%22pagesize%22%3A+100%2C+%22page%22%3A+1%7D"
+  },
+  "a_tmass": {
+    "bytes": 5686,
+    "http_status": 200,
+    "sha256": "93ebc3a8a6c60efe69dfc24d8f184bad7482a307d99fe8b0d91872667b967f5d",
+    "url": "https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-query?catalog=fp_psc&objstr=43.5481035+%2B5.8831441&spatial=cone&radius=14&radunits=arcsec&outfmt=1"
+  },
+  "a_tmass_psc_xsc_best_neighbour": {
+    "bytes": 182,
+    "http_status": 200,
+    "sha256": "f65972af3ee46f39f3e20c79427331dd34efb455658ebd189109219cff43b8db",
+    "url": "https://gaia.ari.uni-heidelberg.de/tap/sync?REQUEST=doQuery&LANG=ADQL&FORMAT=csv&QUERY=SELECT+%2A+FROM+gaiadr3.tmass_psc_xsc_best_neighbour+WHERE+source_id%3D5628404318169472"
+  },
+  "a_vari_classifier_result": {
+    "bytes": 146,
+    "http_status": 200,
+    "sha256": "49234190efe75e59568068746c1b18180d1d2b04bfec7ac7867abb16d976cd77",
+    "url": "https://gaia.ari.uni-heidelberg.de/tap/sync?REQUEST=doQuery&LANG=ADQL&FORMAT=csv&QUERY=SELECT+%2A+FROM+gaiadr3.vari_classifier_result+WHERE+source_id%3D5628404318169472"
+  },
+  "a_vari_summary": {
+    "bytes": 1809,
+    "http_status": 200,
+    "sha256": "d7f6769fd6c38fed22112399b6671314d914128b1fc3a7472fffe21c11846c1a",
+    "url": "https://gaia.ari.uni-heidelberg.de/tap/sync?REQUEST=doQuery&LANG=ADQL&FORMAT=csv&QUERY=SELECT+%2A+FROM+gaiadr3.vari_summary+WHERE+source_id%3D5628404318169472"
+  },
+  "a_ztf": {
+    "error": "HTTPSConnectionPool(host='irsa.ipac.caltech.edu', port=443): Read timed out. (read timeout=40)",
+    "url": "https://irsa.ipac.caltech.edu/cgi-bin/ZTF/nph_light_curves?POS=CIRCLE+43.548272861+5.882712239+0.0016666666666666668&FORMAT=CSV"
+  },
+  "a_ztf_alt": {
+    "bytes": 341758,
+    "http_status": 200,
+    "sha256": "149262cb2960025f91cca20a7ffc31e4ee3d41ea2d35e0f23db433878fd19e89",
+    "url": "https://irsa.ipac.caltech.edu/cgi-bin/ZTF/nph_light_curves?POS=CIRCLE+43.548272861+5.882712239+0.0016666666666667&BANDNAME=g%2Cr&FORMAT=CSV"
+  },
+  "a_ztf_controls": {
+    "error": "HTTPSConnectionPool(host='irsa.ipac.caltech.edu', port=443): Read timed out. (read timeout=40)",
+    "url": "https://irsa.ipac.caltech.edu/cgi-bin/ZTF/nph_light_curves?POS=CIRCLE+43.548272861+5.882712239+0.07&BANDNAME=g%2Cr&NOBS_MIN=70&MAG=12.7+15.0&FORMAT=CSV"
+  },
+  "b_allsky": {
+    "bytes": 14051,
+    "http_status": 200,
+    "sha256": "217bdfb08c5051d857dce3b864c3d8b801ea925c1f9ec0111cf8cc8c1506d57e",
+    "url": "https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-query?catalog=allsky_4band_p1bs_psd&objstr=115.854127+%2B72.810252&spatial=cone&radius=14&radunits=arcsec&outfmt=1"
+  },
+  "b_allwise": {
+    "bytes": 7026,
+    "http_status": 200,
+    "sha256": "56aabad4d0ad981be7390e7a1aa1e7fd65229c9b745fc3bfb3df9833bba12459",
+    "url": "https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-query?catalog=allwise_p3as_psd&objstr=115.854127+%2B72.810252&spatial=cone&radius=28&radunits=arcsec&outfmt=1"
+  },
+  "b_allwise_best_neighbour": {
+    "bytes": 177,
+    "http_status": 200,
+    "sha256": "5ca36fd8c0226fb8b4c0963c604eae2d8155e1a5a914b4f6b7f210993d5ffd69",
+    "url": "https://gaia.ari.uni-heidelberg.de/tap/sync?REQUEST=doQuery&LANG=ADQL&FORMAT=csv&QUERY=SELECT+%2A+FROM+gaiadr3.allwise_best_neighbour+WHERE+source_id%3D1111149103659931264"
+  },
+  "b_apsis": {
+    "bytes": 5365,
+    "http_status": 200,
+    "sha256": "47a13b8b605c5e8fd7832e4e67610fe541401e8b4e0b31301dad36935a6499ea",
+    "url": "https://gaia.ari.uni-heidelberg.de/tap/sync?REQUEST=doQuery&LANG=ADQL&FORMAT=csv&QUERY=SELECT+%2A+FROM+gaiadr3.astrophysical_parameters+WHERE+source_id%3D1111149103659931264"
+  },
+  "b_gaia": {
+    "bytes": 3978,
+    "http_status": 200,
+    "sha256": "9cde8268efa17b5bdd42bbb05393fb6f16f1d92c29adc02f5cdb8502734f43d8",
+    "url": "https://gaia.ari.uni-heidelberg.de/tap/sync?REQUEST=doQuery&LANG=ADQL&FORMAT=csv&QUERY=SELECT+%2A+FROM+gaiadr3.gaia_source+WHERE+source_id%3D1111149103659931264"
+  },
+  "b_gaia_near": {
+    "bytes": 550,
+    "http_status": 200,
+    "sha256": "09a5436c29a859114215bba8b0d5d7b7dff0c64b72a2e7f241a0382c96574315",
+    "url": "https://gaia.ari.uni-heidelberg.de/tap/sync?REQUEST=doQuery&LANG=ADQL&FORMAT=csv&QUERY=SELECT+source_id%2Cra%2Cdec%2Cphot_g_mean_mag%2Cpmra%2Cpmdec%2Cparallax+FROM+gaiadr3.gaia_source+WHERE+1%3DCONTAINS%28POINT%28%27ICRS%27%2Cra%2Cdec%29%2CCIRCLE%28%27ICRS%27%2C115.855625979%2C72.808260682%2C0.011111111111111112%29%29"
+  },
+  "b_gizis": {
+    "bytes": 1683566,
+    "http_status": 200,
+    "sha256": "9a88614d24ce0cee88095676379f592532294352b3bd6ad4a3219654e41b48fc",
+    "url": "https://adsabs.harvard.edu/pdf/1997AJ....113..806G"
+  },
+  "b_halo_controls": {
+    "error": "HTTPSConnectionPool(host='gaia.ari.uni-heidelberg.de', port=443): Read timed out. (read timeout=40)",
+    "url": "https://gaia.ari.uni-heidelberg.de/tap/sync?REQUEST=doQuery&LANG=ADQL&FORMAT=csv&QUERY=SELECT+TOP+500+source_id%2Cra%2Cdec%2Cparallax%2Cphot_g_mean_mag%2Cbp_rp%2Cpmra%2Cpmdec%2Cmh_gspphot%2Cteff_gspphot%2Cag_gspphot%2Clogg_gspphot%2Cruwe+FROM+gaiadr3.gaia_source+WHERE+parallax+BETWEEN+12+AND+24+AND+parallax_over_error%3E30+AND+phot_g_mean_mag%3C16+AND+mh_gspphot+BETWEEN+-1.6+AND+-0.65+AND+ruwe%3C1.4+AND+%28%28pmra%2Apmra%2Bpmdec%2Apmdec%29%2F%28parallax%2Aparallax%29%29%3E1001+AND+phot_g_mean_mag%2B5%2ALOG10%28parallax%29-10+BETWEEN+7.9+AND+9.1"
+  },
+  "b_neo": {
+    "bytes": 232646,
+    "http_status": 200,
+    "sha256": "cc2a7d524bdc4b00b5955c9bb942368236d186081261c53400ced2285b6c7fcd",
+    "url": "https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-query?catalog=neowiser_p1bs_psd&objstr=115.855625979+%2B72.808260682&spatial=cone&radius=18&radunits=arcsec&outfmt=1"
+  },
+  "b_ps1": {
+    "bytes": 243041,
+    "http_status": 200,
+    "sha256": "79a33e146cf96124fd6308da0db5896f531ea3e3f10a0f895009fc785898ee13",
+    "url": "https://catalogs.mast.stsci.edu/api/v0.1/panstarrs/dr2/mean.csv?ra=115.8548764895&dec=72.80925634100001&radius=0.0125"
+  },
+  "b_qlp20": {
+    "bytes": 77760,
+    "http_status": 200,
+    "sha256": "cf15ebbe1f01e5ea4e9064adf5964beddd316c1042e7bbe76dc21bd4200d5441",
+    "url": "https://stpubdata.s3.amazonaws.com/mast/hlsp/qlp/s0020/0000/0004/4160/2956/hlsp_qlp_tess_ffi_s0020-0000000441602956_tess_v01_llc.fits"
+  },
+  "b_qlp26": {
+    "bytes": 74880,
+    "http_status": 200,
+    "sha256": "54cb685ca621ab65559b7d77dafdcebd61860e58e7fb1c4549986dc726e8bffc",
+    "url": "https://stpubdata.s3.amazonaws.com/mast/hlsp/qlp/s0026/0000/0004/4160/2956/hlsp_qlp_tess_ffi_s0026-0000000441602956_tess_v01_llc.fits"
+  },
+  "b_qlp40": {
+    "bytes": 230400,
+    "http_status": 200,
+    "sha256": "542d530d69e80dfcf28e131233be543e1394519538cba5d4ce5c400d32511d37",
+    "url": "https://stpubdata.s3.amazonaws.com/mast/hlsp/qlp/s0040/0000/0004/4160/2956/hlsp_qlp_tess_ffi_s0040-0000000441602956_tess_v01_llc.fits"
+  },
+  "b_qlp47": {
+    "bytes": 221760,
+    "http_status": 200,
+    "sha256": "3fd37bd3b5b92ca0565ef0fcdb1cc89e4ccef6c7c89d946db79b0252f6172b47",
+    "url": "https://stpubdata.s3.amazonaws.com/mast/hlsp/qlp/s0047/0000/0004/4160/2956/hlsp_qlp_tess_ffi_s0047-0000000441602956_tess_v01_llc.fits"
+  },
+  "b_qlp53": {
+    "bytes": 204480,
+    "http_status": 200,
+    "sha256": "9c5e54adeb2f20262d2330961a47816184c4aa561942a1aef8e81ed8cf2a653c",
+    "url": "https://stpubdata.s3.amazonaws.com/mast/hlsp/qlp/s0053/0000/0004/4160/2956/hlsp_qlp_tess_ffi_s0053-0000000441602956_tess_v01_llc.fits"
+  },
+  "b_qlp60": {
+    "bytes": 529920,
+    "http_status": 200,
+    "sha256": "48f4055580740927bbb13c83d86673c1472cba3c83684dc9078c3911f48aa068",
+    "url": "https://stpubdata.s3.amazonaws.com/mast/hlsp/qlp/s0060/0000/0004/4160/2956/hlsp_qlp_tess_ffi_s0060-0000000441602956_tess_v01_llc.fits"
+  },
+  "b_qlp73": {
+    "bytes": 630720,
+    "http_status": 200,
+    "sha256": "6c99c6dcc9cf6d1f3b9a2212c8618444f37dfec46c78736f6603a270d5b7f0f6",
+    "url": "https://stpubdata.s3.amazonaws.com/mast/hlsp/qlp/s0073/0000/0004/4160/2956/hlsp_qlp_tess_ffi_s0073-0000000441602956_tess_v01_llc.fits"
+  },
+  "b_qlp74": {
+    "bytes": 389,
+    "http_status": 404,
+    "sha256": "27c158795593c1db6ae3df07b459dd342c007bc55b3214b715dda123bd7a3410",
+    "url": "https://stpubdata.s3.amazonaws.com/mast/hlsp/qlp/s0074/0000/0004/4160/2956/hlsp_qlp_tess_ffi_s0074-0000000441602956_tess_v01_llc.fits"
+  },
+  "b_simbad": {
+    "bytes": 162,
+    "http_status": 200,
+    "sha256": "272b564c671de3728ad94707ba71b32a69f5a877fa4165c5166bffb8c7da7190",
+    "url": "https://simbad.cfa.harvard.edu/simbad/sim-tap/sync?REQUEST=doQuery&LANG=ADQL&FORMAT=csv&QUERY=SELECT+main_id%2Cotype%2Cra%2Cdec%2Csp_type%2Cpmra%2Cpmdec%2Cplx_value%2Crvz_radvel%2Cnbref+FROM+basic+WHERE+1%3DCONTAINS%28POINT%28%27ICRS%27%2Cra%2Cdec%29%2CCIRCLE%28%27ICRS%27%2C115.855625979%2C72.808260682%2C0.008333333333333333%29%29"
+  },
+  "b_tess": {
+    "bytes": 581,
+    "http_status": 200,
+    "sha256": "a6ab589bd2cb9aed807af7f0b8ca08622ac061b1ebeafb6ae06f8db1c174f1e2",
+    "url": "https://mast.stsci.edu/tesscut/api/v0.1/sector?ra=115.855625979&dec=72.808260682"
+  },
+  "b_tesscut20": {
+    "bytes": 4135940,
+    "http_status": 200,
+    "sha256": "1c3f782eef366a6b4996a40e3bc69481829eb9ef0407a05a6292b1553828440f",
+    "url": "https://stpubdata.s3.amazonaws.com/tess/public/staged_cutouts/LBbZWvyWFsQ7z158/astrocut_115.8569_72.80655_13.0x13.0px.zip"
+  },
+  "b_tesscut60": {
+    "bytes": 29825540,
+    "http_status": 200,
+    "sha256": "7263046ef474cd347fcf021103ed8ac3914ab7876476576585c5e0499ecd3cc5",
+    "url": "https://stpubdata.s3.amazonaws.com/tess/public/staged_cutouts/wMma_KlIJDtwYEqt/astrocut_115.8569_72.80655_13.0x13.0px.zip"
+  },
+  "b_tic": {
+    "bytes": 12626,
+    "http_status": 200,
+    "sha256": "a63a22bacbc0345dbf5a34a2043939fb48f935fa1d6d578f999921b539a8dc9c",
+    "url": "https://mast.stsci.edu/api/v0/invoke?request=%7B%22service%22%3A+%22Mast.Catalogs.Filtered.Tic.Position%22%2C+%22params%22%3A+%7B%22ra%22%3A+115.85163%2C+%22dec%22%3A+72.81357%2C+%22radius%22%3A+0.005%2C+%22columns%22%3A+%22ID%2Cra%2Cdec%2CTmag%2CGAIA%22%2C+%22filters%22%3A+%5B%5D%7D%2C+%22format%22%3A+%22json%22%2C+%22pagesize%22%3A+100%2C+%22page%22%3A+1%7D"
+  },
+  "b_tmass": {
+    "bytes": 6137,
+    "http_status": 200,
+    "sha256": "c0b036482abd4e833654127207a3dd68db845449d02d2d5c934e32f9c7a1ce46",
+    "url": "https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-query?catalog=fp_psc&objstr=115.851629+%2B72.813569&spatial=cone&radius=14&radunits=arcsec&outfmt=1"
+  },
+  "b_tmass_psc_xsc_best_neighbour": {
+    "bytes": 185,
+    "http_status": 200,
+    "sha256": "a10785d6e2a5f824ab0fb39c22d849cfae31e6141104446fdadbe9e9f653c0bc",
+    "url": "https://gaia.ari.uni-heidelberg.de/tap/sync?REQUEST=doQuery&LANG=ADQL&FORMAT=csv&QUERY=SELECT+%2A+FROM+gaiadr3.tmass_psc_xsc_best_neighbour+WHERE+source_id%3D1111149103659931264"
+  },
+  "b_vari_classifier_result": {
+    "bytes": 71,
+    "http_status": 200,
+    "sha256": "b122a5df0008860b36ec26f4c48b60ea5f986ecafd2cd2c2688d1108a1290e3d",
+    "url": "https://gaia.ari.uni-heidelberg.de/tap/sync?REQUEST=doQuery&LANG=ADQL&FORMAT=csv&QUERY=SELECT+%2A+FROM+gaiadr3.vari_classifier_result+WHERE+source_id%3D1111149103659931264"
+  },
+  "b_vari_summary": {
+    "bytes": 1173,
+    "http_status": 200,
+    "sha256": "25f2c5e1a5fed75a9bbf54427a420a432d3fb087c5d7c724fa27dbc4983545e8",
+    "url": "https://gaia.ari.uni-heidelberg.de/tap/sync?REQUEST=doQuery&LANG=ADQL&FORMAT=csv&QUERY=SELECT+%2A+FROM+gaiadr3.vari_summary+WHERE+source_id%3D1111149103659931264"
+  },
+  "b_woolf": {
+    "bytes": 165477,
+    "http_status": 200,
+    "sha256": "9c2fdfd867e2971d0698474f239cab1b88d14558bd1fdc954eb518a00c75bb46",
+    "url": "https://arxiv.org/pdf/astro-ph/0410452"
+  },
+  "b_ztf": {
+    "error": "HTTPSConnectionPool(host='irsa.ipac.caltech.edu', port=443): Read timed out. (read timeout=40)",
+    "url": "https://irsa.ipac.caltech.edu/cgi-bin/ZTF/nph_light_curves?POS=CIRCLE+115.855625979+72.808260682+0.0016666666666666668&FORMAT=CSV"
+  },
+  "b_ztf_alt": {
+    "error": "HTTPSConnectionPool(host='irsa.ipac.caltech.edu', port=443): Read timed out. (read timeout=40)",
+    "url": "https://irsa.ipac.caltech.edu/cgi-bin/ZTF/nph_light_curves?POS=CIRCLE+115.8571+72.80644+0.0055&BANDNAME=g%2Cr&FORMAT=CSV"
+  },
+  "b_ztf_small": {
+    "error": "HTTPSConnectionPool(host='irsa.ipac.caltech.edu', port=443): Read timed out. (read timeout=40)",
+    "url": "https://irsa.ipac.caltech.edu/cgi-bin/ZTF/nph_light_curves?POS=CIRCLE+115.85690+72.80655+0.0027&BANDNAME=g%2Cr&FORMAT=CSV"
+  }
+}

@@ -1,0 +1,140 @@
+[1111149099362581376_gator_allwise_p3as_psd]
+https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-query?catalog=allwise_p3as_psd&spatial=cone&radius=45&radunits=arcsec&objstr=115.8296372086+%2B72.8140241413&outfmt=6&selcols=designation%2Cra%2Cdec%2Csigra%2Csigdec%2Cw1mpro%2Cw1sigmpro%2Cw2mpro%2Cw2sigmpro%2Cw3mpro%2Cw3sigmpro%2Cw4mpro%2Cw4sigmpro%2Cph_qual%2Ccc_flags%2Cext_flg%2Cnb%2Cna%2Cw1rchi2%2Cw2rchi2%2Cw3rchi2%2Cw4rchi2%2Cvar_flg%2Cw1snr%2Cw2snr%2Cw3snr%2Cw4snr%2Cw1mjdmean%2Cw2mjdmean%2Cw3mjdmean%2Cw4mjdmean%2Ccoadd_id%2Cw3mag%2Cw3sigm%2Cw4mag%2Cw4sigm%2Cw3flg%2Cw4flg%2Cxscprox
+
+[1111149099362581376_gator_catwise_2020]
+https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-query?catalog=catwise_2020&spatial=cone&radius=45&radunits=arcsec&objstr=115.8296372086+%2B72.8140241413&outfmt=6&selcols=source_name%2Cra%2Cdec%2Csigra%2Csigdec%2Cra_pm%2Cdec_pm%2Cpmra%2Cpmdec%2Csigpmra%2Csigpmdec%2Cw1mpro%2Cw1sigmpro%2Cw2mpro%2Cw2sigmpro%2Cw1mpro_pm%2Cw1sigmpro_pm%2Cw2mpro_pm%2Cw2sigmpro_pm%2Cw1rchi2%2Cw2rchi2%2Cw1rchi2_pm%2Cw2rchi2_pm%2Cmeanobsmjd%2Ccc_flags%2Cab_flags%2Cnb%2Cna
+
+[1111149099362581376_gator_fp_psc]
+https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-query?catalog=fp_psc&spatial=cone&radius=45&radunits=arcsec&objstr=115.8296372086+%2B72.8140241413&outfmt=6&selcols=designation%2Cra%2Cdec%2Cerr_maj%2Cerr_min%2Cj_m%2Cj_cmsig%2Ch_m%2Ch_cmsig%2Ck_m%2Ck_cmsig%2Cph_qual%2Crd_flg%2Cbl_flg%2Ccc_flg%2Cprox%2Cext_key%2Cjdate
+
+[1111149099362581376_neighbors]
+https://gea.esac.esa.int/tap-server/tap/sync (GET parameters REQUEST=doQuery&LANG=ADQL&FORMAT=csv&QUERY=…)
+SELECT source_id,ra,dec,parallax,parallax_error,pmra,pmdec,phot_g_mean_mag,bp_rp,ruwe FROM gaiadr3.gaia_source WHERE CONTAINS(POINT('ICRS',ra,dec),CIRCLE('ICRS',115.8296372086,72.8140241413,0.008333333333333333))=1
+
+[1111149099362581376_ps1]
+https://catalogs.mast.stsci.edu/api/v0.1/panstarrs/dr2/mean.csv?ra=115.8296372086&dec=72.8140241413&radius=0.008333333333333333&nDetections=1&pagesize=100&columns=%5BobjID%2CraMean%2CdecMean%2CepochMean%2CnDetections%2Cng%2Cnr%2Cni%2Cnz%2Cny%2CgMeanPSFMag%2CgMeanPSFMagErr%2CrMeanPSFMag%2CrMeanPSFMagErr%2CiMeanPSFMag%2CiMeanPSFMagErr%2CzMeanPSFMag%2CzMeanPSFMagErr%2CyMeanPSFMag%2CyMeanPSFMagErr%2CgMeanKronMag%2CrMeanKronMag%2CiMeanKronMag%2CzMeanKronMag%2CyMeanKronMag%2CqualityFlag%5D
+
+[1111149103659451264_gator_allwise_p3as_psd]
+https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-query?catalog=allwise_p3as_psd&spatial=cone&radius=45&radunits=arcsec&objstr=115.8539789365+%2B72.8170220086&outfmt=6&selcols=designation%2Cra%2Cdec%2Csigra%2Csigdec%2Cw1mpro%2Cw1sigmpro%2Cw2mpro%2Cw2sigmpro%2Cw3mpro%2Cw3sigmpro%2Cw4mpro%2Cw4sigmpro%2Cph_qual%2Ccc_flags%2Cext_flg%2Cnb%2Cna%2Cw1rchi2%2Cw2rchi2%2Cw3rchi2%2Cw4rchi2%2Cvar_flg%2Cw1snr%2Cw2snr%2Cw3snr%2Cw4snr%2Cw1mjdmean%2Cw2mjdmean%2Cw3mjdmean%2Cw4mjdmean%2Ccoadd_id%2Cw3mag%2Cw3sigm%2Cw4mag%2Cw4sigm%2Cw3flg%2Cw4flg%2Cxscprox
+
+[1111149103659451264_gator_catwise_2020]
+https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-query?catalog=catwise_2020&spatial=cone&radius=45&radunits=arcsec&objstr=115.8539789365+%2B72.8170220086&outfmt=6&selcols=source_name%2Cra%2Cdec%2Csigra%2Csigdec%2Cra_pm%2Cdec_pm%2Cpmra%2Cpmdec%2Csigpmra%2Csigpmdec%2Cw1mpro%2Cw1sigmpro%2Cw2mpro%2Cw2sigmpro%2Cw1mpro_pm%2Cw1sigmpro_pm%2Cw2mpro_pm%2Cw2sigmpro_pm%2Cw1rchi2%2Cw2rchi2%2Cw1rchi2_pm%2Cw2rchi2_pm%2Cmeanobsmjd%2Ccc_flags%2Cab_flags%2Cnb%2Cna
+
+[1111149103659451264_gator_fp_psc]
+https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-query?catalog=fp_psc&spatial=cone&radius=45&radunits=arcsec&objstr=115.8539789365+%2B72.8170220086&outfmt=6&selcols=designation%2Cra%2Cdec%2Cerr_maj%2Cerr_min%2Cj_m%2Cj_cmsig%2Ch_m%2Ch_cmsig%2Ck_m%2Ck_cmsig%2Cph_qual%2Crd_flg%2Cbl_flg%2Ccc_flg%2Cprox%2Cext_key%2Cjdate
+
+[1111149103659451264_neighbors]
+https://gea.esac.esa.int/tap-server/tap/sync (GET parameters REQUEST=doQuery&LANG=ADQL&FORMAT=csv&QUERY=…)
+SELECT source_id,ra,dec,parallax,parallax_error,pmra,pmdec,phot_g_mean_mag,bp_rp,ruwe FROM gaiadr3.gaia_source WHERE CONTAINS(POINT('ICRS',ra,dec),CIRCLE('ICRS',115.8539789365,72.8170220086,0.008333333333333333))=1
+
+[1111149103659451264_ps1]
+https://catalogs.mast.stsci.edu/api/v0.1/panstarrs/dr2/mean.csv?ra=115.8539789365&dec=72.8170220086&radius=0.008333333333333333&nDetections=1&pagesize=100&columns=%5BobjID%2CraMean%2CdecMean%2CepochMean%2CnDetections%2Cng%2Cnr%2Cni%2Cnz%2Cny%2CgMeanPSFMag%2CgMeanPSFMagErr%2CrMeanPSFMag%2CrMeanPSFMagErr%2CiMeanPSFMag%2CiMeanPSFMagErr%2CzMeanPSFMag%2CzMeanPSFMagErr%2CyMeanPSFMag%2CyMeanPSFMagErr%2CgMeanKronMag%2CrMeanKronMag%2CiMeanKronMag%2CzMeanKronMag%2CyMeanKronMag%2CqualityFlag%5D
+
+[1111149103659931264_gator_allwise_p3as_psd]
+https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-query?catalog=allwise_p3as_psd&spatial=cone&radius=45&radunits=arcsec&objstr=115.8556259792+%2B72.8082606816&outfmt=6&selcols=designation%2Cra%2Cdec%2Csigra%2Csigdec%2Cw1mpro%2Cw1sigmpro%2Cw2mpro%2Cw2sigmpro%2Cw3mpro%2Cw3sigmpro%2Cw4mpro%2Cw4sigmpro%2Cph_qual%2Ccc_flags%2Cext_flg%2Cnb%2Cna%2Cw1rchi2%2Cw2rchi2%2Cw3rchi2%2Cw4rchi2%2Cvar_flg%2Cw1snr%2Cw2snr%2Cw3snr%2Cw4snr%2Cw1mjdmean%2Cw2mjdmean%2Cw3mjdmean%2Cw4mjdmean%2Ccoadd_id%2Cw3mag%2Cw3sigm%2Cw4mag%2Cw4sigm%2Cw3flg%2Cw4flg%2Cxscprox
+
+[1111149103659931264_gator_catwise_2020]
+https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-query?catalog=catwise_2020&spatial=cone&radius=45&radunits=arcsec&objstr=115.8556259792+%2B72.8082606816&outfmt=6&selcols=source_name%2Cra%2Cdec%2Csigra%2Csigdec%2Cra_pm%2Cdec_pm%2Cpmra%2Cpmdec%2Csigpmra%2Csigpmdec%2Cw1mpro%2Cw1sigmpro%2Cw2mpro%2Cw2sigmpro%2Cw1mpro_pm%2Cw1sigmpro_pm%2Cw2mpro_pm%2Cw2sigmpro_pm%2Cw1rchi2%2Cw2rchi2%2Cw1rchi2_pm%2Cw2rchi2_pm%2Cmeanobsmjd%2Ccc_flags%2Cab_flags%2Cnb%2Cna
+
+[1111149103659931264_gator_fp_psc]
+https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-query?catalog=fp_psc&spatial=cone&radius=45&radunits=arcsec&objstr=115.8556259792+%2B72.8082606816&outfmt=6&selcols=designation%2Cra%2Cdec%2Cerr_maj%2Cerr_min%2Cj_m%2Cj_cmsig%2Ch_m%2Ch_cmsig%2Ck_m%2Ck_cmsig%2Cph_qual%2Crd_flg%2Cbl_flg%2Ccc_flg%2Cprox%2Cext_key%2Cjdate
+
+[1111149103659931264_neighbors]
+https://gea.esac.esa.int/tap-server/tap/sync (GET parameters REQUEST=doQuery&LANG=ADQL&FORMAT=csv&QUERY=…)
+SELECT source_id,ra,dec,parallax,parallax_error,pmra,pmdec,phot_g_mean_mag,bp_rp,ruwe FROM gaiadr3.gaia_source WHERE CONTAINS(POINT('ICRS',ra,dec),CIRCLE('ICRS',115.8556259792,72.8082606816,0.008333333333333333))=1
+
+[1111149103659931264_ps1]
+https://catalogs.mast.stsci.edu/api/v0.1/panstarrs/dr2/mean.csv?ra=115.8556259792&dec=72.8082606816&radius=0.008333333333333333&nDetections=1&pagesize=100&columns=%5BobjID%2CraMean%2CdecMean%2CepochMean%2CnDetections%2Cng%2Cnr%2Cni%2Cnz%2Cny%2CgMeanPSFMag%2CgMeanPSFMagErr%2CrMeanPSFMag%2CrMeanPSFMagErr%2CiMeanPSFMag%2CiMeanPSFMagErr%2CzMeanPSFMag%2CzMeanPSFMagErr%2CyMeanPSFMag%2CyMeanPSFMagErr%2CgMeanKronMag%2CrMeanKronMag%2CiMeanKronMag%2CzMeanKronMag%2CyMeanKronMag%2CqualityFlag%5D
+
+[1111149103659931264_time_neowiser]
+https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-query?catalog=neowiser_p1bs_psd&spatial=cone&radius=18&radunits=arcsec&objstr=115.8556259792+%2B72.8082606816&outfmt=6&selcols=source_id%2Cra%2Cdec%2Cmjd%2Cqual_frame%2Cw1mpro%2Cw1sigmpro%2Cw2mpro%2Cw2sigmpro%2Ccc_flags%2Cph_qual%2Cnb%2Cna%2Csaa_sep%2Cw1rchi2%2Cw2rchi2
+
+[1111149103659931264_time_wise_allsky]
+https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-query?catalog=allsky_4band_p3as_psd&spatial=cone&radius=18&radunits=arcsec&objstr=115.8556259792+%2B72.8082606816&outfmt=6&selcols=designation%2Cra%2Cdec%2Cw1mpro%2Cw1sigmpro%2Cw2mpro%2Cw2sigmpro%2Cw3mpro%2Cw3sigmpro%2Cw4mpro%2Cw4sigmpro%2Cph_qual%2Ccc_flags%2Cext_flg%2Cnb%2Cna%2Cw1rchi2%2Cw2rchi2%2Cw3rchi2%2Cw4rchi2
+
+[1111149103659931264_time_wise_l1b]
+https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-query?catalog=allsky_4band_p1bs_psd&spatial=cone&radius=18&radunits=arcsec&objstr=115.8556259792+%2B72.8082606816&outfmt=6&selcols=source_id%2Cra%2Cdec%2Cmjd%2Cqual_frame%2Cw1mpro%2Cw1sigmpro%2Cw2mpro%2Cw2sigmpro%2Cw3mpro%2Cw3sigmpro%2Cw4mpro%2Cw4sigmpro%2Ccc_flags%2Cph_qual%2Cnb%2Cna
+
+[5628404318169472_gator_allwise_p3as_psd]
+https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-query?catalog=allwise_p3as_psd&spatial=cone&radius=45&radunits=arcsec&objstr=43.5482728614+%2B5.8827122388&outfmt=6&selcols=designation%2Cra%2Cdec%2Csigra%2Csigdec%2Cw1mpro%2Cw1sigmpro%2Cw2mpro%2Cw2sigmpro%2Cw3mpro%2Cw3sigmpro%2Cw4mpro%2Cw4sigmpro%2Cph_qual%2Ccc_flags%2Cext_flg%2Cnb%2Cna%2Cw1rchi2%2Cw2rchi2%2Cw3rchi2%2Cw4rchi2%2Cvar_flg%2Cw1snr%2Cw2snr%2Cw3snr%2Cw4snr%2Cw1mjdmean%2Cw2mjdmean%2Cw3mjdmean%2Cw4mjdmean%2Ccoadd_id%2Cw3mag%2Cw3sigm%2Cw4mag%2Cw4sigm%2Cw3flg%2Cw4flg%2Cxscprox
+
+[5628404318169472_gator_catwise_2020]
+https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-query?catalog=catwise_2020&spatial=cone&radius=45&radunits=arcsec&objstr=43.5482728614+%2B5.8827122388&outfmt=6&selcols=source_name%2Cra%2Cdec%2Csigra%2Csigdec%2Cra_pm%2Cdec_pm%2Cpmra%2Cpmdec%2Csigpmra%2Csigpmdec%2Cw1mpro%2Cw1sigmpro%2Cw2mpro%2Cw2sigmpro%2Cw1mpro_pm%2Cw1sigmpro_pm%2Cw2mpro_pm%2Cw2sigmpro_pm%2Cw1rchi2%2Cw2rchi2%2Cw1rchi2_pm%2Cw2rchi2_pm%2Cmeanobsmjd%2Ccc_flags%2Cab_flags%2Cnb%2Cna
+
+[5628404318169472_gator_fp_psc]
+https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-query?catalog=fp_psc&spatial=cone&radius=45&radunits=arcsec&objstr=43.5482728614+%2B5.8827122388&outfmt=6&selcols=designation%2Cra%2Cdec%2Cerr_maj%2Cerr_min%2Cj_m%2Cj_cmsig%2Ch_m%2Ch_cmsig%2Ck_m%2Ck_cmsig%2Cph_qual%2Crd_flg%2Cbl_flg%2Ccc_flg%2Cprox%2Cext_key%2Cjdate
+
+[5628404318169472_neighbors]
+https://gea.esac.esa.int/tap-server/tap/sync (GET parameters REQUEST=doQuery&LANG=ADQL&FORMAT=csv&QUERY=…)
+SELECT source_id,ra,dec,parallax,parallax_error,pmra,pmdec,phot_g_mean_mag,bp_rp,ruwe FROM gaiadr3.gaia_source WHERE CONTAINS(POINT('ICRS',ra,dec),CIRCLE('ICRS',43.5482728614,5.8827122388,0.008333333333333333))=1
+
+[5628404318169472_ps1]
+https://catalogs.mast.stsci.edu/api/v0.1/panstarrs/dr2/mean.csv?ra=43.5482728614&dec=5.8827122388&radius=0.008333333333333333&nDetections=1&pagesize=100&columns=%5BobjID%2CraMean%2CdecMean%2CepochMean%2CnDetections%2Cng%2Cnr%2Cni%2Cnz%2Cny%2CgMeanPSFMag%2CgMeanPSFMagErr%2CrMeanPSFMag%2CrMeanPSFMagErr%2CiMeanPSFMag%2CiMeanPSFMagErr%2CzMeanPSFMag%2CzMeanPSFMagErr%2CyMeanPSFMag%2CyMeanPSFMagErr%2CgMeanKronMag%2CrMeanKronMag%2CiMeanKronMag%2CzMeanKronMag%2CyMeanKronMag%2CqualityFlag%5D
+
+[5628404318169472_time_neowiser]
+https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-query?catalog=neowiser_p1bs_psd&spatial=cone&radius=4&radunits=arcsec&objstr=43.5482728614+%2B5.8827122388&outfmt=6&selcols=source_id%2Cra%2Cdec%2Cmjd%2Cqual_frame%2Cw1mpro%2Cw1sigmpro%2Cw2mpro%2Cw2sigmpro%2Ccc_flags%2Cph_qual%2Cnb%2Cna%2Csaa_sep%2Cw1rchi2%2Cw2rchi2
+
+[5628404318169472_time_wise_allsky]
+https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-query?catalog=allsky_4band_p3as_psd&spatial=cone&radius=4&radunits=arcsec&objstr=43.5482728614+%2B5.8827122388&outfmt=6&selcols=designation%2Cra%2Cdec%2Cw1mpro%2Cw1sigmpro%2Cw2mpro%2Cw2sigmpro%2Cw3mpro%2Cw3sigmpro%2Cw4mpro%2Cw4sigmpro%2Cph_qual%2Ccc_flags%2Cext_flg%2Cnb%2Cna%2Cw1rchi2%2Cw2rchi2%2Cw3rchi2%2Cw4rchi2
+
+[5628404318169472_time_wise_l1b]
+https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-query?catalog=allsky_4band_p1bs_psd&spatial=cone&radius=4&radunits=arcsec&objstr=43.5482728614+%2B5.8827122388&outfmt=6&selcols=source_id%2Cra%2Cdec%2Cmjd%2Cqual_frame%2Cw1mpro%2Cw1sigmpro%2Cw2mpro%2Cw2sigmpro%2Cw3mpro%2Cw3sigmpro%2Cw4mpro%2Cw4sigmpro%2Ccc_flags%2Cph_qual%2Cnb%2Cna
+
+[gaia]
+https://gea.esac.esa.int/tap-server/tap/sync (GET parameters REQUEST=doQuery&LANG=ADQL&FORMAT=csv&QUERY=…)
+SELECT source_id,ra,ra_error,dec,dec_error,l,b,ref_epoch,parallax,parallax_error,pmra,pmra_error,pmdec,pmdec_error,ruwe,astrometric_params_solved,astrometric_excess_noise,astrometric_excess_noise_sig,visibility_periods_used,ipd_frac_multi_peak,ipd_gof_harmonic_amplitude,duplicated_source,phot_g_mean_mag,phot_g_mean_flux_over_error,phot_bp_mean_mag,phot_bp_mean_flux_over_error,phot_rp_mean_mag,phot_rp_mean_flux_over_error,phot_bp_rp_excess_factor,phot_proc_mode,phot_variable_flag,radial_velocity,radial_velocity_error,teff_gspphot,teff_gspphot_lower,teff_gspphot_upper,logg_gspphot,logg_gspphot_lower,logg_gspphot_upper,mh_gspphot,distance_gspphot,ag_gspphot,ebpminrp_gspphot,has_xp_continuous,has_epoch_photometry,non_single_star,classprob_dsc_combmod_galaxy,classprob_dsc_combmod_star FROM gaiadr3.gaia_source WHERE source_id IN (1111149103659451264,5628404318169472,1111149103659931264,1111149099362581376)
+
+[gaia_xm_face]
+https://gea.esac.esa.int/tap-server/tap/sync (GET parameters REQUEST=doQuery&LANG=ADQL&FORMAT=csv&QUERY=…)
+SELECT * from gaiadr3.allwise_best_neighbour WHERE source_id = 1111149103659451136
+
+[gmass]
+https://gea.esac.esa.int/tap-server/tap/sync (GET parameters REQUEST=doQuery&LANG=ADQL&FORMAT=csv&QUERY=…)
+SELECT * FROM gaiadr3.tmass_psc_xsc_best_neighbour WHERE source_id IN (1111149103659451264,5628404318169472,1111149103659931264,1111149099362581376)
+
+[gps1]
+https://gea.esac.esa.int/tap-server/tap/sync (GET parameters REQUEST=doQuery&LANG=ADQL&FORMAT=csv&QUERY=…)
+SELECT * FROM gaiadr3.panstarrs1_best_neighbour WHERE source_id IN (1111149103659451264,5628404318169472,1111149103659931264,1111149099362581376)
+
+[gwise]
+https://gea.esac.esa.int/tap-server/tap/sync (GET parameters REQUEST=doQuery&LANG=ADQL&FORMAT=csv&QUERY=…)
+SELECT * FROM gaiadr3.allwise_best_neighbour WHERE source_id IN (1111149103659451264,5628404318169472,1111149103659931264,1111149099362581376)
+
+[nss_ap]
+https://gea.esac.esa.int/tap-server/tap/sync (GET parameters REQUEST=doQuery&LANG=ADQL&FORMAT=csv&QUERY=…)
+SELECT * FROM gaiadr3.nss_two_body_orbit WHERE source_id IN (1111149103659451264,5628404318169472,1111149103659931264,1111149099362581376)
+
+[simbad_us_id]
+https://simbad.cfa.harvard.edu/simbad/sim-tap/sync?REQUEST=doQuery&LANG=ADQL&FORMAT=csv&QUERY=SELECT+b.main_id%2Cb.otype%2Cb.sp_type%2Cb.ra%2Cb.dec%2Ci.id+FROM+ident+AS+i+JOIN+basic+AS+b+ON+i.oidref%3Db.oid+WHERE+i.id+IN+%28%27Gaia+DR3+1111149103659451264%27%2C%27Gaia+DR3+5628404318169472%27%2C%27Gaia+DR3+1111149103659931264%27%2C%27Gaia+DR3+1111149099362581376%27%29
+
+[var_class]
+https://gea.esac.esa.int/tap-server/tap/sync (GET parameters REQUEST=doQuery&LANG=ADQL&FORMAT=csv&QUERY=…)
+SELECT * FROM gaiadr3.vari_classifier_result WHERE source_id IN (1111149103659451264,5628404318169472,1111149103659931264,1111149099362581376)
+
+[var_summary]
+https://gea.esac.esa.int/tap-server/tap/sync (GET parameters REQUEST=doQuery&LANG=ADQL&FORMAT=csv&QUERY=…)
+SELECT * FROM gaiadr3.vari_summary WHERE source_id IN (1111149103659451264,5628404318169472,1111149103659931264,1111149099362581376)
+
+[wise_1123_1_int_s3]
+https://nasa-irsa-wise.s3.us-west-2.amazonaws.com/wise/allwise/images/p3am_cdd/11/1167/1167p726_ac51/1167p726_ac51-w1-int-3.fits
+
+[wise_1123_2_int_s3]
+https://nasa-irsa-wise.s3.us-west-2.amazonaws.com/wise/allwise/images/p3am_cdd/11/1167/1167p726_ac51/1167p726_ac51-w2-int-3.fits
+
+[wise_1123_3_int_s3]
+https://nasa-irsa-wise.s3.us-west-2.amazonaws.com/wise/allwise/images/p3am_cdd/11/1167/1167p726_ac51/1167p726_ac51-w3-int-3.fits
+
+[wise_1123_4_int_s3]
+https://nasa-irsa-wise.s3.us-west-2.amazonaws.com/wise/allwise/images/p3am_cdd/11/1167/1167p726_ac51/1167p726_ac51-w4-int-3.fits
+
+[wise_5628_1_int_s3]
+https://nasa-irsa-wise.s3.us-west-2.amazonaws.com/wise/allwise/images/p3am_cdd/04/0440/0440p060_ac51/0440p060_ac51-w1-int-3.fits
+
+[wise_5628_2_int_s3]
+https://nasa-irsa-wise.s3.us-west-2.amazonaws.com/wise/allwise/images/p3am_cdd/04/0440/0440p060_ac51/0440p060_ac51-w2-int-3.fits
+
+[wise_5628_3_int_s3]
+https://nasa-irsa-wise.s3.us-west-2.amazonaws.com/wise/allwise/images/p3am_cdd/04/0440/0440p060_ac51/0440p060_ac51-w3-int-3.fits
+
+[wise_5628_4_int_s3]
+https://nasa-irsa-wise.s3.us-west-2.amazonaws.com/wise/allwise/images/p3am_cdd/04/0440/0440p060_ac51/0440p060_ac51-w4-int-3.fits

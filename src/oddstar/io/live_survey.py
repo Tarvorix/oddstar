@@ -18,6 +18,7 @@ from oddstar.io.physics import (
     angular_separation_arcsec,
     mag_err_to_flux_err_mjy,
     mag_to_flux_mjy,
+    propagate_position,
 )
 from oddstar.schemas import ManifestRecord
 
@@ -370,6 +371,7 @@ def _row_to_star_dict(row: dict[str, Any], gaia_release: str = "dr3") -> dict[st
 
     wise_ra = float(row.get("wise_ra") or ra)
     wise_dec = float(row.get("wise_dec") or dec)
+    prop_ra, prop_dec = propagate_position(ra, dec, pmra, pmdec, 2016.0, 2010.2)
     ph_qual = str(row.get("ph_qual") or "AAAA")
     tmass_ph = str(row.get("tmass_ph_qual") or "AAA")
 
@@ -410,7 +412,7 @@ def _row_to_star_dict(row: dict[str, Any], gaia_release: str = "dr3") -> dict[st
             "w4rchi2": float(row.get("w4rchi2") or 1.0),
             "w4m": int(row.get("w4m") or 12),
             "n_neighbours_gaia_xmatch": 1,
-            "centroid_offset_arcsec": angular_separation_arcsec(ra, dec, wise_ra, wise_dec),
+            "centroid_offset_arcsec": angular_separation_arcsec(prop_ra, prop_dec, wise_ra, wise_dec),
             "cirrus_bg_rms_mjy": 0.4,
         },
         "wise_single_frames_w4_mjy": [],
@@ -623,7 +625,8 @@ def enrich_star_live_for_vetting(
 
     try:
         q_meta = (
-            f"SELECT non_single_star, radial_velocity_error, phot_variable_flag "
+            f"SELECT non_single_star, radial_velocity_error, rv_nb_transits, rv_method_used, "
+            f"rv_chisq_pvalue, rv_amplitude_robust, phot_variable_flag "
             f"FROM gaiadr3.gaia_source WHERE source_id = {sid}"
         )
         m_rows, m_meta, _ = _tap_query_cached(urls=GAIA_TAP_URLS, query=q_meta, archive="gaia", release=cfg.gaia.release, cache=cache, timeout_s=20)
@@ -632,9 +635,22 @@ def enrich_star_live_for_vetting(
             mr = m_rows[0]
             if mr.get("non_single_star") is not None:
                 out["vetting_archive"]["nss_flag"] = int(mr["non_single_star"])
+            rv_amp = _safe_float(mr.get("rv_amplitude_robust"))
             rv_err = _safe_float(mr.get("radial_velocity_error"))
-            if rv_err is not None:
+            rv_n = int(mr.get("rv_nb_transits") or 0)
+            rv_method = int(mr.get("rv_method_used") or 0)
+            rv_p = _safe_float(mr.get("rv_chisq_pvalue"))
+            if rv_amp is not None:
+                out["vetting_archive"]["rv_scatter_kms"] = rv_amp
+                out["vetting_archive"]["rv_faint_unconstrained"] = False
+            elif rv_err is not None and rv_n >= 2:
+                # radial_velocity_error is uncertainty on the median RV; scale to epoch scatter ~ sqrt(2N/pi)*err
+                out["vetting_archive"]["rv_scatter_kms"] = rv_err * math.sqrt((2.0 * rv_n) / math.pi)
+                out["vetting_archive"]["rv_faint_unconstrained"] = bool(rv_method == 2 and rv_p is None)
+            elif rv_err is not None:
                 out["vetting_archive"]["rv_scatter_kms"] = rv_err
+            if rv_p is not None:
+                out["vetting_archive"]["rv_chisq_pvalue"] = rv_p
             if mr.get("phot_variable_flag"):
                 out["vetting_archive"]["gaia_phot_variable_flag"] = str(mr["phot_variable_flag"])
     except Exception:
@@ -772,26 +788,31 @@ def enrich_star_live_for_vetting(
             neo_rows = []
 
     if neo_rows:
-        pts: list[tuple[float, float, float]] = []
+        pts: list[tuple[float, float, float, float | None, float | None]] = []
         for row in neo_rows:
             qf = _safe_float(row.get("qual_frame"))
             mjd_val = _safe_float(row.get("mjd"))
             w1_val = _safe_float(row.get("w1mpro"))
             w2_val = _safe_float(row.get("w2mpro"))
+            r_ra = _safe_float(row.get("ra"))
+            r_dec = _safe_float(row.get("dec"))
             if (qf is None or qf > 0) and mjd_val is not None and w1_val is not None and w2_val is not None:
-                pts.append((mjd_val, w1_val, w2_val))
+                pts.append((mjd_val, w1_val, w2_val, r_ra, r_dec))
         pts.sort(key=lambda x: x[0])
         if pts:
-            # Bin into ~180-day semi-annual visits
-            bins: list[tuple[float, list[tuple[float, float, float]]]] = []
-            for mjd_val, w1_val, w2_val in pts:
-                if not bins or mjd_val - bins[-1][0] > 120.0:
-                    bins.append((mjd_val, [(mjd_val, w1_val, w2_val)]))
+            # Bin into ~180-day semi-annual visits and check PM-corrected astrometric trajectory
+            pmra_v = float(out.get("pmra_mas_yr", 0.0))
+            pmdec_v = float(out.get("pmdec_mas_yr", 0.0))
+            bins: list[tuple[float, list[tuple[float, float, float, float | None, float | None]]]] = []
+            for item in pts:
+                if not bins or item[0] - bins[-1][0] > 120.0:
+                    bins.append((item[0], [item]))
                 else:
-                    bins[-1][1].append((mjd_val, w1_val, w2_val))
-            v_mjd, v_w1, v_w2, v_e1, v_e2 = [], [], [], [], []
+                    bins[-1][1].append(item)
+            v_mjd, v_w1, v_w2, v_e1, v_e2, pm_resids = [], [], [], [], [], []
             for _, grp in bins:
-                v_mjd.append(float(np.median([x[0] for x in grp])))
+                mjd_med = float(np.median([x[0] for x in grp]))
+                v_mjd.append(mjd_med)
                 f1s = [mag_to_flux_mjy("W1", x[1]) for x in grp]
                 f2s = [mag_to_flux_mjy("W2", x[2]) for x in grp]
                 m1 = float(np.median(f1s))
@@ -800,7 +821,16 @@ def enrich_star_live_for_vetting(
                 v_w2.append(m2)
                 v_e1.append(max(0.05, float(1.4826 * np.median(np.abs(np.asarray(f1s) - m1))) / math.sqrt(len(grp)), m1 * 0.02))
                 v_e2.append(max(0.05, float(1.4826 * np.median(np.abs(np.asarray(f2s) - m2))) / math.sqrt(len(grp)), m2 * 0.02))
-            out["neowise"] = {"mjd": v_mjd, "w1_mjy": v_w1, "w2_mjy": v_w2, "w1_err_mjy": v_e1, "w2_err_mjy": v_e2}
+                ras_g = [x[3] for x in grp if x[3] is not None]
+                decs_g = [x[4] for x in grp if x[4] is not None]
+                if ras_g and decs_g:
+                    jyr = 2000.0 + (mjd_med - 51544.5) / 365.25
+                    pra, pdec = propagate_position(ra, dec, pmra_v, pmdec_v, 2016.0, jyr)
+                    pm_resids.append(angular_separation_arcsec(float(np.median(ras_g)), float(np.median(decs_g)), pra, pdec))
+            neo_dict: dict[str, Any] = {"mjd": v_mjd, "w1_mjy": v_w1, "w2_mjy": v_w2, "w1_err_mjy": v_e1, "w2_err_mjy": v_e2}
+            if pm_resids:
+                neo_dict["median_pm_residual_arcsec"] = float(np.median(pm_resids))
+            out["neowise"] = neo_dict
 
     # 4. Second-instrument 18-25 um archival check (AKARI IRC/FIS, Spitzer SEIP)
     for cat, instr_name in (("slphotdr4", "Spitzer_MIPS24"), ("akari_irc", "AKARI_IRC_18um"), ("akari_fis", "AKARI_FIS")):

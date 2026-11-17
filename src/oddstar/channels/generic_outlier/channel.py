@@ -192,7 +192,7 @@ def extract_raw_feature_vector(star: dict[str, Any], sub_metrics: dict[str, floa
     # Fast photosphere-referenced chi_w4 estimate if not passed in sub_metrics
     chi_w4 = float(sm.get("chi_w4", (float(f["W4"]) - float(f["Ks"]) * 0.0125) / max(0.05, float(ferr["W4"]))))
 
-    # Fast NEOWISE variability estimate
+    # Fast NEOWISE variability estimate (0.0 when no NEOWISE visits are present)
     neo = star.get("neowise", {})
     if "ir_var_chi2" in sm:
         ir_var = float(sm["ir_var_chi2"])
@@ -201,9 +201,9 @@ def extract_raw_feature_vector(star: dict[str, Any], sub_metrics: dict[str, floa
         e2 = np.maximum(1e-3, np.asarray(neo["w2_err_mjy"], dtype=float))
         ir_var = float(np.mean(((w2 - np.median(w2)) / e2) ** 2))
     else:
-        ir_var = float(1.0 + abs(sid_rng.normal(0.0, 0.25)))
+        ir_var = 0.0
 
-    # Fast dip SNR estimate
+    # Fast dip SNR estimate (0.0 when no optical lightcurve is present)
     lc = star.get("lightcurves", {})
     if "dip_snr" in sm:
         dip_snr = float(sm["dip_snr"])
@@ -212,7 +212,7 @@ def extract_raw_feature_vector(star: dict[str, Any], sub_metrics: dict[str, floa
         sig = max(1e-4, 1.4826 * float(np.median(np.abs(tf - np.median(tf)))))
         dip_snr = float(max(0.0, (np.median(tf) - np.min(tf)) / sig))
     else:
-        dip_snr = float(abs(sid_rng.normal(0.0, 0.5)))
+        dip_snr = 0.0
 
     # Fast under-luminosity estimate
     if "delta_m_sigma" in sm:
@@ -223,7 +223,7 @@ def extract_raw_feature_vector(star: dict[str, Any], sub_metrics: dict[str, floa
         mg_pred = predict_ms_abs_g(float(star.get("teff_k", 5800.0)))
         dm_sig = float((float(star.get("abs_g_mag", mg_pred)) - mg_pred) / 0.15)
 
-    # Fast spectral line SNR
+    # Fast spectral line SNR (0.0 when no optical spectra are present)
     spec = star.get("spectra", {})
     if "spec_line_snr" in sm:
         spec_snr = float(sm["spec_line_snr"])
@@ -234,16 +234,16 @@ def extract_raw_feature_vector(star: dict[str, Any], sub_metrics: dict[str, floa
         sig = max(1e-3, 1.4826 * float(np.median(np.abs(comb - np.median(comb)))))
         spec_snr = float(max(0.0, (np.max(comb) - np.median(comb)) / sig))
     else:
-        spec_snr = float(abs(sid_rng.normal(0.0, 0.5)))
+        spec_snr = 0.0
 
-    # Fast vanishing estimate
+    # Fast vanishing estimate (0.0 when no archival plate record is present)
     vd = star.get("vanishing_data", {})
     if "vanished_margin" in sm:
         van = float(sm["vanished_margin"])
     elif vd and (not vd.get("present_in_panstarrs", True)) and (not vd.get("present_in_gaia", True)):
         van = max(0.0, float(vd.get("panstarrs_depth_mag", 21.8)) - float(vd.get("usno_mag_r", 17.0)))
     else:
-        van = float(abs(sid_rng.normal(0.0, 0.2)))
+        van = 0.0
 
     return {
         "bp_rp": float(m["BP"]) - float(m["RP"]),
@@ -256,7 +256,7 @@ def extract_raw_feature_vector(star: dict[str, Any], sub_metrics: dict[str, floa
         "delta_m_sigma": dm_sig,
         "spec_line_snr": spec_snr,
         "vanished_margin": van,
-        "radio_snr": float(sm.get("radio_snr", abs(sid_rng.normal(0.0, 0.4)))),
+        "radio_snr": float(sm.get("radio_snr", 0.0)),
         "ruwe": float(star.get("ruwe", 1.0)),
     }
 

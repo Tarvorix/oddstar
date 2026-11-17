@@ -7,11 +7,11 @@ from typing import Any
 
 from oddstar.config import PipelineConfig
 from oddstar.schemas import ChannelScore, VettingResult
-from oddstar.vet.ir_checks import check_xmatch_integrity, run_ir_vetting
+from oddstar.vet.ir_checks import check_evolved, check_xmatch_integrity, run_ir_vetting
 from oddstar.vet.lc_checks import check_known_variable, run_lc_vetting
 from oddstar.vet.radio_checks import run_radio_vetting
 from oddstar.vet.spectral_checks import run_spectral_vetting
-from oddstar.vet.underluminous_checks import run_underluminous_vetting
+from oddstar.vet.underluminous_checks import check_metallicity, run_underluminous_vetting
 from oddstar.vet.vanishing_checks import run_vanishing_vetting
 
 
@@ -53,8 +53,16 @@ def vet_target(
     if "vanishing" in target_channels:
         _merge(run_vanishing_vetting(star_or_cadence, cfg, out_dir))
     if "generic_outlier" in target_channels:
-        # Section 6: generic_outlier runs xmatch_integrity, known_variable, and feature-linked checks
-        _merge([check_xmatch_integrity(star_or_cadence, cfg, out_dir), check_known_variable(star_or_cadence, cfg, out_dir)])
+        # Section 6 / L003: always run xmatch, variable, metallicity, and evolved checks on photometric/color outliers,
+        # and only run modality-specific suites when their underlying observational data exist.
+        _merge(
+            [
+                check_xmatch_integrity(star_or_cadence, cfg, out_dir),
+                check_known_variable(star_or_cadence, cfg, out_dir),
+                check_metallicity(star_or_cadence, cfg, out_dir),
+                check_evolved(star_or_cadence, cfg, out_dir),
+            ]
+        )
         outlier_scores = [s for s in scores if s.channel == "generic_outlier"]
         drivers = set()
         for os_score in outlier_scores:
@@ -63,13 +71,18 @@ def vet_target(
                     drivers.add(feat)
         if any(k in drivers for k in ("chi_w4", "w4_ratio", "chi_w3")):
             _merge(run_ir_vetting(star_or_cadence, cfg, out_dir))
-        if any(k in drivers for k in ("dip_snr", "ir_var_chi2")):
+        has_lc_or_ir = bool(
+            star_or_cadence.get("lightcurves", {}).get("tess_flux_qlp")
+            or star_or_cadence.get("lightcurves", {}).get("ztf_flux")
+            or star_or_cadence.get("neowise", {}).get("w2_mjy")
+        )
+        if has_lc_or_ir and any(k in drivers for k in ("dip_snr", "ir_var_chi2")):
             _merge(run_lc_vetting(star_or_cadence, cfg, out_dir))
         if "delta_m_sigma" in drivers:
             _merge(run_underluminous_vetting(star_or_cadence, cfg, out_dir))
-        if "spec_line_snr" in drivers:
+        if "spec_line_snr" in drivers and star_or_cadence.get("spectra", {}).get("flux_exp1"):
             _merge(run_spectral_vetting(star_or_cadence, cfg, out_dir))
-        if "vanished_margin" in drivers:
+        if "vanished_margin" in drivers and star_or_cadence.get("vanishing_data"):
             _merge(run_vanishing_vetting(star_or_cadence, cfg, out_dir))
 
     return list(results_by_name.values())

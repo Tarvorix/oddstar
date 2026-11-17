@@ -1,0 +1,24 @@
+{
+  "review_id": "REV-20261117-R1-1111149099362581376",
+  "round": 1,
+  "source_id": "1111149099362581376",
+  "reviewer_model": "OpenAI GPT-6 family",
+  "timestamp_utc": "2026-11-17T15:54:52.448479+00:00",
+  "verdict": "unresolved",
+  "measurements": {
+    "parallax_mas": -0.082,
+    "g_mag": 18.6795,
+    "ruwe": 1.018,
+    "catwise_w1_minus_w2_mag": -0.088
+  },
+  "uncertainties": {
+    "parallax_mas": 0.135,
+    "g_mag": 0.0015,
+    "catwise_w1_minus_w2_mag": 0.17
+  },
+  "queries_run": [
+    "Exact executed ESA Gaia, IRSA and MAST requests and ADQL are listed by source in review/evidence/2026-11-17/round1-queries.txt."
+  ],
+  "notes": "Blind comparison position. No credible 2MASS match. AllWISE W2 profile and atlas positions are unreliable. W3 and W4 are upper limits and the CatWISE color shows no meaningful excess.",
+  "findings": []
+}

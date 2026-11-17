@@ -1,0 +1,40 @@
+{
+  "review_id": "REV-20261117-R2-1111149103659931264",
+  "round": 2,
+  "source_id": "1111149103659931264",
+  "reviewer_model": "OpenAI GPT-6 family",
+  "timestamp_utc": "2026-11-17T15:54:52.448754+00:00",
+  "verdict": "explained",
+  "measurements": {
+    "spectroscopic_feh_dex": -1.32,
+    "spectroscopic_teff_k": 4040,
+    "spectroscopic_logg": 4.92,
+    "published_b_minus_v_mag": 1.33,
+    "historical_rv_km_s": 66.8,
+    "gaia_rv_km_s": 37.5305
+  },
+  "uncertainties": {
+    "spectroscopic_feh_dex": 0.05,
+    "spectroscopic_teff_k": 20,
+    "spectroscopic_logg": 0.16,
+    "gaia_rv_km_s": 0.762
+  },
+  "queries_run": [
+    "https://simbad.cfa.harvard.edu/simbad/sim-id?Ident=Gaia+DR3+1111149103659931264",
+    "https://adsabs.harvard.edu/pdf/1997AJ....113..806G",
+    "https://arxiv.org/pdf/astro-ph/0410452",
+    "http://asassn-lb01.ifa.hawaii.edu:9006/lookup_cone/radius0.004166666666666667_ra115.855625979_dec72.808260682",
+    "https://vizier.cfa.harvard.edu/viz-bin/asu-tsv?-source=J%2fAJ%2f113%2f806&LHS=%2a236%2a&-out.all"
+  ],
+  "notes": "LHS 236 is a published sdK7 with high-resolution abundance measurements. Gaia and historical velocities are consistent within the approximate 20 km/s uncertainty of the old method. ASAS-SN standard photometry is vulnerable to the proper-motion displacement.",
+  "findings": [
+    {
+      "finding_id": "F-1111149103659931264-20261117-R2-KNOWN-SUBDWARF",
+      "severity": "material",
+      "summary": "The optical color flag has a published spectroscopic explanation.",
+      "evidence": "Gizis 1997 Table 2 classification sdK7 and Woolf and Wallerstein 2005 Table 3 iron abundance and stellar parameters.",
+      "reproduce_cmd": "Locate LHS 236 in the two linked primary tables.",
+      "status": "open"
+    }
+  ]
+}

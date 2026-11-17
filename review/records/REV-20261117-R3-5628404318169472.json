@@ -1,0 +1,42 @@
+{
+  "review_id": "REV-20261117-R3-5628404318169472",
+  "round": 3,
+  "source_id": "5628404318169472",
+  "reviewer_model": "OpenAI GPT-6 family",
+  "timestamp_utc": "2026-11-17T15:54:52.448837+00:00",
+  "verdict": "reproduced",
+  "measurements": {
+    "w3_atlas_sep_arcsec": 0.344,
+    "w4_atlas_sep_arcsec": 0.44,
+    "w3_atlas_fwhm_min_arcsec": 10.12,
+    "w3_atlas_fwhm_max_arcsec": 10.85,
+    "w4_atlas_fwhm_min_arcsec": 15.36,
+    "w4_atlas_fwhm_max_arcsec": 17.61,
+    "w3_minus_w2_jan_e_arcsec": -0.256,
+    "w3_minus_w2_jan_n_arcsec": 0.441,
+    "w3_minus_w2_aug_e_arcsec": 0.401,
+    "w3_minus_w2_aug_n_arcsec": -0.644
+  },
+  "uncertainties": {
+    "w4_atlas_ra_arcsec": 0.55,
+    "w4_atlas_dec_arcsec": 0.63
+  },
+  "queries_run": [
+    "https://nasa-irsa-wise.s3.us-west-2.amazonaws.com/wise/allwise/images/p3am_cdd/04/0440/0440p060_ac51/0440p060_ac51-w3-int-3.fits",
+    "https://nasa-irsa-wise.s3.us-west-2.amazonaws.com/wise/allwise/images/p3am_cdd/04/0440/0440p060_ac51/0440p060_ac51-w4-int-3.fits",
+    "https://irsa.ipac.caltech.edu/SIA?POS=CIRCLE+43.548272861+5.882712239+0.001&COLLECTION=wise_allsky&MAXREC=750&CALIB=2",
+    "https://catalogs.mast.stsci.edu/api/v0.1/panstarrs/dr2/mean.csv?ra=43.548272861&dec=5.882712239&radius=0.008333333",
+    "https://www.legacysurvey.org/viewer/fits-cutout?ra=43.548272861&dec=5.882712239&layer=ls-dr10&pixscale=0.262&size=320&bands=grz"
+  ],
+  "notes": "Fresh isolated review in the same model family. WISE pixel centroids agree with the stellar position within fit and image limitations. The shift sign changes between scan visits. See the report human checklist for the tests still open.",
+  "findings": [
+    {
+      "finding_id": "F-5628404318169472-20261117-R3-UNRESOLVED-BLEND",
+      "severity": "material",
+      "summary": "WISE atlas and native stacks corroborate compact nearby emission. The WISE PSFs and limited deep imaging leave a close red blend open.",
+      "evidence": "review/adversarial-2026-11-17.md image localization and checklist. W4 blank-patch astrometric uncertainty is approximately 0.6 arcsec per coordinate.",
+      "reproduce_cmd": "Fetch the FITS stacks from 'https://irsa.ipac.caltech.edu/SIA?POS=CIRCLE+43.548272861+5.882712239+0.001&COLLECTION=wise_allsky&MAXREC=750&CALIB=2', propagate Gaia to each exposure epoch, and fit a free elliptical Gaussian plus local plane.",
+      "status": "open"
+    }
+  ]
+}

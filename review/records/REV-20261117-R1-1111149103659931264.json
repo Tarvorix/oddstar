@@ -1,0 +1,28 @@
+{
+  "review_id": "REV-20261117-R1-1111149103659931264",
+  "round": 1,
+  "source_id": "1111149103659931264",
+  "reviewer_model": "OpenAI GPT-6 family",
+  "timestamp_utc": "2026-11-17T15:54:52.448270+00:00",
+  "verdict": "explained",
+  "measurements": {
+    "parallax_mas": 17.0066,
+    "vt_km_s": 341.1,
+    "w2_minus_w3_mag": -0.043,
+    "neowise_visits": 21,
+    "w1_span_mag": 0.015,
+    "w2_span_mag": 0.02,
+    "tmass_epoch_sep_arcsec": 0.108,
+    "allwise_epoch_sep_arcsec": 0.057
+  },
+  "uncertainties": {
+    "parallax_mas": 0.0136,
+    "w2_minus_w3_mag": 0.049
+  },
+  "queries_run": [
+    "Exact executed ESA Gaia, IRSA and MAST requests and ADQL are listed by source in review/evidence/2026-11-17/round1-queries.txt.",
+    "https://simbad.cfa.harvard.edu/simbad/sim-id?Ident=Gaia+DR3+1111149103659931264"
+  ],
+  "notes": "Blind characterization identifies the high-motion sdK7 star G 251-44. W4 is a limit. The position at each epoch is required to recover its association and near-flat infrared series.",
+  "findings": []
+}
