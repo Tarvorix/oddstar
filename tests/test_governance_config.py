@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -108,6 +109,28 @@ def test_moved_threshold_values_are_unchanged() -> None:
     li = cfg.live_ingestion
     assert li.ir_excess_w4_upper_limit_ph_qual == ["U", "X"] and li.ir_excess_artifact_cc_flag_bands == [3, 4]
     assert li.ir_timedomain_neowise_enrich_max_stars == 25
+
+
+def test_remaining_default_pass_keys_and_no_literal_fallbacks_in_vetting_source() -> None:
+    """Vanishing/spectral/radio vetting read decision values from config and inputs only when explicitly present."""
+    cfg = load_config()[0]
+    assert cfg.channels["vanishing"]["vetting_variable_simbad_types"] == ["Mira", "LPV*", "CV*", "Flare*"]
+    assert cfg.channels["optical_dips"]["detrend_edge_zone_window_frac"] == 0.5
+    assert cfg.vetting["metallicity_subdwarf_feh_max"] == -1.0
+    # Values these modules read with literal fallbacks before 1.1.0 are config keys with unchanged values
+    van, rad, spl = cfg.channels["vanishing"], cfg.channels["radio_narrowband"], cfg.channels["spectral_lines"]
+    assert (van["min_early_plates"], van["min_depth_margin_mag"], van["max_pm_residual_arcsec"]) == (2, 2.0, 1.5)
+    assert rad["min_drift_abs_hz_s"] == 0.05
+    assert (spl["sky_line_exclusion_angstrom"], spl["stellar_line_exclusion_angstrom"]) == (1.5, 1.5)
+    vet = repo_root() / "src" / "oddstar" / "vet"
+    # `.get("key", <number/bool/"Star">)`: a default input value, or a config fallback that hides a missing key
+    literal_default = re.compile(r"""\.get\(\s*["'][^"']+["']\s*,\s*(-?[0-9.]+|True|False|["']Star["'])\s*\)""")
+    for name in ("vanishing_checks.py", "spectral_checks.py", "radio_checks.py", "common.py"):
+        text = (vet / name).read_text(encoding="utf-8")
+        assert not literal_default.findall(text), (name, literal_default.findall(text))
+        assert "cfg.channels" not in text or not re.search(r"cfg\.channels\[[^\]]+\]\.get\(", text), name
+    lc = (vet / "lc_checks.py").read_text(encoding="utf-8")
+    assert 'get("simbad_type", "Star")' not in lc and '"simbad_type": "Star"' not in (repo_root() / "src" / "oddstar" / "io" / "live_survey.py").read_text(encoding="utf-8")
 
 
 def test_config_version_must_match_newest_changelog_heading(tmp_path: Path) -> None:

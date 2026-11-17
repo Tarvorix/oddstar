@@ -120,6 +120,9 @@ channels:
     second_survey_simultaneous_min_depth_ratio: 0.5
     second_survey_night_dip_sigma: 3.0
     second_survey_min_dip_nights: 2
+    # Vetting-only (since 1.1.0): events within this fraction of detrend_window_days of a segment edge or data gap
+    # are where the matched running median can erase or distort a dip; detrend-based checks report not_evaluated there
+    detrend_edge_zone_window_frac: 0.5
 
   radio_narrowband:
     max_abs_drift_hz_s: 4.0
@@ -161,6 +164,8 @@ channels:
     match_radius_arcsec: 3.0
     max_pm_residual_arcsec: 1.5
     design_point_mag_diff: 3.0
+    # Vetting-only (since 1.1.0): SIMBAD types that explain a vanished plate source (was a literal in vanishing_checks.py)
+    vetting_variable_simbad_types: ["Mira", "LPV*", "CV*", "Flare*"]
 
 vetting:
   centroid_offset_max_beam_frac: 0.35
@@ -259,6 +264,7 @@ vetting:
   spectral_repeat_max_pixel_shift: 2
   spectral_repeat_min_excess: 0.20
   vanishing_pm_min_raw_sep_arcsec: 3.0
+  metallicity_subdwarf_feh_max: -1.0
 
 validation:
   blind_recovery_min: 0.90

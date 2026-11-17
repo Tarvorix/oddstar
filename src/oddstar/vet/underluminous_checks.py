@@ -5,6 +5,7 @@ Input rule (tri-state honesty): a check may only `pass` on inputs that were actu
   `star["vetting_archive"]["query_status"][<name>] == "ok"` (`galex`, `gaia_meta` for NSS/RV fields, `irsa_dust`);
   the 3D map counts only when `vetting_archive.dust3d.status == "ok"`.
 * Fixtures and hand-built dicts: an explicit value counts; an absent key or None is missing.
+* SIMBAD (`metallicity`): `oddstar.vet.common.simbad_lookup`; a failed or missing lookup cannot support a pass.
 A check whose available inputs all pass but which lacks one of its inputs returns `not_evaluated`, naming the
 missing input; a failing available input still fails.
 """
@@ -18,7 +19,7 @@ from typing import Any
 from oddstar.config import PipelineConfig
 from oddstar.io.physics import line_of_sight_ebv, map3d_ebv, star_applied_ebv
 from oddstar.schemas import VettingResult
-from oddstar.vet.common import make_vet_result
+from oddstar.vet.common import make_vet_result, simbad_lookup, simbad_note
 
 
 def _is_live(star: dict[str, Any]) -> bool:
@@ -170,26 +171,34 @@ def check_extinction(star: dict[str, Any], cfg: PipelineConfig, out_dir: Path) -
 
 
 def check_metallicity(star: dict[str, Any], cfg: PipelineConfig, out_dir: Path) -> VettingResult:
+    """Fail on a metal-poor subdwarf ([Fe/H] or SIMBAD type); pass needs [Fe/H] and a successful SIMBAD lookup."""
     feh = _star_value(star, "feh")
-    stype = str(star.get("simbad_type") or "")
-    subdwarf_type = "Subdwarf" in stype
-    is_subdwarf = subdwarf_type or (feh is not None and feh < -1.0)
-    metrics = {"feh": feh, "is_subdwarf": is_subdwarf}
+    sim = simbad_lookup(star)
+    feh_max = float(cfg.vetting["metallicity_subdwarf_feh_max"])
+    subdwarf_type = sim["evaluated"] and "Subdwarf" in str(sim["simbad_type"] or "")
+    is_subdwarf = subdwarf_type or (feh is not None and feh < feh_max)
+    metrics = {"feh": feh, "is_subdwarf": is_subdwarf, "feh_subdwarf_max": feh_max, "simbad_type": sim["simbad_type"],
+               "simbad_query_status": sim["query_status"], "simbad_entry": sim["entry"]}
     if is_subdwarf:
         return make_vet_result(
             out_dir,
             check="metallicity",
             status="fail",
-            note=f"[Fe/H]={feh} dex, SIMBAD type '{stype}' (metal-poor subdwarf locus)",
+            note=f"[Fe/H]={feh} dex (subdwarf below {feh_max}), {simbad_note(sim)} (metal-poor subdwarf locus)",
             metrics=metrics,
         )
+    missing = []
     if feh is None:
-        return make_vet_result(out_dir, check="metallicity", status="not_evaluated", note="Missing input: [Fe/H] (feh)", metrics=metrics)
+        missing.append("[Fe/H] (feh)")
+    if not sim["evaluated"]:
+        missing.append(simbad_note(sim))
+    if missing:
+        return make_vet_result(out_dir, check="metallicity", status="not_evaluated", note="Missing input: " + "; ".join(missing), metrics=metrics)
     return make_vet_result(
         out_dir,
         check="metallicity",
         status="pass",
-        note=f"[Fe/H]={feh:.2f} dex (disk metallicity)",
+        note=f"[Fe/H]={feh:.2f} dex (disk metallicity), {simbad_note(sim)}",
         metrics=metrics,
     )
 
