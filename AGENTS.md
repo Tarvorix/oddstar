@@ -15,7 +15,7 @@
 | R7 | **Turn every finding into a lesson.** Each reviewer finding becomes a generic check, test or skill. | CI (`oddstar.ci_checks`) fails if any finding is closed without a linked test/check or written justification. |
 | R8 | **Everything is reproducible.** Any candidate can be regenerated with one command from recorded inputs. | Content-addressed raw cache manifests with SHA-256 hashes, pinned lock file, git commit, and deterministic RNG seed on every run. |
 | R9 | **Say what is and is not ruled out.** Publish null results with sensitivity and coverage. | Mandatory 12-row hypothesis table and tri-state checks (`pass`, `fail`, `not_evaluated`); `not_evaluated` never counts as `pass`. |
-| R10 | **Agents share mistakes.** A second agent can repeat the first one's error. | Round 3 review requires an independent model family where available plus a human checklist over `not_evaluated` rows. |
+| R10 | **Agents share mistakes.** A second agent can repeat the first one's error. | Round 3 review requires an independent model family where available plus a human checklist over `not_evaluated` rows. The round-3 ledger event records `independent_family`; `oddstar status` reports rounds, families and checklist counts, and CI fails tracked docs that call a review independent while `independent_family` is false. |
 
 ## CLI Command Reference
 
@@ -31,11 +31,18 @@
 | `oddstar fuse <runs...>` | Join channel scores on `source_id`, calibrate FAP, assign tiers and rank |
 | `oddstar dossier <source_id>` | Generate `dossier.json`, `dossier.md`, and evidence plots |
 | `oddstar inspect <source_id>` | One-star mode: run all channels, vetting, fusion, and dossier for one ID |
+| `oddstar inspect <source_id> --register` | Also register the one-star result in the ledger and export its committed evidence |
+| `oddstar evidence export <source_id> [--run-id]` | Write the compact committed evidence directory `registry/evidence/<source_id>/<run_id>/` (no ledger write) |
+| `oddstar evidence verify [<source_id>]` | Verify ledger evidence references against directories and SHA-256 hashes; count `legacy_without_evidence` |
 | `oddstar review packet <ids>` | Build blinded reviewer packet mixed with controls and known objects |
 | `oddstar review ingest <file>` | Validate and record reviewer JSON, flagging discrepancies |
+| `oddstar review ingest --all` | Ingest every stored record under `review/records/` (idempotent; stored records are never rewritten) |
 | `oddstar lessons add` | Create a lesson file in `lessons/` and link automated test/check |
+| `oddstar lessons register <file>` | Register an existing lesson file in the ledger (closes its finding when `closes_finding`) |
+| `oddstar lessons amend <id> --set FIELD=VALUE --reason` | Correct lesson metadata; registered lessons get a `lesson_updated` ledger event |
+| `oddstar lessons record-sha` | Set each lesson's `commit_sha` to the commit that introduced its files |
 | `oddstar null-report <run>` | Emit sensitivity completeness report and upper limits for a channel run |
-| `oddstar status` | Report certified channels, active runs, and open review findings |
+| `oddstar status` | Report certified channels, active runs, open review findings per source, review status, and evidence counts |
 | `oddstar show <path> --rows 20` | Inspect tabular/JSON/JSONL artifacts safely in bounded pages |
 | `oddstar schema [<type>]` | Print or regenerate JSON Schemas in `schemas/` |
 

@@ -11,6 +11,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history: lesson commit_sha values and R4 commit separation are checked against git history
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.14"
@@ -20,6 +23,6 @@ jobs:
       - name: Run offline test suite
         run: |
           pytest -v
-      - name: Run governance and schema checks (R4, R6, R7, AGENTS.md)
+      - name: Run governance and schema checks (R4, R5, R6, R7, R10, AGENTS.md)
         run: |
           python -m oddstar.ci_checks

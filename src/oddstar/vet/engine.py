@@ -64,10 +64,11 @@ def vet_target(
             ]
         )
         outlier_scores = [s for s in scores if s.channel == "generic_outlier"]
+        driver_min = float(cfg.vetting["outlier_driver_min_abs_contribution"])
         drivers = set()
         for os_score in outlier_scores:
             for feat, contrib in os_score.feature_contributions.items():
-                if abs(contrib) >= 2.0:
+                if abs(contrib) >= driver_min:
                     drivers.add(feat)
         if any(k in drivers for k in ("chi_w4", "w4_ratio", "chi_w3", "ks_w3", "w3_w4")):
             _merge(run_ir_vetting(star_or_cadence, cfg, out_dir))

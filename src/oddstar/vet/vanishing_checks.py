@@ -26,7 +26,7 @@ def check_proper_motion(star: dict[str, Any], cfg: PipelineConfig, out_dir: Path
     usno_dec = float(vd["usno_dec_deg"]) if "usno_dec_deg" in vd else pred_dec
     pm_resid = angular_separation_arcsec(pred_ra, pred_dec, usno_ra, usno_dec)
     raw_sep = angular_separation_arcsec(float(star["ra_deg"]), float(star["dec_deg"]), usno_ra, usno_dec)
-    is_fast_pm = (raw_sep > 3.0) and (pm_resid <= float(cfg.channels["vanishing"].get("max_pm_residual_arcsec", 1.5))) and bool(vd.get("present_in_gaia", True))
+    is_fast_pm = (raw_sep > float(cfg.vetting["vanishing_pm_min_raw_sep_arcsec"])) and (pm_resid <= float(cfg.channels["vanishing"].get("max_pm_residual_arcsec", 1.5))) and bool(vd.get("present_in_gaia", True))
     return make_vet_result(
         out_dir,
         check="proper_motion",

@@ -79,15 +79,23 @@ IR_CHANNELS = {"ir_excess", "ir_timedomain"}
 OPTICAL_COLOR_ONLY_EXPLAINERS = {"metallicity"}
 
 
-def calibrate_fap(raw_stat: float, cert: ValidationCertificate | None, fallback_fap: float) -> float:
-    """Convert raw channel statistic to calibrated false-alarm probability using Test 4 curve."""
+def calibrate_fap(
+    raw_stat: float,
+    cert: ValidationCertificate | None,
+    fallback_fap: float,
+    floor: float = 1e-12,
+) -> float:
+    """Convert raw channel statistic to calibrated false-alarm probability using Test 4 curve.
+
+    `floor` is `fusion.fap_floor`; callers holding a config pass it (the keyword default equals the configured value).
+    """
     if cert is None or not cert.calibration_curve:
-        return float(max(1e-12, min(1.0, fallback_fap)))
+        return float(max(floor, min(1.0, fallback_fap)))
     pts = sorted(cert.calibration_curve, key=lambda r: r["stat"])
     xs = [float(p["stat"]) for p in pts]
     ys = [float(p["fap"]) for p in pts]
     val = float(np.interp(raw_stat, xs, ys))
-    return float(max(1e-12, min(1.0, val)))
+    return float(max(floor, min(1.0, val)))
 
 
 def assign_tier(
@@ -291,15 +299,16 @@ def fuse_results(
     cross_patterns_summary: list[dict[str, Any]] = []
 
     n_trials_total = max(1, n_stars_total * max(1, len(certs_by_channel)))
+    fap_floor = float(cfg.fusion.fap_floor)
     expected_fp = sum(
         float(cert.false_alarm_rate) * n_stars_total for cert in certs_by_channel.values()
-    ) if certs_by_channel else float(n_stars_total) * 1e-4
+    ) if certs_by_channel else float(n_stars_total) * float(cfg.fusion.fallback_false_alarm_rate_per_star)
 
     for sid, raw_scores in scores_by_star.items():
         cal_scores: list[ChannelScore] = []
         for s in raw_scores:
             cert = certs_by_channel.get(s.channel)
-            fap = calibrate_fap(s.raw_statistic, cert, s.false_alarm_prob)
+            fap = calibrate_fap(s.raw_statistic, cert, s.false_alarm_prob, fap_floor)
             cal_scores.append(
                 s.model_copy(
                     update={
@@ -316,7 +325,7 @@ def fuse_results(
 
         # Combined FAP across distinct flagged channels (Fisher / product bounded)
         faps = [s.false_alarm_prob for s in cal_scores if s.flagged]
-        combined_fap = float(max(1e-12, np.prod(faps)))
+        combined_fap = float(max(fap_floor, np.prod(faps)))
         patterns = detect_cross_channel_patterns(cal_scores)
         if patterns:
             cross_patterns_summary.append({"source_id": sid, "patterns": patterns})

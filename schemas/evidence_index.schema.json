@@ -1,0 +1,182 @@
+{
+  "$defs": {
+    "EvidenceFile": {
+      "properties": {
+        "bytes": {
+          "title": "Bytes",
+          "type": "integer"
+        },
+        "channel": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Channel"
+        },
+        "check": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Check"
+        },
+        "kind": {
+          "enum": [
+            "vetting",
+            "measurement",
+            "image",
+            "other"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "bytes",
+        "kind"
+      ],
+      "title": "EvidenceFile",
+      "type": "object"
+    },
+    "OmittedEvidenceFile": {
+      "properties": {
+        "bytes": {
+          "title": "Bytes",
+          "type": "integer"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "sha256": {
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "sha256",
+        "bytes",
+        "reason"
+      ],
+      "title": "OmittedEvidenceFile",
+      "type": "object"
+    }
+  },
+  "description": "`index.json` of one committed evidence directory (registry/evidence/<source_id>/<run_id>/).",
+  "properties": {
+    "config_hash": {
+      "title": "Config Hash",
+      "type": "string"
+    },
+    "config_hash_full": {
+      "default": "",
+      "title": "Config Hash Full",
+      "type": "string"
+    },
+    "files": {
+      "items": {
+        "$ref": "#/$defs/EvidenceFile"
+      },
+      "title": "Files",
+      "type": "array"
+    },
+    "flagged_channels": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Flagged Channels",
+      "type": "array"
+    },
+    "git_commit": {
+      "title": "Git Commit",
+      "type": "string"
+    },
+    "omitted_files": {
+      "items": {
+        "$ref": "#/$defs/OmittedEvidenceFile"
+      },
+      "title": "Omitted Files",
+      "type": "array"
+    },
+    "pipeline_version": {
+      "title": "Pipeline Version",
+      "type": "string"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "scope": {
+      "enum": [
+        "full",
+        "rejection_only"
+      ],
+      "title": "Scope",
+      "type": "string"
+    },
+    "source_id": {
+      "title": "Source Id",
+      "type": "string"
+    },
+    "tier": {
+      "enum": [
+        "A",
+        "B",
+        "C",
+        "Explained",
+        "Rejected"
+      ],
+      "title": "Tier",
+      "type": "string"
+    },
+    "timestamp_utc": {
+      "title": "Timestamp Utc",
+      "type": "string"
+    },
+    "vetting": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Vetting",
+      "type": "array"
+    }
+  },
+  "required": [
+    "source_id",
+    "run_id",
+    "tier",
+    "scope",
+    "config_hash",
+    "git_commit",
+    "pipeline_version",
+    "timestamp_utc"
+  ],
+  "title": "EvidenceIndex",
+  "type": "object"
+}

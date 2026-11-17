@@ -28,6 +28,7 @@ from oddstar.schemas import (
     DossierReviewSummary,
     Measurement,
     Provenance,
+    ReviewStatus,
     StarMetadata,
     ValidationCertificate,
     VettingResult,
@@ -111,6 +112,7 @@ def write_dossier(
     manifests: list[str],
     cfg: PipelineConfig,
     root: Path,
+    review_status: ReviewStatus | None = None,
 ) -> tuple[Dossier, Path, Path]:
     """Generate dossier.json, dossier.md, and standard evidence plots under dossiers/<source_id>/."""
     clean_id = source_id.replace("Gaia DR3 ", "").replace("Gaia DR4 ", "").strip()
@@ -227,6 +229,7 @@ def write_dossier(
         hypotheses=hypotheses,
         cross_channel_patterns=patterns,
         reviews=reviews,
+        review_status=review_status,
         what_would_settle_it=settle,
         lead_lines=leads,
         reproduce=f"oddstar inspect {clean_id} --config configs/default.yaml",
@@ -272,9 +275,13 @@ def write_dossier(
         lines.append(f"| `{h.name}` | `{h.status}` | {h.note} |")
 
     if reviews:
-        lines.extend(["", "## Independent Review Records", ""])
+        # Review status wording comes from oddstar.review.status (R10: independence is stated only when measured)
+        lines.extend(["", "## Review Records", ""])
+        if review_status is not None:
+            lines.append(f"- **Review status**: {review_status.summary} ({review_status.independence_basis})")
         for r in reviews:
-            lines.append(f"- Round {r.round} ({r.reviewer_model}): verdict=`{r.verdict}` (`{r.record}`)")
+            fam = f", family `{r.model_family}`" if r.model_family else ""
+            lines.append(f"- Round {r.round} ({r.reviewer_model}{fam}): verdict=`{r.verdict}` (`{r.record}`)")
 
     lines.extend(["", "## What Would Settle It", ""])
     for item in settle:

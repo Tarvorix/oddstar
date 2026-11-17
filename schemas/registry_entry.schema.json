@@ -17,10 +17,35 @@
         "finding_opened",
         "finding_closed",
         "lesson_added",
+        "lesson_updated",
         "explained_anomaly"
       ],
       "title": "Event Type",
       "type": "string"
+    },
+    "evidence_dir": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Evidence Dir"
+    },
+    "evidence_index_sha256": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Evidence Index Sha256"
     },
     "provenance": {
       "additionalProperties": true,
