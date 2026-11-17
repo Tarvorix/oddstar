@@ -1,7 +1,7 @@
 {
   "packet_id": "PKT-R1-30203531d2",
   "round": 1,
-  "created_at_utc": "2026-11-17T05:59:36.561041+00:00",
+  "created_at_utc": "2026-11-17T06:20:29.732675+00:00",
   "prompt_template_path": "review/prompts/round1_blind.md",
   "prompt_text": "# Round 1: Blind Characterisation Prompt\n\nYou are given a list of sky positions with Gaia DR3 source IDs.\nFor each one, use public archive data to describe the object at that\nposition across all wavelengths you can access. Report measurements\nwith uncertainties, the queries you ran, and anything about the object\nor its surroundings that a careful astronomer would note, including\n\"nothing notable\". Do not assume any of these objects is unusual.\nReturn one JSON record per position following review_record.schema.json.\n",
   "targets": [

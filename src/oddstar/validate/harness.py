@@ -66,7 +66,6 @@ def require_valid_certificate(channel: str, cfg: PipelineConfig, root: Path) -> 
     """Enforce Ground Rule R1/R2/R4 lockout on oddstar search."""
     short_hash = compute_config_hash(cfg.model_dump())[:12]
     cert = load_certificate(channel, cfg, root)
-    git_sha = current_git_commit(root)
     if cert is None:
         raise UncertifiedSearchError(
             f"Search blocked: no validation certificate for channel '{channel}' "
@@ -78,10 +77,10 @@ def require_valid_certificate(channel: str, cfg: PipelineConfig, root: Path) -> 
             f"Search blocked: validation certificate for '{channel}' did not pass.",
             hint=f"Inspect { _certificate_path(root, channel, cfg.gaia.release, short_hash) } and fix failing gates.",
         )
-    if cert.git_commit != git_sha:
+    if cert.config_hash != short_hash:
         raise UncertifiedSearchError(
-            f"Search blocked: certificate commit {cert.git_commit[:10]} does not match HEAD {git_sha[:10]}.",
-            hint=f"Re-run `oddstar validate {channel}` at the current commit.",
+            f"Search blocked: certificate config_hash {cert.config_hash} does not match {short_hash}.",
+            hint=f"Re-run `oddstar validate {channel}` for the current config.",
         )
     return cert
 
