@@ -27,6 +27,8 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
+# ASAS-SN Sky Patrol v2 client used by second_survey vetting (import name: pyasassn)
+surveys = ["skypatrol>=0.6.21"]
 
 [project.scripts]
 oddstar = "oddstar.cli:main"

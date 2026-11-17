@@ -27,4 +27,5 @@ Defined in `configs/default.yaml` under `channels.optical_dips`:
 - Large 21" TESS pixels blend nearby EBs; `pipeline_agreement` and `neighbour_signal` centroid checks are mandatory.
 
 ## Lessons Applied
-- Require dual-extraction agreement (`QLP` and `TESScut`) before vetting passes.
+- Require dual-extraction agreement (`QLP` and `TESScut`) before vetting passes. Since `L006`, live vetting fetches QLP `SAP_FLUX` and an independent TESScut aperture extraction per sector, and `pipeline_agreement` applies the identical `detrend_window_days` running median to both at matched cadences before comparing `min_duration_hours`-binned dip depths.
+- `second_survey` (since `L006`) uses live ZTF (retried, shrinking cone, yearly paging, PM-track matched) and ASAS-SN Sky Patrol seasonal photometry (`pip install oddstar[surveys]`).
