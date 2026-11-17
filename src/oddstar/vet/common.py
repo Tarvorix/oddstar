@@ -17,10 +17,13 @@ def make_vet_result(
     note: str,
     metrics: dict[str, Any] | None = None,
     evidence_override: Path | None = None,
+    inputs: dict[str, Any] | None = None,
 ) -> VettingResult:
     """Write check evidence to disk and return a validated VettingResult.
 
-    Enforces AGENTS.md rule: never return 'pass' or 'fail' without an existing evidence file.
+    Enforces AGENTS.md rule: never return 'pass' or 'fail' without an existing evidence file. `inputs` optionally
+    records the raw-cache manifest IDs, SHA-256 values and query URLs the check consumed; the committed evidence
+    store (`oddstar.evidence`) copies them, together with any it finds in the metrics, when a candidate is registered.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
     if status == "not_evaluated" and evidence_override is None:
@@ -40,6 +43,8 @@ def make_vet_result(
             "note": note,
             "metrics": metrics or {},
         }
+        if inputs:
+            payload["inputs"] = inputs
         ev_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
     elif not ev_path.exists():
         raise FileNotFoundError(f"Expected evidence file does not exist: {ev_path}")

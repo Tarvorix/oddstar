@@ -184,6 +184,25 @@ class DossierReviewSummary(BaseModel):
     record: str
     verdict: str
     reviewer_model: str = ""
+    model_family: str = ""
+
+
+class ReviewStatus(BaseModel):
+    """Honest review status of one source (rules R5, R7, R10), derived from stored records, ledger and checklists."""
+
+    source_id: str
+    rounds: list[int] = Field(default_factory=list)
+    model_families: dict[str, str] = Field(default_factory=dict)
+    distinct_families: list[str] = Field(default_factory=list)
+    independent_family: bool = False
+    independence_basis: str = ""
+    records_ingested: int = 0
+    records_total: int = 0
+    checklist_ticked: int = 0
+    checklist_total: int = 0
+    checklist_files: list[str] = Field(default_factory=list)
+    open_findings: list[str] = Field(default_factory=list)
+    summary: str = ""
 
 
 class Dossier(BaseModel):
@@ -197,6 +216,7 @@ class Dossier(BaseModel):
     hypotheses: list[HypothesisRow] = Field(default_factory=list)
     cross_channel_patterns: list[str] = Field(default_factory=list)
     reviews: list[DossierReviewSummary] = Field(default_factory=list)
+    review_status: ReviewStatus | None = None
     what_would_settle_it: list[str] = Field(default_factory=list)
     lead_lines: list[str] = Field(default_factory=list)
     reproduce: str
@@ -257,7 +277,17 @@ class LessonRecord(BaseModel):
     linked_test: str
     added_to_impostors: bool = False
     skill_updated: str | None = None
+    # Commit that introduced the lesson's files (`git log --diff-filter=A -- lessons/<id>.json`). Empty until that
+    # commit exists (a commit cannot contain its own SHA); `oddstar lessons record-sha` fills it afterwards.
     commit_sha: str = ""
+    commit_sha_note: str = ""
+    # Whether registering the lesson closes `finding_id` (finding_closed event); False records the link only.
+    closes_finding: bool = True
+    # Other real finding IDs the lesson addresses without closing them.
+    related_finding_ids: list[str] = Field(default_factory=list)
+    # Where the finding is recorded when it is not a review record finding (for example a repository audit).
+    finding_source: str = ""
+    additional_linked_tests: list[str] = Field(default_factory=list)
 
 
 class NullReport(BaseModel):
@@ -318,12 +348,50 @@ class RegistryEntry(BaseModel):
         "finding_opened",
         "finding_closed",
         "lesson_added",
+        "lesson_updated",
         "explained_anomaly",
     ]
     tier: Literal["A", "B", "C", "Explained", "Rejected"] | None = None
     status: str = ""
     provenance: dict[str, Any] = Field(default_factory=dict)
     details: dict[str, Any] = Field(default_factory=dict)
+    # Committed evidence (registry/evidence/<source_id>/<run_id>/) for registrations written since 1.1.0.
+    evidence_dir: str | None = None
+    evidence_index_sha256: str | None = None
+
+
+class EvidenceFile(BaseModel):
+    path: str
+    sha256: str
+    bytes: int
+    kind: Literal["vetting", "measurement", "image", "other"]
+    check: str | None = None
+    channel: str | None = None
+
+
+class OmittedEvidenceFile(BaseModel):
+    name: str
+    sha256: str
+    bytes: int
+    reason: str
+
+
+class EvidenceIndex(BaseModel):
+    """`index.json` of one committed evidence directory (registry/evidence/<source_id>/<run_id>/)."""
+
+    source_id: str
+    run_id: str
+    tier: Literal["A", "B", "C", "Explained", "Rejected"]
+    scope: Literal["full", "rejection_only"]
+    flagged_channels: list[str] = Field(default_factory=list)
+    config_hash: str
+    config_hash_full: str = ""
+    git_commit: str
+    pipeline_version: str
+    timestamp_utc: str
+    vetting: list[dict[str, Any]] = Field(default_factory=list)
+    files: list[EvidenceFile] = Field(default_factory=list)
+    omitted_files: list[OmittedEvidenceFile] = Field(default_factory=list)
 
 
 class RunState(BaseModel):
@@ -358,6 +426,8 @@ SCHEMA_MODELS: dict[str, type[BaseModel]] = {
     "fusion_result": FusionResult,
     "registry_entry": RegistryEntry,
     "run_state": RunState,
+    "review_status": ReviewStatus,
+    "evidence_index": EvidenceIndex,
 }
 
 

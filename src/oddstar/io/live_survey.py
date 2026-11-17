@@ -531,12 +531,14 @@ def _join_and_phot_cuts_sql() -> str:
     """
 
 
-def _phot_quality_where_sql() -> str:
-    return """
-      AND awn.number_of_neighbours = 1
-      AND awn.number_of_mates = 0
-      AND tmn.number_of_neighbours = 1
-      AND tmn.number_of_mates = 0
+def _phot_quality_where_sql(cfg: PipelineConfig) -> str:
+    """Unique Gaia-AllWISE / Gaia-2MASS matches and measured photometry (numbers from `live_ingestion`)."""
+    li = cfg.live_ingestion
+    return f"""
+      AND awn.number_of_neighbours = {int(li.allwise_number_of_neighbours)}
+      AND awn.number_of_mates = {int(li.allwise_number_of_mates)}
+      AND tmn.number_of_neighbours = {int(li.tmass_number_of_neighbours)}
+      AND tmn.number_of_mates = {int(li.tmass_number_of_mates)}
       AND aw.w1mpro_error IS NOT NULL
       AND aw.w2mpro_error IS NOT NULL
       AND aw.w3mpro_error IS NOT NULL
@@ -585,7 +587,7 @@ def _fetch_live_two_stage(
             SELECT {_select_columns_sql()}
             {_join_and_phot_cuts_sql()}
             WHERE g.source_id IN ({id_csv})
-            {_phot_quality_where_sql()}
+            {_phot_quality_where_sql(cfg)}
             ORDER BY g.random_index ASC
             """.split()
         )
@@ -604,6 +606,49 @@ def _fetch_live_two_stage(
     return matched_rows[:n_lim], manifests
 
 
+def _region_where_sql(reg: str, cfg: PipelineConfig) -> str:
+    """Gaia WHERE clause of a live region preset; every number comes from `live_ingestion.regions.<reg>`.
+
+    4.74047 converts mas/yr / mas to km/s (unit conversion, not a cut). Floats render with `repr`, so the query text
+    (and therefore the raw-cache signature) is identical to the text used before the cuts moved to config.
+    """
+    c = {k: float(v) for k, v in cfg.live_ingestion.regions[reg].items()}
+    vtan = "4.74047 * SQRT(g.pmra * g.pmra + g.pmdec * g.pmdec) / g.parallax"
+    if reg == "halo":
+        # All-sky Galactic Halo: high |b|, metal-poor, high v_tan, randomized over the whole sky
+        return f"""
+          g.parallax_over_error > {c['min_parallax_over_error']!r}
+          AND g.parallax BETWEEN {c['parallax_min_mas']!r} AND {c['parallax_max_mas']!r}
+          AND g.ruwe < {c['max_ruwe']!r}
+          AND ABS(g.b) > {c['min_abs_b_deg']!r}
+          AND g.phot_g_mean_mag BETWEEN {c['g_mag_min']!r} AND {c['g_mag_max']!r}
+          AND g.teff_gspphot BETWEEN {c['teff_min_k']!r} AND {c['teff_max_k']!r}
+          AND g.mh_gspphot < {c['max_mh_gspphot']!r}
+          AND {vtan} > {c['min_vtan_kms']!r}
+        """
+    if reg == "bulge":
+        # Galactic Bulge window around l ~ 0 deg at bulge distances
+        return f"""
+          (g.l <= {c['gal_l_half_width_deg']!r} OR g.l >= {360.0 - c['gal_l_half_width_deg']!r})
+          AND ABS(g.b) BETWEEN {c['abs_b_min_deg']!r} AND {c['abs_b_max_deg']!r}
+          AND g.parallax BETWEEN {c['parallax_min_mas']!r} AND {c['parallax_max_mas']!r}
+          AND g.parallax_over_error > {c['min_parallax_over_error']!r}
+          AND g.ruwe < {c['max_ruwe']!r}
+          AND g.phot_g_mean_mag BETWEEN {c['g_mag_min']!r} AND {c['g_mag_max']!r}
+          AND g.teff_gspphot BETWEEN {c['teff_min_k']!r} AND {c['teff_max_k']!r}
+        """
+    # Legacy local high-velocity cut
+    return f"""
+          g.parallax_over_error > {c['min_parallax_over_error']!r}
+          AND g.parallax BETWEEN {c['parallax_min_mas']!r} AND {c['parallax_max_mas']!r}
+          AND g.ruwe < {c['max_ruwe']!r}
+          AND ABS(g.b) > {c['min_abs_b_deg']!r}
+          AND g.phot_g_mean_mag BETWEEN {c['g_mag_min']!r} AND {c['g_mag_max']!r}
+          AND g.teff_gspphot BETWEEN {c['teff_min_k']!r} AND {c['teff_max_k']!r}
+          AND {vtan} > {c['min_vtan_kms']!r}
+        """
+
+
 def fetch_live_halo_bulge_sample(
     cfg: PipelineConfig,
     cache: RawCache,
@@ -617,48 +662,15 @@ def fetch_live_halo_bulge_sample(
     reg = region.lower().strip()
     extra_cursor = f" AND g.random_index > {int(after_random_index)}" if after_random_index is not None else ""
 
-    if reg == "halo":
-        # True all-sky Galactic Halo: |b| > 20 deg, metal-poor [Fe/H] < -0.8, high v_tan > 150 km/s, randomized over whole sky
-        base_where_gaia = """
-          g.parallax_over_error > 10.0
-          AND g.parallax BETWEEN 0.5 AND 20.0
-          AND g.ruwe < 1.4
-          AND ABS(g.b) > 20.0
-          AND g.phot_g_mean_mag BETWEEN 7.5 AND 14.5
-          AND g.teff_gspphot BETWEEN 3800.0 AND 7500.0
-          AND g.mh_gspphot < -0.8
-          AND 4.74047 * SQRT(g.pmra * g.pmra + g.pmdec * g.pmdec) / g.parallax > 150.0
-        """
+    if reg not in {"halo", "bulge", "local"}:
+        raise ArchiveAccessError(f"Unsupported live region '{region}'; expected 'halo', 'bulge', or 'local'", retryable=False)
+    base_where_gaia = _region_where_sql(reg, cfg)
+    if reg in {"halo", "bulge"}:
         where_region = f"{base_where_gaia} {extra_cursor}"
         order_clause = "ORDER BY g.random_index ASC"
-    elif reg == "bulge":
-        # Galactic Bulge window around l ~ 0 deg, |b| 3..10 deg, bulge distances (~2.2-12.5 kpc)
-        base_where_gaia = """
-          (g.l <= 12.0 OR g.l >= 348.0)
-          AND ABS(g.b) BETWEEN 3.0 AND 10.0
-          AND g.parallax BETWEEN 0.08 AND 0.45
-          AND g.parallax_over_error > 5.0
-          AND g.ruwe < 1.4
-          AND g.phot_g_mean_mag BETWEEN 8.0 AND 14.5
-          AND g.teff_gspphot BETWEEN 3500.0 AND 7500.0
-        """
-        where_region = f"{base_where_gaia} {extra_cursor}"
-        order_clause = "ORDER BY g.random_index ASC"
-    elif reg == "local":
-        # Legacy local high-velocity cut (v_tan > 65 km/s, |b| > 12 deg, 40-500 pc)
-        base_where_gaia = """
-          g.parallax_over_error > 15.0
-          AND g.parallax BETWEEN 2.0 AND 25.0
-          AND g.ruwe < 1.4
-          AND ABS(g.b) > 12.0
-          AND g.phot_g_mean_mag BETWEEN 7.5 AND 13.5
-          AND g.teff_gspphot BETWEEN 3800.0 AND 7500.0
-          AND 4.74047 * SQRT(g.pmra * g.pmra + g.pmdec * g.pmdec) / g.parallax > 65.0
-        """
+    else:
         where_region = base_where_gaia
         order_clause = "ORDER BY g.source_id ASC"
-    else:
-        raise ArchiveAccessError(f"Unsupported live region '{region}'; expected 'halo', 'bulge', or 'local'", retryable=False)
 
     # If a two-stage Gaia index is already cached for paginated queries, use it directly without a 60s sync timeout.
     if reg in {"halo", "bulge"} and after_random_index is not None:
@@ -684,7 +696,7 @@ def fetch_live_halo_bulge_sample(
       {_select_columns_sql()}
     {_join_and_phot_cuts_sql()}
     WHERE {where_region}
-    {_phot_quality_where_sql()}
+    {_phot_quality_where_sql(cfg)}
     {order_clause}
     """
     try:

@@ -85,12 +85,15 @@ def _tess_log(lc: dict[str, Any]) -> str:
     return f" ({'; '.join(bits)})" if bits else ""
 
 
-def matched_detrend(t: np.ndarray, f: np.ndarray, window_days: float, gap_days: float = 0.5) -> np.ndarray:
+def matched_detrend(
+    t: np.ndarray, f: np.ndarray, window_days: float, gap_days: float = 0.5, mask_sigma: float = 2.5
+) -> np.ndarray:
     """Detrend one light curve with the filter applied identically to every extraction being compared.
 
     Per continuous segment (split at gaps > `gap_days`), divide by a running median of `window_days`, computed
-    after masking points more than 2.5 robust sigma below a first-pass baseline so a real dip does not pull the
-    baseline down. The window is the optical_dips channel's own `detrend_window_days`, so the comparison
+    after masking points more than `mask_sigma` robust sigma below a first-pass baseline so a real dip does not pull
+    the baseline down (pipeline callers pass `vetting.lc_detrend_low_mask_sigma`; the keyword defaults equal the
+    configured values and only serve direct callers). The window is the optical_dips channel's own `detrend_window_days`, so the comparison
     preserves the same dip timescales the detection channel searches.
     """
     from scipy.ndimage import median_filter
@@ -112,7 +115,7 @@ def matched_detrend(t: np.ndarray, f: np.ndarray, window_days: float, gap_days: 
         base = median_filter(fs, size=win, mode="nearest")
         resid = fs - base
         noise = max(1e-9, 1.4826 * float(np.median(np.abs(resid))))
-        valid = resid >= -2.5 * noise
+        valid = resid >= -mask_sigma * noise
         if int(np.sum(valid)) >= 5:
             base = median_filter(np.interp(ts, ts[valid], fs[valid]), size=win, mode="nearest")
         out[seg] = fs / np.maximum(1e-9, base)
@@ -179,8 +182,9 @@ def analyze_tess_sector(sec: dict[str, Any], cfg: PipelineConfig) -> dict[str, A
     gap = _od(cfg, "tess_segment_gap_days")
     bin_days = _od(cfg, "min_duration_hours") / 24.0
     thr = _od(cfg, "min_dip_depth_frac")
-    rq = matched_detrend(t, fq, window, gap)
-    rc = matched_detrend(t, fc, window, gap)
+    mask_sigma = _vt(cfg, "lc_detrend_low_mask_sigma")
+    rq = matched_detrend(t, fq, window, gap, mask_sigma)
+    rc = matched_detrend(t, fc, window, gap, mask_sigma)
     n_per = np.asarray(sec.get("n_per_bin") or [], dtype=float)
     if len(n_per) != len(t):
         n_per = np.ones(len(t))
@@ -379,7 +383,7 @@ def _tess_systematics(lc: dict[str, Any], cfg: PipelineConfig) -> dict[str, Any]
         b_med, b_sig = float(np.median(bkg)), max(1e-9, _robust_sigma(bkg))
         dt = np.diff(t)
         steps = np.hypot(np.diff(cx), np.diff(cy))
-        contiguous = dt <= 1.5 * float(np.median(dt))
+        contiguous = dt <= _vt(cfg, "lc_tess_contiguous_dt_factor") * float(np.median(dt))
         s_med = float(np.median(steps[contiguous])) if contiguous.any() else 0.0
         s_sig = max(1e-6, _robust_sigma(steps[contiguous])) if contiguous.any() else 1e-6
         tested = sorted(set(a["_thr_bins"]) | {a["_ico"]})
@@ -840,11 +844,12 @@ def _sector_period_search(sec: dict[str, Any], cfg: PipelineConfig) -> dict[str,
         amp = float(np.percentile(y, 95) - np.percentile(y, 5))
         out.update({"ls_period_days": round(1.0 / float(freq[j]), 4), "ls_power": round(float(power[j]), 4), "ls_fap": float(f"{fap:.3e}"),
                     "amplitude_5_95_frac": round(amp, 5)})
-    bls_max = min(8.0, 0.5 * span)
-    if bls_max > 0.8:
+    bls_min = _vt(cfg, "lc_bls_min_period_days")
+    bls_max = min(_vt(cfg, "lc_bls_max_period_days"), 0.5 * span)
+    if bls_max > bls_min:
         model = BoxLeastSquares(t, y)
-        periods = np.linspace(0.8, bls_max, 200)
-        res = model.power(periods, 0.1)
+        periods = np.linspace(bls_min, bls_max, 200)
+        res = model.power(periods, _vt(cfg, "lc_bls_duration_days"))
         snr = (float(np.max(res.power)) - float(np.median(res.power))) / max(1e-6, float(np.std(res.power)))
         jb = int(np.argmax(res.power))
         period, t0, dur, depth = float(res.period[jb]), float(res.transit_time[jb]), float(res.duration[jb]), float(res.depth[jb])
@@ -857,10 +862,10 @@ def _sector_period_search(sec: dict[str, Any], cfg: PipelineConfig) -> dict[str,
             sel = np.abs(t - tc) <= 0.5 * dur
             if sel.sum() >= 2:
                 n_pred += 1
-                if (1.0 - float(np.mean(y[sel]))) >= 0.5 * depth:
+                if (1.0 - float(np.mean(y[sel]))) >= _vt(cfg, "lc_eb_eclipse_min_depth_frac_of_model") * depth:
                     n_ecl += 1
         eb = bool(snr > _od(cfg, "periodic_bls_veto_snr") and depth >= _od(cfg, "periodic_eb_min_depth_frac")
-                  and n_ecl >= 2 and n_ecl >= 0.5 * n_pred)
+                  and n_ecl >= int(_vt(cfg, "lc_eb_min_eclipses")) and n_ecl >= _vt(cfg, "lc_eb_min_eclipse_epoch_frac") * n_pred)
         out.update({"bls_period_days": round(period, 4), "bls_snr": round(snr, 2), "bls_depth": round(depth, 4), "bls_n_eclipses": n_ecl,
                     "bls_n_predicted": n_pred, "periodic_eb": eb})
     return out
@@ -880,8 +885,8 @@ def check_known_variable(star: dict[str, Any], cfg: PipelineConfig, out_dir: Pat
         from astropy.timeseries import BoxLeastSquares
 
         model = BoxLeastSquares(t, f)
-        periods = np.linspace(0.8, 8.0, 200)
-        res = model.power(periods, 0.1)
+        periods = np.linspace(_vt(cfg, "lc_bls_min_period_days"), _vt(cfg, "lc_bls_max_period_days"), 200)
+        res = model.power(periods, _vt(cfg, "lc_bls_duration_days"))
         best_power = float(np.max(res.power))
         med_power = float(np.median(res.power))
         snr = (best_power - med_power) / max(1e-6, float(np.std(res.power)))
@@ -1008,14 +1013,17 @@ def _w2_rel_mag(neo: dict[str, Any]) -> tuple[np.ndarray, np.ndarray] | None:
     return mjd[order], -2.5 * np.log10(w2[order] / np.median(w2))
 
 
-def _ir_event_window(mjd: np.ndarray, m: np.ndarray) -> tuple[float, float]:
-    """Visits deviating from the first-three-visit baseline by >= half the maximum deviation span the IR event."""
-    base = float(np.median(m[: min(3, len(m))]))
+def _ir_event_window(mjd: np.ndarray, m: np.ndarray, cfg: PipelineConfig) -> tuple[float, float]:
+    """Visits deviating from the baseline (median of the first `lc_ir_event_baseline_visits` visits) by at least
+    `lc_ir_event_dev_frac` of the maximum deviation span the IR event; a window shorter than
+    `lc_ir_event_min_window_days` is padded by `lc_ir_event_pad_days` on both sides."""
+    base = float(np.median(m[: min(int(_vt(cfg, "lc_ir_event_baseline_visits")), len(m))]))
     dev = np.abs(m - base)
-    sel = np.where(dev >= 0.5 * float(np.max(dev)))[0]
+    sel = np.where(dev >= _vt(cfg, "lc_ir_event_dev_frac") * float(np.max(dev)))[0]
     lo, hi = float(mjd[sel[0]]), float(mjd[sel[-1]])
-    if hi - lo < 180.0:
-        lo, hi = lo - 90.0, hi + 90.0
+    if hi - lo < _vt(cfg, "lc_ir_event_min_window_days"):
+        pad = _vt(cfg, "lc_ir_event_pad_days")
+        lo, hi = lo - pad, hi + pad
     return lo, hi
 
 
@@ -1087,7 +1095,7 @@ def _ir_context(star: dict[str, Any], series: list[dict[str, Any]], cfg: Pipelin
     w2 = _w2_rel_mag(neo)
     if w2 is None:
         return None
-    lo, hi = _ir_event_window(*w2)
+    lo, hi = _ir_event_window(w2[0], w2[1], cfg)
     win_txt = f"{_jyear(lo):.1f}-{_jyear(hi):.1f}"
     bands, cov_txt = [], []
     for sr in series:

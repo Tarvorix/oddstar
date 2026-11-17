@@ -1,10 +1,13 @@
 # L006_matched_detrending_and_robust_optical_surveys: Fetch TESS QLP/TESScut, ZTF and ASAS-SN live for LC vetting, with matched detrending and retried/paged ZTF queries
 
-- **Finding ID**: `F-5628404318169472-ADV-L006`
+- **Finding ID**: `F-5628404318169472-20261117-R2-OPTICAL`
+- **Finding source**: review/records/REV-20261117-R2-5628404318169472.json
 - **Target**: `5628404318169472`
-- **Automated Check / Vetting Rule**: `oddstar.vet.lc_checks.check_pipeline_agreement + oddstar.vet.lc_checks.matched_detrend + oddstar.vet.lc_checks.check_second_survey + oddstar.io.optical_timeseries.fetch_ztf_lightcurve + oddstar.io.optical_timeseries.fetch_asassn_lightcurve + oddstar.io.optical_timeseries.fetch_tess_pipeline_pair`
-- **Linked Test**: `tests/test_optical_vetting.py::test_pipeline_agreement_matched_detrending` (plus the other tests in `tests/test_optical_vetting.py`)
+- **Automated Check / Vetting Rule**: `oddstar.vet.lc_checks.check_second_survey + oddstar.vet.lc_checks.check_pipeline_agreement + oddstar.vet.lc_checks.matched_detrend + oddstar.io.optical_timeseries.fetch_ztf_lightcurve + oddstar.io.optical_timeseries.fetch_asassn_lightcurve + oddstar.io.optical_timeseries.fetch_tess_pipeline_pair`
+- **Linked Test**: `tests/test_lc_vetting_live.py::test_second_survey_reference_star_dims_while_ir_brightens`
+- **Additional Tests**: `tests/test_optical_vetting.py::test_pipeline_agreement_matched_detrending`, `tests/test_lc_vetting_live.py::test_second_survey_counter_case_and_coverage`
 - **Added to Impostors**: `False`
+- **Commit (introduced the lesson files)**: `2b24823d0b8909d526951058b1d972a91c98d3a8`
 
 ## What Happened
 The sole Tier C survivor 5628404318169472 carried two not_evaluated holes that code could close. pipeline_agreement never received a second TESS extraction because live enrichment fetched no TESS data, and the adversarial review's hand comparison of QLP vs. TESScut (raw r = 0.43-0.81) used different detrending on each series. second_survey never received ZTF or ASAS-SN because live enrichment had no optical survey fetch, and the reviewer's own IRSA ZTF cone requests timed out at 40 s unless narrowed to one band list and a 6 arcsec cone.
@@ -25,3 +28,8 @@ A cross-pipeline comparison is only meaningful when both series go through the i
 
 ## Automation & Regression Test
 Enforced via `oddstar.vet.lc_checks.check_pipeline_agreement + oddstar.vet.lc_checks.matched_detrend + oddstar.vet.lc_checks.check_second_survey + oddstar.io.optical_timeseries.fetch_ztf_lightcurve + oddstar.io.optical_timeseries.fetch_asassn_lightcurve + oddstar.io.optical_timeseries.fetch_tess_pipeline_pair` and verified in `tests/test_optical_vetting.py`.
+
+## Finding linkage (amended 2026-11-17)
+- Finding: `F-5628404318169472-20261117-R2-OPTICAL` (round-2 record `review/records/REV-20261117-R2-5628404318169472.json`): ASAS-SN finds small optical seasonal changes across the infrared event. The earlier ID `F-5628404318169472-ADV-L006` matched no review record.
+- What closes it: `check_second_survey` now measures the optical change instead of passing on its absence. On the reference star it reports ASAS-SN g range 0.060 mag at 6.9 sigma, response `dimming_with_ir_brightening`, note "significant optical change detected" (test `tests/test_lc_vetting_live.py::test_second_survey_reference_star_dims_while_ir_brightens`). That response classification was added in commit 0e5956a, after this lesson; the second_survey **pass** reported above under "Result" predates it and by itself did not address the finding.
+- Not addressed: `F-5628404318169472-20261117-R2-PRIOR-IR` (VarWISE prior catalogue entry) and `F-5628404318169472-20261117-R3-UNRESOLVED-BLEND` stay open. The matched detrending of `pipeline_agreement` partly covers unticked human checklist item 4 of `review/adversarial-2026-11-17.md`; that item stays for a human.

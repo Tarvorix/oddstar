@@ -107,6 +107,11 @@
     },
     "DossierReviewSummary": {
       "properties": {
+        "model_family": {
+          "default": "",
+          "title": "Model Family",
+          "type": "string"
+        },
         "record": {
           "title": "Record",
           "type": "string"
@@ -217,6 +222,90 @@
         "config_hash"
       ],
       "title": "Provenance",
+      "type": "object"
+    },
+    "ReviewStatus": {
+      "description": "Honest review status of one source (rules R5, R7, R10), derived from stored records, ledger and checklists.",
+      "properties": {
+        "checklist_files": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Checklist Files",
+          "type": "array"
+        },
+        "checklist_ticked": {
+          "default": 0,
+          "title": "Checklist Ticked",
+          "type": "integer"
+        },
+        "checklist_total": {
+          "default": 0,
+          "title": "Checklist Total",
+          "type": "integer"
+        },
+        "distinct_families": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Distinct Families",
+          "type": "array"
+        },
+        "independence_basis": {
+          "default": "",
+          "title": "Independence Basis",
+          "type": "string"
+        },
+        "independent_family": {
+          "default": false,
+          "title": "Independent Family",
+          "type": "boolean"
+        },
+        "model_families": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Model Families",
+          "type": "object"
+        },
+        "open_findings": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Open Findings",
+          "type": "array"
+        },
+        "records_ingested": {
+          "default": 0,
+          "title": "Records Ingested",
+          "type": "integer"
+        },
+        "records_total": {
+          "default": 0,
+          "title": "Records Total",
+          "type": "integer"
+        },
+        "rounds": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Rounds",
+          "type": "array"
+        },
+        "source_id": {
+          "title": "Source Id",
+          "type": "string"
+        },
+        "summary": {
+          "default": "",
+          "title": "Summary",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_id"
+      ],
+      "title": "ReviewStatus",
       "type": "object"
     },
     "StarMetadata": {
@@ -416,6 +505,17 @@
     "reproduce": {
       "title": "Reproduce",
       "type": "string"
+    },
+    "review_status": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ReviewStatus"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     },
     "reviews": {
       "items": {

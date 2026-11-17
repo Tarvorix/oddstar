@@ -116,7 +116,7 @@ def check_xmatch_integrity(star: dict[str, Any], cfg: PipelineConfig, out_dir: P
         2010.2,
     )
     sep = angular_separation_arcsec(prop_ra, prop_dec, float(aw["ra_deg"]), float(aw["dec_deg"]))
-    ok = (int(n_neigh) == 1) and (sep <= 2.5)
+    ok = (int(n_neigh) == 1) and (sep <= float(cfg.vetting["xmatch_max_sep_arcsec"]))
     return make_vet_result(
         out_dir,
         check="xmatch_integrity",
@@ -138,18 +138,19 @@ def check_wise_quality(star: dict[str, Any], cfg: PipelineConfig, out_dir: Path)
     w4nm = aw.get("w4nm")
     # Fail on artifact/halo flags in any WISE band (W1/W2 halos corrupt local background),
     # extended flag > 1, poor quality U/X, bad PSF chi2, or spurious W4 coadds with <15% frame detections.
+    min_frames = int(cfg.vetting["wise_w4_min_frames"])
     bad_cc = any(c in "DHOPdhop" for c in cc)
     bad_qual = len(ph_qual) >= 4 and ph_qual[3] in {"U", "X"}
     low_frame_det = (
         w4nm is not None
         and w4m is not None
-        and int(w4m) >= 5
+        and int(w4m) >= min_frames
         and len(ph_qual) >= 4
         and ph_qual[3] in {"A", "B", "C"}
-        and (int(w4nm) / max(1, int(w4m))) < 0.15
+        and (int(w4nm) / max(1, int(w4m))) < float(cfg.vetting["wise_w4_min_detected_frame_frac"])
     )
-    bad_chi2 = w4rchi2 is not None and float(w4rchi2) >= 3.5
-    few_frames = w4m is not None and int(w4m) < 5
+    bad_chi2 = w4rchi2 is not None and float(w4rchi2) >= float(cfg.vetting["wise_w4_max_rchi2"])
+    few_frames = w4m is not None and int(w4m) < min_frames
     metrics = {
         "cc_flags": cc,
         "ext_flg": ext_flg,
@@ -164,7 +165,7 @@ def check_wise_quality(star: dict[str, Any], cfg: PipelineConfig, out_dir: Path)
     note += f", w4m={int(w4m)}" if w4m is not None else ", w4m=n/a"
     if w4nm is not None and w4m is not None:
         note += f", w4nm={int(w4nm)}/{int(w4m)}"
-    if bad_cc or bad_qual or ext_flg > 1 or bad_chi2 or few_frames or low_frame_det:
+    if bad_cc or bad_qual or ext_flg > int(cfg.vetting["wise_max_ext_flg"]) or bad_chi2 or few_frames or low_frame_det:
         return make_vet_result(out_dir, check="wise_quality", status="fail", note=note, metrics=metrics)
     if w4rchi2 is None or w4m is None:
         return _not_evaluated(out_dir, "wise_quality", f"{note}; W4 profile-fit chi2/frame count not available", star, ["allwise_coadd"], metrics)
@@ -480,7 +481,7 @@ def check_extragalactic_colours(star: dict[str, Any], cfg: PipelineConfig, out_d
     agn_like = w1_w2 >= w1_w2_lim and w2_w3 >= w2_w3_lim
     # If blended with an offset galaxy or DOG, flag extragalactic colors if star is faint & W1-W2 red
     nbs = _flat_input(star, "neighbours_in_w4_beam", "gaia_neighbours")
-    dog_colours = w1_w2 >= 0.45 and w2_w3 >= 3.0
+    dog_colours = w1_w2 >= float(cfg.vetting["dog_w1_w2_min"]) and w2_w3 >= float(cfg.vetting["dog_w2_w3_min"])
     dog_like = dog_colours and nbs is not None and len(nbs) > 0
     exc = _excess_colours(star)
     exc_txt = ", ".join(f"{k.replace('excess_', '').replace('_', '-').upper()}={v:+.2f}" for k, v in exc.items() if v is not None) or "n/a"
@@ -555,12 +556,13 @@ def check_single_frames(star: dict[str, Any], cfg: PipelineConfig, out_dir: Path
         return _not_evaluated(out_dir, "single_frames", "No 2010 single-exposure WISE frames available", star, ["wise_l1b"] if _is_live(star) else [])
     arr = np.asarray(frames, dtype=float)
     med = float(np.median(arr))
-    consistent = int(np.sum(arr >= 0.5 * max(med, float(star["flux_mjy"]["W4"]) * 0.6)))
+    consistent = int(np.sum(arr >= float(cfg.vetting["single_frame_consistency_frac"])
+                            * max(med, float(star["flux_mjy"]["W4"]) * float(cfg.vetting["single_frame_coadd_floor_frac"]))))
     frac = consistent / len(arr)
     min_frac = float(cfg.vetting["single_frame_min_fraction"])
     # Also check whether one single outlier spike dominates the mean over median
     max_to_med = float(np.max(arr) / max(0.05, med))
-    ok = (frac >= min_frac) and (max_to_med < 2.2)
+    ok = (frac >= min_frac) and (max_to_med < float(cfg.vetting["single_frame_max_to_median"]))
     return make_vet_result(
         out_dir,
         check="single_frames",
@@ -680,7 +682,7 @@ def _youth_uv(star: dict[str, Any], galex: dict[str, Any], cfg: PipelineConfig) 
         return {"verdict": "non_constraining", "reason": f"(BP-RP)0={bp_rp0:.2f} outside the locus range", "bp_rp0": bp_rp0}
     nuv_exp = g0 + float(np.interp(bp_rp0, NUV_G_LOCUS_BP_RP, NUV_G_LOCUS))
     excess = nuv_exp - nuv0
-    sig = math.hypot(float(match.get("nuv_err") or 0.3), float(cfg.vetting["youth_nuv_locus_sigma_mag"]))
+    sig = math.hypot(float(match.get("nuv_err") or cfg.vetting["youth_nuv_default_err_mag"]), float(cfg.vetting["youth_nuv_locus_sigma_mag"]))
     nsig = float(cfg.vetting["youth_uv_constraint_nsigma"])
     if excess > thr:
         verdict = "young"
@@ -811,7 +813,7 @@ def check_evolved(star: dict[str, Any], cfg: PipelineConfig, out_dir: Path) -> V
     metrics = {"abs_g_mag": mg, "teff_k": teff, "teff_k_source": star.get("teff_k_source")}
     if mg < bright_lim and teff_default:
         return _not_evaluated(out_dir, "evolved", f"M_G={mg:.2f} is giant-bright but Teff is a default (no GSP-Phot Teff)", star, [], metrics)
-    is_evolved = (mg < bright_lim) and (teff < 5200.0)
+    is_evolved = (mg < bright_lim) and (teff < float(cfg.vetting["evolved_teff_max_k"]))
     metrics["is_evolved"] = is_evolved
     return make_vet_result(
         out_dir,
@@ -829,6 +831,7 @@ def check_binary(star: dict[str, Any], cfg: PipelineConfig, out_dir: Path) -> Ve
     rv_sig = _flat_input(star, "rv_scatter_kms", "gaia_meta")
     rv_faint_unconstrained = bool(va.get("rv_faint_unconstrained", False))
     ruwe_max = float(cfg.vetting["binary_ruwe_max"])
+    rv_max = float(cfg.vetting["binary_rv_scatter_max_kms"])
     metrics = {
         "ruwe": ruwe,
         "nss_flag": None if nss is None else int(nss),
@@ -837,13 +840,13 @@ def check_binary(star: dict[str, Any], cfg: PipelineConfig, out_dir: Path) -> Ve
     }
     nss_txt = "n/a" if nss is None else str(int(nss))
     rv_txt = "n/a" if rv_sig is None else f"{float(rv_sig):.2f} km/s"
-    if (ruwe > ruwe_max) or (nss is not None and int(nss) > 0) or (rv_sig is not None and float(rv_sig) > 5.0 and not rv_faint_unconstrained):
+    if (ruwe > ruwe_max) or (nss is not None and int(nss) > 0) or (rv_sig is not None and float(rv_sig) > rv_max and not rv_faint_unconstrained):
         return make_vet_result(out_dir, check="binary", status="fail", note=f"RUWE={ruwe:.2f}, NSS={nss_txt}, RV scatter={rv_txt}", metrics=metrics)
     if nss is None:
         return _not_evaluated(out_dir, "binary", f"RUWE={ruwe:.2f} but Gaia NSS/RV metadata not available", star, ["gaia_meta"], metrics)
     if rv_sig is None:
         return _not_evaluated(out_dir, "binary", f"RUWE={ruwe:.2f}, NSS={nss_txt}, no Gaia RV epoch statistic: close SB unconstrained", star, ["gaia_meta"], metrics)
-    if float(rv_sig) > 5.0 and rv_faint_unconstrained:
+    if float(rv_sig) > rv_max and rv_faint_unconstrained:
         return make_vet_result(
             out_dir, check="binary", status="not_evaluated",
             note=f"Faint-star Gaia RVS (RUWE={ruwe:.2f}, implied RV scatter={float(rv_sig):.2f} km/s without p-value): close SB1 binary unconstrained",

@@ -24,13 +24,16 @@ def check_cosmic_ray(star: dict[str, Any], cfg: PipelineConfig, out_dir: Path) -
         return make_vet_result(out_dir, check="cosmic_ray", status="not_evaluated", note="Missing multi-exposure spectra")
     diff = e1 - e2
     mad = max(1e-4, 1.4826 * float(np.median(np.abs(diff - np.median(diff)))))
-    cr_spike = float(np.max(np.abs(diff)) / mad) > 8.0
+    v = cfg.vetting
+    cr_spike = float(np.max(np.abs(diff)) / mad) > float(v["spectral_cr_spike_mad_sigma"])
     # Also check peak FWHM vs instrument LSF
     lsf_a = float(spec.get("lsf_fwhm_a", 0.45))
     peak_idx = int(np.argmax(e1))
-    above_half = np.sum(e1[max(0, peak_idx - 3) : min(len(e1), peak_idx + 4)] > 1.3)
+    above_half = np.sum(e1[max(0, peak_idx - 3) : min(len(e1), peak_idx + 4)] > float(v["spectral_peak_width_flux_level"]))
     width_a = float(above_half) * (float(wave[1] - wave[0]) if len(wave) > 1 else 0.25)
-    too_narrow = cr_spike or (float(np.max(e1)) > 1.5 and width_a < 0.7 * lsf_a)
+    too_narrow = cr_spike or (
+        float(np.max(e1)) > float(v["spectral_cr_min_peak_flux"]) and width_a < float(v["spectral_cr_min_width_lsf_frac"]) * lsf_a
+    )
     return make_vet_result(
         out_dir,
         check="cosmic_ray",
@@ -50,9 +53,9 @@ def check_sky_line(star: dict[str, Any], cfg: PipelineConfig, out_dir: Path) -> 
         return make_vet_result(out_dir, check="sky_line", status="not_evaluated", note="No sky spectrum available")
     sky_med = float(np.median(sky))
     sky_mad = max(1e-4, 1.4826 * float(np.median(np.abs(sky - sky_med))))
-    sky_peaks = wave[(sky - sky_med) / sky_mad > 6.0]
+    sky_peaks = wave[(sky - sky_med) / sky_mad > float(cfg.vetting["spectral_sky_peak_mad_sigma"])]
     comb = 0.5 * (e1 + e2)
-    target_peaks = wave[(comb - float(np.median(comb))) / max(1e-4, float(np.std(comb))) > 3.5]
+    target_peaks = wave[(comb - float(np.median(comb))) / max(1e-4, float(np.std(comb))) > float(cfg.vetting["spectral_target_peak_sigma"])]
     tol = float(cfg.channels["spectral_lines"].get("sky_line_exclusion_angstrom", 1.5))
     matched_sky = any(abs(float(tp) - float(sp)) <= tol for tp in target_peaks for sp in sky_peaks)
     matched_oh = any(abs(float(tp) - sl) <= tol for tp in target_peaks for sl in KNOWN_SKY_LINES_A if sl != 6562.79)
@@ -79,7 +82,7 @@ def check_stellar_emission(star: dict[str, Any], cfg: PipelineConfig, out_dir: P
     peak_idx = int(np.argmax(comb))
     peak_w = float(wave[peak_idx])
     peak_amp = float(comb[peak_idx] - np.median(comb))
-    is_stellar_line = peak_amp > 0.20 and any(abs(peak_w - sl) <= tol for sl in KNOWN_STELLAR_LINES_A)
+    is_stellar_line = peak_amp > float(cfg.vetting["spectral_stellar_line_min_amp"]) and any(abs(peak_w - sl) <= tol for sl in KNOWN_STELLAR_LINES_A)
     return make_vet_result(
         out_dir,
         check="stellar_emission",
@@ -110,7 +113,11 @@ def check_repeat(star: dict[str, Any], cfg: PipelineConfig, out_dir: Path) -> Ve
     idx2 = int(np.argmax(e2))
     val1 = float(e1[idx1] - np.median(e1))
     val2 = float(e2[idx1] - np.median(e2))
-    repeated = (val1 < 0.25 and val2 < 0.25) or (abs(idx1 - idx2) <= 2 and val2 > 0.20)
+    quiet_max = float(cfg.vetting["spectral_repeat_quiet_max_excess"])
+    repeated = (val1 < quiet_max and val2 < quiet_max) or (
+        abs(idx1 - idx2) <= int(cfg.vetting["spectral_repeat_max_pixel_shift"])
+        and val2 > float(cfg.vetting["spectral_repeat_min_excess"])
+    )
     return make_vet_result(
         out_dir,
         check="repeat",
