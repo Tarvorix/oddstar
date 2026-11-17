@@ -107,7 +107,7 @@ def test_moved_threshold_values_are_unchanged() -> None:
     assert (cfg.fusion.fap_floor, cfg.fusion.fallback_false_alarm_rate_per_star) == (1e-12, 1e-4)
     li = cfg.live_ingestion
     assert li.ir_excess_w4_upper_limit_ph_qual == ["U", "X"] and li.ir_excess_artifact_cc_flag_bands == [3, 4]
-    assert li.ir_timedomain_neowise_enrich_max_stars == 25
+    assert not hasattr(li, "ir_timedomain_neowise_enrich_max_stars")  # the 25-star cap is gone: ir_timedomain fetches every sample star
 
 
 def test_config_version_must_match_newest_changelog_heading(tmp_path: Path) -> None:

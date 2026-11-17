@@ -11,6 +11,7 @@ from pathlib import Path
 
 import yaml
 
+from oddstar.ci_certificates import check_certificates_current
 from oddstar.errors import PolicyViolationError
 from oddstar.schemas import LessonRecord, ReviewRecord, SCHEMA_MODELS
 
@@ -427,6 +428,7 @@ def run_all_ci_checks(root: Path, notices: list[str] | None = None) -> dict[str,
         "review_ingestion": check_review_ingestion(root),
         "lesson_commits": check_lesson_commits(root, notices),
         "review_independence": check_review_independence_wording(root),
+        "certificates": check_certificates_current(root),
     }
     return results
 

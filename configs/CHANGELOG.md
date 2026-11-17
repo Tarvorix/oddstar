@@ -124,6 +124,9 @@ certificates now also carry `code_fingerprint` and go stale when the validated c
   backoff 2 s, 4 s) of the survey NEOWISE-only fetch (`oddstar.io.neowise_bulk`); its rate limit is `archives.neowise.rate_limit_rps`.
 - Behaviour (ir_timedomain): stars without NEOWISE coverage, with a failed or missing NEOWISE fetch, or with fewer than
   `min_visits` visits are reported as not searched and excluded from null-report denominators (detection thresholds unchanged).
+- Removed `live_ingestion.ir_timedomain_neowise_enrich_max_stars: 25`. A live `search ir_timedomain` used to fetch NEOWISE
+  for the first 25 sample stars only and drop the rest; it now fetches every sample star through the bulk path
+  (`--neowise-max-stars N` bounds a run explicitly, and the stars beyond N are reported as not searched).
 
 ## [1.0.0] - 2026-11-16
 - Initial frozen baseline configuration for all 8 search channels, 23 archive adapters, and 42 vetting checks.

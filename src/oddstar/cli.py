@@ -250,6 +250,7 @@ def _cmd_search(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, 
                     extra_stars.append(resolve_star_record(cid, cfg))
 
     ch = build_channel(args.channel, cfg, root)
+    neowise_fetch: dict[str, Any] | None = None
     if args.channel == "radio_narrowband":
         stars = [dict(v) for v in RADIO_CADENCES.values()]
         cuts = []
@@ -268,10 +269,18 @@ def _cmd_search(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, 
                 by_id[es["source_id"]] = es
             stars = list(by_id.values())
         if args.channel == "ir_timedomain":
-            # Enrich the first `live_ingestion.ir_timedomain_neowise_enrich_max_stars` targets with live NEOWISE-R
-            # multi-epoch data (Section 5.2 cost control); the rest are not searched on this channel.
-            n_enrich = int(cfg.live_ingestion.ir_timedomain_neowise_enrich_max_stars)
-            stars = [enrich_star_live_for_vetting(s, cfg, cache, enrich_optical=False)[0] for s in stars[: min(n_enrich, len(stars))]]
+            # NEOWISE-R single-exposure rows only, for every sample star (cached, rate-limited, retried, resumable).
+            # Full vetting enrichment still runs below, for flagged stars only. Stars beyond --neowise-max-stars or
+            # whose fetch failed stay in the sample and are reported as not searched.
+            from oddstar.io.neowise_bulk import enrich_sample_neowise
+
+            def _neowise_progress(done: int, total: int, sid: str, status: str) -> None:
+                if not args.json and (done == total or done % 100 == 0):
+                    print(f"  neowise {done}/{total} (last {sid}: {status.split(':')[0]})", file=sys.stderr)
+
+            stars, neowise_fetch = enrich_sample_neowise(
+                stars, cfg, cache, max_stars=args.neowise_max_stars, progress=_neowise_progress
+            )
         nside = cfg.storage.healpix_nside
         cuts = [
             {
@@ -341,6 +350,13 @@ def _cmd_search(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, 
             live_flagged[fsid] = enriched
         (run_dir / "live_stars.json").write_text(json.dumps(live_flagged, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
+    coverage: dict[str, Any] | None = None
+    if args.channel == "ir_timedomain":
+        from oddstar.channels.ir_timedomain.channel import search_coverage_summary
+
+        coverage = search_coverage_summary(stars, cfg)
+    n_searched = coverage["n_searched"] if coverage is not None else len(stars)
+
     payload = {
         "run_id": run_id,
         "channel": args.channel,
@@ -349,7 +365,7 @@ def _cmd_search(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, 
         "git_commit": current_git_commit(root),
         "seed": seed,
         "certificate": f"validation/certificates/{args.channel}-{cfg.gaia.release}-{short_hash}.json",
-        "n_searched": len(stars),
+        "n_searched": n_searched,
         "n_flagged": len(flagged_ids),
         "flagged_ids": flagged_ids,
         "cuts": cuts,
@@ -357,6 +373,15 @@ def _cmd_search(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, 
         "measurements": measurements,
         "scores": scores,
     }
+    if coverage is not None:
+        # n_input, n_searched, n_not_searched, n_no_coverage, n_failed, n_not_fetched, n_insufficient_visits, not_searched_ids
+        payload.update(coverage)
+        payload["neowise_fetch"] = neowise_fetch
+    if is_live or coverage is not None:
+        # The real searched sample, so the null report is built from these stars and not from regenerated fixtures
+        payload["sample_stars"] = [
+            {"source_id": str(s["source_id"]), "distance_pc": s.get("distance_pc"), "teff_k": s.get("teff_k")} for s in stars
+        ]
     search_out.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
     state = RunState(
@@ -370,15 +395,34 @@ def _cmd_search(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, 
         status="completed",
         timestamp_utc=datetime.now(timezone.utc).isoformat(),
         artifacts=[str(search_out)],
-        summary={"n_searched": len(stars), "n_flagged": len(flagged_ids)},
+        summary={"n_searched": n_searched, "n_flagged": len(flagged_ids)},
     )
     (run_dir / "run_state.json").write_text(state.model_dump_json(indent=2) + "\n", encoding="utf-8")
 
+    warnings: list[str] = []
+    if coverage is not None and coverage["n_not_searched"]:
+        warnings.append(
+            f"{coverage['n_not_searched']} of {coverage['n_input']} stars not searched "
+            f"(no_coverage={coverage['n_no_coverage']}, failed={coverage['n_failed']}, not_fetched={coverage['n_not_fetched']}, "
+            f"insufficient_visits={coverage['n_insufficient_visits']}); they are excluded from the null result"
+        )
     return CLIResponse(
         ok=True,
-        summary=f"Searched {len(stars)} targets on '{args.channel}' -> {len(flagged_ids)} flagged (run_id={run_id})",
+        summary=f"Searched {n_searched} of {len(stars)} targets on '{args.channel}' -> {len(flagged_ids)} flagged (run_id={run_id})",
         artifacts=[str(search_out)],
-        data={"run_id": run_id, "n_searched": len(stars), "n_flagged": len(flagged_ids), "flagged_ids": flagged_ids},
+        data={
+            "run_id": run_id,
+            "n_searched": n_searched,
+            "n_input": len(stars),
+            "n_flagged": len(flagged_ids),
+            "flagged_ids": flagged_ids,
+            **(
+                {"coverage": {k: v for k, v in coverage.items() if k != "not_searched_ids"}, "neowise_fetch": neowise_fetch}
+                if coverage is not None
+                else {}
+            ),
+        },
+        warnings=warnings,
         next=f"oddstar vet {run_id} --json",
     )
 
@@ -961,7 +1005,10 @@ def _cmd_null_report(args: argparse.Namespace, cfg: PipelineConfig, short_hash: 
     if args.dry_run:
         return CLIResponse(ok=True, summary=f"[dry-run] Would generate null-report for {args.run_id} ({ch_name})")
 
-    stars = generate_field_sample(n_stars=int(sdata["n_searched"]), seed=int(sdata.get("seed", cfg.sample.seed)), gaia_release=cfg.gaia.release)
+    if "sample_stars" in sdata:
+        stars = sdata["sample_stars"]  # the real searched sample (live or offline), with its not-searched stars
+    else:
+        stars = generate_field_sample(n_stars=int(sdata["n_searched"]), seed=int(sdata.get("seed", cfg.sample.seed)), gaia_release=cfg.gaia.release)
     tier_breakdown = {"A": 0, "B": 0, "C": 0, "Explained": 0, "Rejected": 0}
     vf = run_dir / "vetting.json"
     if vf.exists():
@@ -991,6 +1038,7 @@ def _cmd_null_report(args: argparse.Namespace, cfg: PipelineConfig, short_hash: 
         manifests=[],
         cfg=cfg,
         root=root,
+        not_searched=sdata.get("not_searched_ids") if "sample_stars" in sdata else None,
     )
     return CLIResponse(
         ok=True,
@@ -1001,15 +1049,16 @@ def _cmd_null_report(args: argparse.Namespace, cfg: PipelineConfig, short_hash: 
 
 
 def _cmd_status(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, root: Path) -> CLIResponse:
-    certs_dir = root / "validation" / "certificates"
+    # A channel counts as certified only when its certificate passed for the current config hash and the code it
+    # validated is the code that would run a search now (the same condition `search` enforces).
+    from oddstar.validate import all_certificate_status
+
     certified: dict[str, list[str]] = {}
-    if certs_dir.exists():
-        for cf in sorted(certs_dir.glob("*.json")):
-            if cf.name == "dr3_vs_dr4_comparison.json":
-                continue
-            c = ValidationCertificate.model_validate_json(cf.read_text(encoding="utf-8"))
-            if c.passed:
-                certified.setdefault(c.gaia_release, []).append(c.channel)
+    certificate_rows: dict[str, list[dict[str, Any]]] = {}
+    for rel in ("dr3", "dr4"):
+        rel_cfg = cfg if cfg.gaia.release == rel else cfg.model_copy(update={"gaia": cfg.gaia.model_copy(update={"release": rel})})
+        certificate_rows[rel] = all_certificate_status(rel_cfg, root)
+        certified[rel] = [r["channel"] for r in certificate_rows[rel] if r["usable"]]
 
     rows = read_ledger(root, cfg.storage.registry_dir)
     records = load_review_records(root)
@@ -1025,6 +1074,10 @@ def _cmd_status(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, 
     uncertified_dr3 = [c for c in ALL_CHANNEL_NAMES if c not in certified.get("dr3", [])]
     next_cmd = f"oddstar validate {uncertified_dr3[0]} --json" if uncertified_dr3 else "oddstar inspect 4582145718700356096 --json"
     warnings = [f"evidence: {p}" for p in ev["problems"]]
+    for rel, cert_rows in certificate_rows.items():
+        for r in cert_rows:
+            if not r["usable"]:
+                warnings.append(f"certificate {r['channel']} {rel}: {'; '.join(r['reasons'])}")
     if ev["legacy_without_evidence"]:
         warnings.append(
             f"{ev['legacy_without_evidence']} of {n_registrations} ledger registrations are legacy_without_evidence: "
@@ -1043,6 +1096,7 @@ def _cmd_status(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, 
         warnings=warnings,
         data={
             "certified": certified,
+            "certificates": certificate_rows,
             "uncertified_dr3": uncertified_dr3,
             "active_runs": run_ids,
             "open_findings": unresolved,
@@ -1144,6 +1198,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_search.add_argument("--run-id", default=None)
     p_search.add_argument("--seed", type=int, default=None)
     p_search.add_argument("--extra-ids", default=None)
+    p_search.add_argument(
+        "--neowise-max-stars",
+        type=int,
+        default=None,
+        help="ir_timedomain --live: fetch NEOWISE for at most N sample stars (default: all); the rest are reported as not searched",
+    )
 
     p_vet = sub.add_parser("vet", parents=[common], help="Stage 4 vetting checks on flagged targets")
     p_vet.add_argument("run_id")

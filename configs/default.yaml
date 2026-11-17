@@ -296,7 +296,6 @@ live_ingestion:
   tmass_number_of_mates: 0
   ir_excess_w4_upper_limit_ph_qual: ["U", "X"]
   ir_excess_artifact_cc_flag_bands: [3, 4]
-  ir_timedomain_neowise_enrich_max_stars: 25
   regions:
     halo:
       min_parallax_over_error: 10.0

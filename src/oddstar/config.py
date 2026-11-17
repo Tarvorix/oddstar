@@ -88,7 +88,6 @@ class LiveIngestionConfig(BaseModel):
     regions: dict[str, dict[str, float]]
     ir_excess_w4_upper_limit_ph_qual: list[str]
     ir_excess_artifact_cc_flag_bands: list[int]
-    ir_timedomain_neowise_enrich_max_stars: int = Field(ge=0)
 
 
 class PipelineConfig(BaseModel):
