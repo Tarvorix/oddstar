@@ -1,6 +1,6 @@
 # Reviewed Surviving Candidate: `Gaia DR3 5628404318169472`
 
-Out of **1,800 stars** searched across the local thick-disk/halo (`300`), all-sky Galactic Halo (`1,000`), and Galactic Bulge (`500`), **`Gaia DR3 5628404318169472`** is the **only surviving candidate**, retained at **Tier C** after three rounds of independent adversarial review ([adversarial-2026-11-17.md](review/adversarial-2026-11-17.md)) and Lesson [`L003`](lessons/L003_adversarial_audit_and_missing_modality_routing.md) pipeline hardening. *(All other flagged stars—including `Gaia DR3 1111149103659931264` / `G 251-44`, confirmed as an `sdK7` subdwarf—have been resolved as **Explained** or **Rejected** in [candidates.md](docs/candidates.md).)*
+Out of **1,800 stars** searched across the local thick-disk/halo (`300`), all-sky Galactic Halo (`1,000`), and Galactic Bulge (`500`), **`Gaia DR3 5628404318169472`** is the **only surviving candidate**, retained at **Tier C** after three rounds of adversarial review, all from one model family with the human checklist 1 of 4 items complete ([adversarial-2026-11-17.md](review/adversarial-2026-11-17.md)) and Lesson [`L003`](lessons/L003_adversarial_audit_and_missing_modality_routing.md) pipeline hardening. *(All other flagged stars—including `Gaia DR3 1111149103659931264` / `G 251-44`, confirmed as an `sdK7` subdwarf—have been resolved as **Explained** or **Rejected** in [candidates.md](docs/candidates.md).)*
 
 ---
 
