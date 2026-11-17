@@ -9,5 +9,5 @@
   "linked_test": "tests/test_optical_vetting.py::test_pipeline_agreement_matched_detrending",
   "added_to_impostors": false,
   "skill_updated": null,
-  "commit_sha": ""
+  "commit_sha": "97acb8954df1895d2c4e01a7307dccecb6e112a0"
 }
