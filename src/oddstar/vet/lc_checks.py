@@ -74,6 +74,16 @@ def check_sso_crossing(star: dict[str, Any], cfg: PipelineConfig, out_dir: Path)
     )
 
 
+KNOWN_VARIABLE_SIMBAD_TYPES = frozenset(
+    {
+        "EB*", "Al*", "bL*", "WU*",
+        "LPV*", "LP*", "Mira", "Mi*", "SR*",
+        "CV*", "DN*", "NL*", "No*",
+        "RR*", "cC*", "Ce*", "Cep", "dS*", "RV*", "bC*", "gD*", "SX*",
+    }
+)
+
+
 def check_known_variable(star: dict[str, Any], cfg: PipelineConfig, out_dir: Path) -> VettingResult:
     stype = str(star.get("simbad_type", "Star"))
     lc = star.get("lightcurves", {})
@@ -91,7 +101,7 @@ def check_known_variable(star: dict[str, Any], cfg: PipelineConfig, out_dir: Pat
         snr = (best_power - med_power) / max(1e-6, float(np.std(res.power)))
         periodic_eb = snr > float(cfg.channels["optical_dips"].get("periodic_bls_veto_snr", 8.0)) and float(np.min(f)) < 0.85
 
-    is_known_var = stype in {"EB*", "LPV*", "Mira", "CV*"} or periodic_eb
+    is_known_var = stype in KNOWN_VARIABLE_SIMBAD_TYPES or periodic_eb
     return make_vet_result(
         out_dir,
         check="known_variable",

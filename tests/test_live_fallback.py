@@ -156,3 +156,54 @@ def test_live_region_queries_halo_and_bulge(tmp_path: Path, monkeypatch: Any) ->
     assert "ORDER BY g.random_index ASC" in seen_queries[0]
     assert "g.l <= 12.0 OR g.l >= 348.0" in seen_queries[1]
     assert "ABS(g.b) BETWEEN 3.0 AND 10.0" in seen_queries[1]
+
+
+def test_live_region_two_stage_fallback_on_timeout(tmp_path: Path, monkeypatch: Any) -> None:
+    cfg, _, _ = load_config()
+    cache = RawCache(tmp_path / "raw", max_cache_gb=1.0)
+    seen_queries: list[str] = []
+
+    def fake_post(url: str, data: dict[str, Any] | None = None, timeout: int = 15) -> _DummyResp:
+        q = (data or {}).get("QUERY", "")
+        seen_queries.append(q)
+        if "SELECT TOP" in q:
+            return _DummyResp(408)
+        if "SELECT g.source_id, g.random_index FROM gaiadr3.gaia_source" in q:
+            return _DummyResp(
+                200,
+                json_data={
+                    "metadata": [{"name": "source_id"}, {"name": "random_index"}],
+                    "data": [[111, 500], [222, 1200], [333, 1500]],
+                },
+            )
+        if "WHERE g.source_id IN (222,333)" in q:
+            return _DummyResp(
+                200,
+                json_data={
+                    "metadata": [
+                        {"name": "source_id"}, {"name": "ra"}, {"name": "dec"}, {"name": "l"}, {"name": "b"},
+                        {"name": "parallax"}, {"name": "parallax_error"}, {"name": "parallax_over_error"},
+                        {"name": "pmra"}, {"name": "pmdec"}, {"name": "ruwe"},
+                        {"name": "phot_g_mean_mag"}, {"name": "phot_bp_mean_mag"}, {"name": "phot_rp_mean_mag"},
+                        {"name": "teff_gspphot"}, {"name": "logg_gspphot"}, {"name": "mh_gspphot"},
+                        {"name": "ebpminrp_gspphot"}, {"name": "random_index"},
+                        {"name": "wise_designation"}, {"name": "w1mpro"}, {"name": "w1mpro_error"},
+                        {"name": "w2mpro"}, {"name": "w2mpro_error"}, {"name": "w3mpro"}, {"name": "w3mpro_error"},
+                        {"name": "w4mpro"}, {"name": "w4mpro_error"}, {"name": "cc_flags"}, {"name": "ext_flag"},
+                        {"name": "ph_qual"}, {"name": "wise_ra"}, {"name": "wise_dec"},
+                        {"name": "j_m"}, {"name": "j_msigcom"}, {"name": "h_m"}, {"name": "h_msigcom"},
+                        {"name": "ks_m"}, {"name": "ks_msigcom"}, {"name": "tmass_ph_qual"},
+                    ],
+                    "data": [
+                        [222, 10.0, 20.0, 120.0, 35.0, 2.0, 0.05, 40.0, 30.0, 40.0, 1.0, 11.0, 11.5, 10.4, 5200.0, 4.5, -1.2, 0.02, 1200, "J0040", 9.8, 0.02, 9.8, 0.02, 9.7, 0.04, 8.9, 0.2, "0000", 0, "AAAA", 10.0, 20.0, 10.1, 0.02, 9.9, 0.02, 9.8, 0.02, "AAA"],
+                    ],
+                },
+            )
+        return _DummyResp(400)
+
+    monkeypatch.setattr(requests, "post", fake_post)
+    from oddstar.io.live_survey import fetch_live_halo_bulge_sample
+
+    stars, _ = fetch_live_halo_bulge_sample(cfg, cache, limit=10, region="halo", after_random_index=999)
+    assert [s["source_id"] for s in stars] == ["222"]
+    assert any("WHERE g.source_id IN (222,333)" in q for q in seen_queries)

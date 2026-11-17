@@ -1,0 +1,13 @@
+{
+  "lesson_id": "L004_known_pulsating_variable_simbad_types",
+  "finding_id": "F-6164530246002222208-HALO-B2",
+  "source_id": "6164530246002222208",
+  "title": "Classify RR* and classical pulsating SIMBAD types in check_known_variable",
+  "what_happened": "In All-Sky Galactic Halo Batch 2 (live-allsky-halo-b2-out), horizontal-branch RR Lyrae variable Gaia DR3 6164530246002222208 (SIMBAD RR*, M_G=0.50, Teff=6439 K, [Fe/H]=-0.88, RV scatter=53.6 km/s) landed at Tier B because check_known_variable only checked {EB*, LPV*, Mira, CV*}.",
+  "generic_lesson": "Include RR*, LP*, Cepheid, delta Scuti, SR*, and eclipsing/cataclysmic SIMBAD codes in check_known_variable so known pulsating variables are resolved as Explained.",
+  "automated_check": "oddstar.vet.lc_checks.check_known_variable",
+  "linked_test": "tests/test_lessons.py::test_lesson_l004_known_pulsating_variable_simbad_types",
+  "added_to_impostors": false,
+  "skill_updated": null,
+  "commit_sha": "3de0fd0487cced1e0259e9aa4c03216ee2bc2549"
+}

@@ -126,3 +126,44 @@ def test_lesson_l003_missing_modality_routing_and_rv_binary_honesty(tmp_path: Pa
 
     bin_res = check_binary(subdwarf, cfg, tmp_path / "ev_bin")
     assert bin_res.status == "not_evaluated"
+
+
+def test_lesson_l004_known_pulsating_variable_simbad_types(tmp_path: Path) -> None:
+    """L004: Classical pulsating and evolved SIMBAD variable types (e.g. RR*, LP*, Cep, dS*)
+    must fail check_known_variable and resolve generic_outlier targets as Explained rather than Tier B.
+    """
+    from oddstar.schemas import ChannelScore
+    from oddstar.vet.lc_checks import check_known_variable
+
+    cfg, _, _ = load_config()
+    rr_star = {
+        "source_id": "6164530246002222208",
+        "ra_deg": 204.4323,
+        "dec_deg": -35.5543,
+        "abs_g_mag": 0.503,
+        "teff_k": 6439.0,
+        "feh": -0.876,
+        "ruwe": 1.389,
+        "simbad_type": "RR*",
+        "mags": {"G": 12.09, "BP": 12.33, "RP": 11.66, "J": 11.08, "Ks": 10.80, "W3": 10.74, "W4": 8.61},
+        "allwise": {"ra_deg": 204.4323, "dec_deg": -35.5543, "n_neighbours_gaia_xmatch": 1},
+        "lightcurves": {},
+        "vetting_archive": {"nss_flag": 0, "rv_scatter_kms": 53.6},
+    }
+    kv_res = check_known_variable(rr_star, cfg, tmp_path / "ev_kv")
+    assert kv_res.status == "fail"
+
+    score = ChannelScore(
+        source_id="6164530246002222208",
+        channel="generic_outlier",
+        raw_statistic=7.86,
+        false_alarm_prob=3.77e-5,
+        flagged=True,
+        rank_score=1.71,
+        summary="Outlier",
+        feature_contributions={"delta_m_sigma": -7.49, "ruwe": 1.46},
+    )
+    vet = vet_target(rr_star, [score], cfg, tmp_path / "ev_rr")
+    tier, reason = assign_tier([score], vet, cfg)
+    assert tier == "Explained"
+    assert reason and "known_variable" in reason

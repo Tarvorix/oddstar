@@ -441,6 +441,103 @@ def _row_to_star_dict(row: dict[str, Any], gaia_release: str = "dr3") -> dict[st
     }
 
 
+def _select_columns_sql() -> str:
+    return """
+      g.source_id, g.ra, g.dec, g.l, g.b, g.parallax, g.parallax_error, g.parallax_over_error,
+      g.pmra, g.pmdec, g.ruwe, g.phot_g_mean_mag, g.phot_bp_mean_mag, g.phot_rp_mean_mag,
+      g.teff_gspphot, g.logg_gspphot, g.mh_gspphot, g.ebpminrp_gspphot, g.random_index,
+      aw.designation AS wise_designation,
+      aw.w1mpro, aw.w1mpro_error, aw.w2mpro, aw.w2mpro_error,
+      aw.w3mpro, aw.w3mpro_error, aw.w4mpro, aw.w4mpro_error,
+      aw.cc_flags, aw.ext_flag, aw.ph_qual, aw.ra AS wise_ra, aw.dec AS wise_dec,
+      tm.j_m, tm.j_msigcom, tm.h_m, tm.h_msigcom, tm.ks_m, tm.ks_msigcom, tm.ph_qual AS tmass_ph_qual
+    """
+
+
+def _join_and_phot_cuts_sql() -> str:
+    return """
+    FROM gaiadr3.gaia_source AS g
+    JOIN gaiadr3.allwise_best_neighbour AS awn ON g.source_id = awn.source_id
+    JOIN gaiadr1.allwise_original_valid AS aw ON awn.allwise_oid = aw.allwise_oid
+    JOIN gaiadr3.tmass_psc_xsc_best_neighbour AS tmn ON g.source_id = tmn.source_id
+    JOIN gaiadr3.tmass_psc_xsc_join AS tmj ON tmn.clean_tmass_psc_xsc_oid = tmj.clean_tmass_psc_xsc_oid
+    JOIN gaiadr1.tmass_original_valid AS tm ON tmj.original_psc_source_id = tm.designation
+    """
+
+
+def _phot_quality_where_sql() -> str:
+    return """
+      AND awn.number_of_neighbours = 1
+      AND awn.number_of_mates = 0
+      AND tmn.number_of_neighbours = 1
+      AND tmn.number_of_mates = 0
+      AND aw.w1mpro_error IS NOT NULL
+      AND aw.w2mpro_error IS NOT NULL
+      AND aw.w3mpro_error IS NOT NULL
+      AND tm.j_msigcom IS NOT NULL
+      AND tm.h_msigcom IS NOT NULL
+      AND tm.ks_msigcom IS NOT NULL
+    """
+
+
+def _fetch_live_two_stage(
+    *,
+    base_where_gaia: str,
+    reg: str,
+    n_lim: int,
+    after_random_index: int | None,
+    cfg: PipelineConfig,
+    cache: RawCache,
+) -> tuple[list[dict[str, Any]], list[ManifestRecord]]:
+    """Two-stage Gaia-index -> AllWISE/2MASS batch join for paginated live queries."""
+    idx_query = " ".join(
+        f"SELECT g.source_id, g.random_index FROM gaiadr3.gaia_source AS g WHERE {base_where_gaia}".split()
+    )
+    idx_rows, idx_man, _ = _tap_query_cached(
+        urls=GAIA_TAP_URLS,
+        query=idx_query,
+        archive="gaia",
+        release=f"{cfg.gaia.release}_{reg}_index",
+        cache=cache,
+        timeout_s=90,
+    )
+    ordered = sorted(idx_rows, key=lambda r: int(r["random_index"]))
+    if after_random_index is not None:
+        ordered = [r for r in ordered if int(r["random_index"]) > int(after_random_index)]
+
+    manifests: list[ManifestRecord] = [idx_man]
+    matched_rows: list[dict[str, Any]] = []
+    pos = 0
+    while pos < len(ordered) and len(matched_rows) < n_lim:
+        remaining_needed = n_lim - len(matched_rows)
+        chunk_size = min(500, max(100, int(remaining_needed * 1.8)))
+        chunk = ordered[pos : pos + chunk_size]
+        pos += len(chunk)
+        id_csv = ",".join(str(int(r["source_id"])) for r in chunk)
+        batch_query = " ".join(
+            f"""
+            SELECT {_select_columns_sql()}
+            {_join_and_phot_cuts_sql()}
+            WHERE g.source_id IN ({id_csv})
+            {_phot_quality_where_sql()}
+            ORDER BY g.random_index ASC
+            """.split()
+        )
+        b_rows, b_man, _ = _tap_query_cached(
+            urls=GAIA_TAP_URLS,
+            query=batch_query,
+            archive="gaia",
+            release=f"{cfg.gaia.release}_{reg}_batch",
+            cache=cache,
+            timeout_s=60,
+        )
+        manifests.append(b_man)
+        matched_rows.extend(b_rows)
+
+    matched_rows.sort(key=lambda r: int(r["random_index"]))
+    return matched_rows[:n_lim], manifests
+
+
 def fetch_live_halo_bulge_sample(
     cfg: PipelineConfig,
     cache: RawCache,
@@ -456,7 +553,7 @@ def fetch_live_halo_bulge_sample(
 
     if reg == "halo":
         # True all-sky Galactic Halo: |b| > 20 deg, metal-poor [Fe/H] < -0.8, high v_tan > 150 km/s, randomized over whole sky
-        where_region = f"""
+        base_where_gaia = """
           g.parallax_over_error > 10.0
           AND g.parallax BETWEEN 0.5 AND 20.0
           AND g.ruwe < 1.4
@@ -465,12 +562,12 @@ def fetch_live_halo_bulge_sample(
           AND g.teff_gspphot BETWEEN 3800.0 AND 7500.0
           AND g.mh_gspphot < -0.8
           AND 4.74047 * SQRT(g.pmra * g.pmra + g.pmdec * g.pmdec) / g.parallax > 150.0
-          {extra_cursor}
         """
+        where_region = f"{base_where_gaia} {extra_cursor}"
         order_clause = "ORDER BY g.random_index ASC"
     elif reg == "bulge":
         # Galactic Bulge window around l ~ 0 deg, |b| 3..10 deg, bulge distances (~2.2-12.5 kpc)
-        where_region = f"""
+        base_where_gaia = """
           (g.l <= 12.0 OR g.l >= 348.0)
           AND ABS(g.b) BETWEEN 3.0 AND 10.0
           AND g.parallax BETWEEN 0.08 AND 0.45
@@ -478,12 +575,12 @@ def fetch_live_halo_bulge_sample(
           AND g.ruwe < 1.4
           AND g.phot_g_mean_mag BETWEEN 8.0 AND 14.5
           AND g.teff_gspphot BETWEEN 3500.0 AND 7500.0
-          {extra_cursor}
         """
+        where_region = f"{base_where_gaia} {extra_cursor}"
         order_clause = "ORDER BY g.random_index ASC"
     elif reg == "local":
         # Legacy local high-velocity cut (v_tan > 65 km/s, |b| > 12 deg, 40-500 pc)
-        where_region = """
+        base_where_gaia = """
           g.parallax_over_error > 15.0
           AND g.parallax BETWEEN 2.0 AND 25.0
           AND g.ruwe < 1.4
@@ -492,49 +589,62 @@ def fetch_live_halo_bulge_sample(
           AND g.teff_gspphot BETWEEN 3800.0 AND 7500.0
           AND 4.74047 * SQRT(g.pmra * g.pmra + g.pmdec * g.pmdec) / g.parallax > 65.0
         """
+        where_region = base_where_gaia
         order_clause = "ORDER BY g.source_id ASC"
     else:
         raise ArchiveAccessError(f"Unsupported live region '{region}'; expected 'halo', 'bulge', or 'local'", retryable=False)
 
+    # If a two-stage Gaia index is already cached for paginated queries, use it directly without a 60s sync timeout.
+    if reg in {"halo", "bulge"} and after_random_index is not None:
+        idx_query = " ".join(
+            f"SELECT g.source_id, g.random_index FROM gaiadr3.gaia_source AS g WHERE {base_where_gaia}".split()
+        )
+        idx_sig = hashlib.sha256(f"{'|'.join(GAIA_TAP_URLS)}|{idx_query}".encode("utf-8")).hexdigest()[:24]
+        cached_idx = cache.lookup("gaia", f"{cfg.gaia.release}_{reg}_index", idx_sig)
+        if cached_idx is not None and not cached_idx.offline_fixture:
+            rows, mans = _fetch_live_two_stage(
+                base_where_gaia=base_where_gaia,
+                reg=reg,
+                n_lim=n_lim,
+                after_random_index=after_random_index,
+                cfg=cfg,
+                cache=cache,
+            )
+            stars = [_row_to_star_dict(r, gaia_release=cfg.gaia.release) for r in rows]
+            return stars, mans
+
     query = f"""
     SELECT TOP {n_lim}
-      g.source_id, g.ra, g.dec, g.l, g.b, g.parallax, g.parallax_error, g.parallax_over_error,
-      g.pmra, g.pmdec, g.ruwe, g.phot_g_mean_mag, g.phot_bp_mean_mag, g.phot_rp_mean_mag,
-      g.teff_gspphot, g.logg_gspphot, g.mh_gspphot, g.ebpminrp_gspphot, g.random_index,
-      aw.designation AS wise_designation,
-      aw.w1mpro, aw.w1mpro_error, aw.w2mpro, aw.w2mpro_error,
-      aw.w3mpro, aw.w3mpro_error, aw.w4mpro, aw.w4mpro_error,
-      aw.cc_flags, aw.ext_flag, aw.ph_qual, aw.ra AS wise_ra, aw.dec AS wise_dec,
-      tm.j_m, tm.j_msigcom, tm.h_m, tm.h_msigcom, tm.ks_m, tm.ks_msigcom, tm.ph_qual AS tmass_ph_qual
-    FROM gaiadr3.gaia_source AS g
-    JOIN gaiadr3.allwise_best_neighbour AS awn ON g.source_id = awn.source_id
-    JOIN gaiadr1.allwise_original_valid AS aw ON awn.allwise_oid = aw.allwise_oid
-    JOIN gaiadr3.tmass_psc_xsc_best_neighbour AS tmn ON g.source_id = tmn.source_id
-    JOIN gaiadr3.tmass_psc_xsc_join AS tmj ON tmn.clean_tmass_psc_xsc_oid = tmj.clean_tmass_psc_xsc_oid
-    JOIN gaiadr1.tmass_original_valid AS tm ON tmj.original_psc_source_id = tm.designation
+      {_select_columns_sql()}
+    {_join_and_phot_cuts_sql()}
     WHERE {where_region}
-      AND awn.number_of_neighbours = 1
-      AND awn.number_of_mates = 0
-      AND tmn.number_of_neighbours = 1
-      AND tmn.number_of_mates = 0
-      AND aw.w1mpro_error IS NOT NULL
-      AND aw.w2mpro_error IS NOT NULL
-      AND aw.w3mpro_error IS NOT NULL
-      AND tm.j_msigcom IS NOT NULL
-      AND tm.h_msigcom IS NOT NULL
-      AND tm.ks_msigcom IS NOT NULL
+    {_phot_quality_where_sql()}
     {order_clause}
     """
-    rows, man, _ = _tap_query_cached(
-        urls=GAIA_TAP_URLS,
-        query=" ".join(query.split()),
-        archive="gaia",
-        release=f"{cfg.gaia.release}_{reg}",
-        cache=cache,
-        timeout_s=90,
-    )
-    stars = [_row_to_star_dict(r, gaia_release=cfg.gaia.release) for r in rows]
-    return stars, [man]
+    try:
+        rows, man, _ = _tap_query_cached(
+            urls=GAIA_TAP_URLS,
+            query=" ".join(query.split()),
+            archive="gaia",
+            release=f"{cfg.gaia.release}_{reg}",
+            cache=cache,
+            timeout_s=90,
+        )
+        stars = [_row_to_star_dict(r, gaia_release=cfg.gaia.release) for r in rows]
+        return stars, [man]
+    except ArchiveAccessError:
+        if reg not in {"halo", "bulge"}:
+            raise
+        rows, mans = _fetch_live_two_stage(
+            base_where_gaia=base_where_gaia,
+            reg=reg,
+            n_lim=n_lim,
+            after_random_index=after_random_index,
+            cfg=cfg,
+            cache=cache,
+        )
+        stars = [_row_to_star_dict(r, gaia_release=cfg.gaia.release) for r in rows]
+        return stars, mans
 
 
 def fetch_single_star_live(
