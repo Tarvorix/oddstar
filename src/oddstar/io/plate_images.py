@@ -49,7 +49,7 @@ from oddstar.errors import ArchiveAccessError
 from oddstar.io import optical_timeseries as ot
 from oddstar.io.cache import RawCache
 from oddstar.io.cutouts import _clipped_stats, read_fits_image
-from oddstar.io.physics import propagate_position
+from oddstar.io.physics import angular_separation_arcsec, propagate_position
 
 ARCHIVE = "historical_plates"
 MEASUREMENT_VERSION = "dss_plate_v2"
@@ -376,4 +376,59 @@ def enrich_unit(unit: dict[str, Any], cache: RawCache, *, cfg: Any = None, min_i
     unit.setdefault("vanishing_data", {})["plate_images"] = res
     missing = [sv for sv in FIRST_EPOCH_SURVEYS if sv in res["errors"]]
     qs["plate_images"] = "ok" if not missing else "failed: " + "; ".join(f"{sv}: {res['errors'][sv][:120]}" for sv in missing)
+    if cfg is not None:
+        attach_neighbours(unit, cfg, cache, references, min_interval_s=min_interval_s, sleep=sleep)
+    return unit
+
+
+MAX_NEIGHBOURS = 4
+
+
+def attach_neighbours(unit: dict[str, Any], cfg: Any, cache: RawCache, references: References, *, min_interval_s: float = 0.5,
+                      sleep: Sleeper = time.sleep) -> dict[str, Any]:
+    """What the first-epoch plates show where the nearby Pan-STARRS objects are now.
+
+    A plate source with no modern counterpart at its position may be a star that has since moved a few arcsec:
+    Pan-STARRS then holds an object nearby that the first-epoch plates do not show at its present place. This reads
+    the Pan-STARRS objects between the match radius and `plate_moved_radius_arcsec` of the plate position (the
+    nearest `MAX_NEIGHBOURS`) and measures the first-epoch plates at each. Writes
+    `vanishing_data.plate_neighbours` and `vetting_archive.query_status.plate_neighbours`.
+    """
+    from oddstar.io.plate_survey import PS1_DEC_LIMIT_DEG, _float, ps1_cone
+
+    u = unit.get("usno") or {}
+    qs = unit.setdefault("vetting_archive", {}).setdefault("query_status", {})
+    vc = cfg.channels["vanishing"]
+    ra = float(u.get("plate_ra_deg", u["ra_deg"]))
+    dec = float(u.get("plate_dec_deg", u["dec_deg"]))
+    if dec < PS1_DEC_LIMIT_DEG:
+        qs["plate_neighbours"] = "no_coverage"
+        return unit
+    radius, match = float(vc["plate_moved_radius_arcsec"]), float(vc["match_radius_arcsec"])
+    try:
+        ps1, _, _ = ps1_cone(ra, dec, radius, int(vc["plate_ps1_min_detections"]), cache, sleep=sleep)
+    except ArchiveAccessError as exc:
+        qs["plate_neighbours"] = f"failed: Pan-STARRS: {str(exc)[:160]}"
+        return unit
+    near: list[dict[str, Any]] = []
+    for p in ps1:
+        p_ra, p_dec = _float(p.get("raMean")), _float(p.get("decMean"))
+        if p_ra is None or p_dec is None:
+            continue
+        sep = angular_separation_arcsec(ra, dec, p_ra, p_dec)
+        if match < sep <= radius:
+            r_mag = _float(p.get("rMeanPSFMag"))
+            near.append({"objID": str(p.get("objID")), "ra_deg": p_ra, "dec_deg": p_dec, "sep_arcsec": round(sep, 2),
+                         "n_detections": p.get("nDetections"), "r_mag": r_mag if r_mag is not None and 5.0 < r_mag < 30.0 else None})
+    near.sort(key=lambda n: (n["sep_arcsec"], n["objID"]))
+    failed: list[str] = []
+    for n in near[:MAX_NEIGHBOURS]:
+        res = measure_all_surveys(n["ra_deg"], n["dec_deg"], cache, references=references, surveys=FIRST_EPOCH_SURVEYS,
+                                  min_interval_s=min_interval_s, sleep=sleep)
+        n["rows"], n["errors"] = res["rows"], res["errors"]
+        failed += [f"{n['objID']} {sv}: {msg[:100]}" for sv, msg in res["errors"].items()]
+    unit.setdefault("vanishing_data", {})["plate_neighbours"] = {
+        "measurement_version": MEASUREMENT_VERSION, "position": [round(ra, 7), round(dec, 7)], "radius_arcsec": radius,
+        "inner_radius_arcsec": match, "n_objects_in_radius": len(near), "neighbours": near[:MAX_NEIGHBOURS]}
+    qs["plate_neighbours"] = "ok" if not failed else "failed: " + "; ".join(failed[:3])
     return unit

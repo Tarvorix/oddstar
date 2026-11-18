@@ -196,7 +196,8 @@ def test_plate_units_statuses_matches_and_resume(cfg: Any, tmp_path: Path, monke
     flagged = [u["source_id"] for u in units if ps.plate_search_status(u) == "searched" and ch.score(ch.measure(u, {})).flagged]
     assert flagged == ["USNO-B1.0 B"]
     vet = {r.check: r.status for r in run_vanishing_vetting(by["B"], cfg, tmp_path / "vet")}
-    assert vet == {"proper_motion": "pass", "plate_defect": "pass", "depth": "pass", "known_variable": "not_evaluated",
+    # The catalogue row alone cannot show that a plate source is real: without the plate images, no verdict
+    assert vet == {"proper_motion": "pass", "plate_defect": "not_evaluated", "depth": "pass", "known_variable": "not_evaluated",
                    "sso_plate": "not_evaluated", "blend_split": "not_evaluated"}
     assert {r.status for r in run_vanishing_vetting(by["S1"], cfg, tmp_path / "vet2")} == {"not_evaluated"}
 
@@ -322,7 +323,7 @@ def test_live_vanishing_search_end_to_end(tmp_path: Path, monkeypatch: pytest.Mo
         assert code == 0, payload
         vet = json.loads((run_dir / "vetting.json").read_text(encoding="utf-8"))["vetting"]["USNO-B1.0 B"]
         status = {v["check"]: v["status"] for v in vet}
-        assert status["depth"] == "pass" and status["plate_defect"] == "pass" and status["sso_plate"] == "not_evaluated"
+        assert status["depth"] == "pass" and status["plate_defect"] == "not_evaluated" and status["sso_plate"] == "not_evaluated"
 
         code, payload = dispatch(["null-report", "test-plate-survey", "--json"])
         assert code == 0, payload

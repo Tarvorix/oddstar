@@ -1,4 +1,4 @@
-version: "1.7.0"
+version: "1.8.0"
 
 storage:
   max_cache_gb: 10.0
@@ -204,6 +204,17 @@ channels:
     plate_backoff_s: 2.0
     plate_rate_limit_rps: 2.0
     design_point_mag_diff: 3.0
+    # --- 1.8.0: the digitized plates themselves (see configs/CHANGELOG.md; limits from control positions only) ---
+    # A plate image shows the source when a peak of at least this aperture signal-to-noise lies this close to it
+    plate_image_min_snr: 5.0
+    plate_image_max_offset_arcsec: 2.0
+    plate_image_first_epoch_before: 1960.0
+    # Empty first-epoch images are evidence against a source only when it is at least this bright on the red plate
+    plate_image_judge_max_r_mag: 19.5
+    # A Pan-STARRS object this near and within this many magnitudes of the plate magnitude may be the plate source
+    # itself, moved (10 arcsec over 60 years is 165 mas/yr), unless a first-epoch plate shows it where it is now
+    plate_moved_radius_arcsec: 10.0
+    plate_moved_max_dmag: 1.5
     # Vetting-only (since 1.1.0): SIMBAD types that explain a vanished plate source (was a literal in vanishing_checks.py)
     vetting_variable_simbad_types: ["Mira", "LPV*", "CV*", "Flare*"]
 
@@ -283,6 +294,9 @@ vetting:
   single_frame_coadd_floor_frac: 0.6
   single_frame_max_to_median: 2.2
   youth_nuv_default_err_mag: 0.3
+  # --- 1.8.0: a star moving at thick-disc or halo speed is old (see configs/CHANGELOG.md) ---
+  youth_old_vtan_min_kms: 85.0
+  youth_old_vtan_min_parallax_snr: 10.0
   evolved_teff_max_k: 8000.0
   binary_rv_scatter_max_kms: 5.0
   lc_detrend_low_mask_sigma: 2.5
