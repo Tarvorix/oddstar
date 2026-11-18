@@ -69,6 +69,40 @@ function limits the fit, and the error is scaled accordingly. The photometry has
 and WISE on a set of ordinary stars, and no vetting check reads it yet. Both come before it is applied to a flagged star's tier: thresholds are fixed on ordinary
 stars first.
 
+## Decision rule for the first flagged star
+
+Written on 2026-11-18 at 15:55 UTC, before any SPHEREx measurement of Gaia DR3 5628404318169472 or of the
+comparison stars had been reported. It is not changed after the numbers arrive; if it turns out to be unusable,
+that is said, and a new rule is tested on stars that played no part in writing it.
+
+The question: WISE and 2MASS give this star Ks - W2 and W1 - W2 colours about 0.4 mag redder than its spectral
+type explains. Does a second instrument, in 2025 and 2026, measure the same colours?
+
+1. Comparison set: the first twelve stars by source id of the local sample (run `v170-local-td`) that no channel
+   flagged, with W1 between 10.0 and 11.2 and BP - RP between 1.15 and 1.55. The flagged star has BP - RP 1.354.
+   Gaia DR3 9281425163264 (BP - RP 0.77, the star the method was first tried on) is measured again but is not
+   part of the set.
+2. For every star and each colour c in (k_w2, w1_w2): D_c = the SPHEREx colour of the summary over all visits
+   minus the same colour from the catalogue magnitudes (2MASS Ks, AllWISE W1 and W2). D_c holds the difference
+   between window means and catalogue bands, which stars of one spectral type share, and the noise.
+3. Over the comparison set: m_c = median of D_c, s_c = 1.4826 x the median absolute deviation of D_c.
+4. For the flagged star: z_c = (D_c - m_c) / sqrt(s_c^2 + e_c^2), where e_c is the error of its SPHEREx colour.
+5. The rule gives a verdict only when: at least 8 comparison stars have all three windows measured and a complete
+   run; s_c is at most 0.10 mag for both colours; the flagged star has at least 5 measurements in each window.
+   Otherwise: no verdict, and the reason.
+6. Verdict:
+   - both |z_c| <= 3: **reproduced**. SPHEREx measures the colours WISE and 2MASS measured, so the red colours
+     are not a fault of one instrument's photometry of this star.
+   - z_c < -3 for either colour: **not reproduced**. The star is bluer in SPHEREx than in the catalogues by more
+     than the comparison stars allow. The catalogue colour then needs an explanation (a change since 2010 to
+     2024, or contamination that one instrument sees and the other does not) before it counts as an excess.
+   - z_c > 3 for either colour and none below -3: **redder now**. Reported as a change, not as a confirmation.
+7. Whatever the verdict, it speaks only for wavelengths up to 5 micron and for blended light within one 6 arcsec
+   pixel. It does not test the 12 and 22 micron excess, and it cannot separate a neighbour WISE could not.
+
+The limit of 3 and the scatter ceiling of 0.10 mag are conventions chosen here, not fitted to anything. When this
+rule becomes a vetting check, both go into the config with a version entry.
+
 ## Command
 
 ```
