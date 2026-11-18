@@ -1,31 +1,40 @@
 {
-  "channel": "vanishing",
-  "gaia_release": "dr3",
+  "channel": "underluminous",
+  "gaia_release": "dr4",
   "split": "all",
-  "config_hash": "718e81a4b312",
-  "git_commit": "a5037a22569a1d1d36ef64265ac01eb2d3414d62",
-  "timestamp_utc": "2026-11-18T01:03:00.838581+00:00",
+  "config_hash": "c64528d9e0b5",
+  "git_commit": "7434185af4bec5ab5edd1bd7b7d2112b6a9c8220",
+  "timestamp_utc": "2026-11-18T04:59:19.381659+00:00",
   "passed": true,
   "blind_recovery_rate": 1.0,
-  "blind_total": 4,
-  "blind_recovered": 4,
+  "blind_total": 3,
+  "blind_recovered": 3,
   "impostor_pass": true,
   "impostor_max_tier": "Explained",
   "impostors_evaluated": 3,
-  "injection_completeness_design_point": 1.0,
+  "injection_completeness_design_point": 0.95,
   "completeness_grid": [
     {
-      "depth_margin_mag": 1.5,
-      "completeness": 0.0,
+      "dimming_frac": 0.1,
+      "delta_mag": 0.1143937264016878,
+      "completeness": 0.05,
       "n_trials": 20
     },
     {
-      "depth_margin_mag": 3.0,
-      "completeness": 1.0,
+      "dimming_frac": 0.25,
+      "delta_mag": 0.3123468415207498,
+      "completeness": 0.25,
       "n_trials": 20
     },
     {
-      "depth_margin_mag": 5.0,
+      "dimming_frac": 0.4,
+      "delta_mag": 0.5546218740408909,
+      "completeness": 0.95,
+      "n_trials": 20
+    },
+    {
+      "dimming_frac": 0.7,
+      "delta_mag": 1.3071968632008437,
       "completeness": 1.0,
       "n_trials": 20
     }
@@ -36,98 +45,95 @@
   "expected_false_positives": 3.333333333333333,
   "calibration_curve": [
     {
-      "stat": 0.0,
+      "stat": -0.18085829453472968,
       "fap": 0.5
     },
     {
-      "stat": 0.0001,
+      "stat": 0.3815001151839904,
       "fap": 0.25
     },
     {
-      "stat": 0.0002,
+      "stat": 0.7803759777700229,
       "fap": 0.09999999999999998
     },
     {
-      "stat": 0.00030000000000000003,
+      "stat": 0.9326179036848606,
       "fap": 0.050000000000000044
     },
     {
-      "stat": 0.0004,
+      "stat": 1.2622841680964758,
       "fap": 0.010000000000000009
     },
     {
-      "stat": 1.5,
+      "stat": 2.8587390185438504,
       "fap": 0.0001
     },
     {
-      "stat": 3.0,
+      "stat": 4.358739018543851,
       "fap": 1e-6
     },
     {
-      "stat": 6.0,
+      "stat": 7.358739018543851,
       "fap": 1e-9
     },
     {
-      "stat": 12.0,
+      "stat": 13.35873901854385,
       "fap": 1e-12
     }
   ],
   "details": {
     "blind_recovery": [
       {
-        "source_id": "755500000000000001",
+        "source_id": "733300000000000003",
         "flagged": true,
-        "raw_stat": 21.029218595875776
+        "raw_stat": 18.907527194806587
       },
       {
-        "source_id": "755500000000000002",
+        "source_id": "733300000000000001",
         "flagged": true,
-        "raw_stat": 20.20102324280213
+        "raw_stat": 19.4731114693003
       },
       {
-        "source_id": "755500000000000004",
+        "source_id": "733300000000000002",
         "flagged": true,
-        "raw_stat": 5.260280004649342
-      },
-      {
-        "source_id": "755500000000000003",
-        "flagged": true,
-        "raw_stat": 5.960280004649341
+        "raw_stat": 21.335502612829764
       }
     ],
     "impostor_rejection": [
       {
-        "source_id": "755500000000000001",
+        "source_id": "733300000000000001",
         "tier": "Explained",
         "failed_checks": [
-          "proper_motion"
+          "extinction"
         ],
         "expected_failed": [
-          "proper_motion"
+          "extinction"
         ],
         "reason": "Not flagged above channel thresholds",
         "passed": true
       },
       {
-        "source_id": "755500000000000005",
+        "source_id": "733300000000000004",
         "tier": "Explained",
         "failed_checks": [
-          "known_variable"
+          "metallicity"
         ],
         "expected_failed": [
-          "known_variable"
+          "metallicity"
         ],
-        "reason": "Explained by 'known_variable': Explained by large-amplitude variable: variable-star catalogue lists an LPV/Mira; SIMBAD type Mira",
+        "reason": "Explained by 'metallicity': [Fe/H]=-1.85 dex (subdwarf below -1.0), SIMBAD type=Subdwarf (metal-poor subdwarf locus)",
         "passed": true
       },
       {
-        "source_id": "755500000000000006",
+        "source_id": "733300000000000005",
         "tier": "Explained",
         "failed_checks": [
-          "plate_defect"
+          "astrometry",
+          "companion"
         ],
         "expected_failed": [
-          "plate_defect"
+          "astrometry",
+          "companion"
         ],
         "reason": "Not flagged above channel thresholds",
         "passed": true
@@ -136,8 +142,8 @@
     "code_fingerprint_files": {
       "oddstar/__init__.py": "2af7d8f7316e5196abd067dcdd82791314113df68b496c3611136877b193be1e",
       "oddstar/channels/__init__.py": "af613ea2e399e30d14d7eca150d9a3f4fa5e409e0976b773c95c9f752789212e",
-      "oddstar/channels/vanishing/__init__.py": "968c8a67e142c8dee6ddfec0938c46a22a51f013eff0d857c3198f87e94a8024",
-      "oddstar/channels/vanishing/channel.py": "2b5b8101c2113c9160e15dce5f5dd6c592b072e6c3c77b0ceff9680073c2676b",
+      "oddstar/channels/underluminous/__init__.py": "dffd6ffa53402d41fcf08eefee0e2cc2a4807f49be35e8cdb4ca458942ca4d3b",
+      "oddstar/channels/underluminous/channel.py": "c461f30402ccb2a3a59fbd58ef31111c9bebcfb190a7bb23ffab3acbbe28d1d6",
       "oddstar/config.py": "46af545c91b0db22ac5d71dcec4529e1d1cebfe3b62cb3be2b5268481ef3df0c",
       "oddstar/dossier/plots.py": "d304dad52af137199576932c3562f600003172fbff1f4712ef4bdc8a2b472e4d",
       "oddstar/errors.py": "6e2757f307284892a5d69bf8967ee111d49bcd4c4100bf82316d02d7fb09ed30",
@@ -157,12 +163,12 @@
       "oddstar/vet/common.py": "0107f4da0f5b310f759688785f0c9347c5785db6ca6129452441ced3cb96622e",
       "oddstar/vet/engine.py": "06c8dbb115be221f6d5d0443120e57aba7b35bcca6108f2885a8ee9f06b70403",
       "oddstar/vet/ir_checks.py": "a77c031b87845bc4bca5a4317bdb0d9107ede05a9e0db0de3c9f48222f36f688",
-      "oddstar/vet/lc_checks.py": "95dc68dcca4fee811917fc2ed162f112eee61dc02e3d963da1e69668c937c119",
+      "oddstar/vet/lc_checks.py": "70a4323aca361ead440f139258a69cf7d196e1b040861704b6a730d504d41998",
       "oddstar/vet/radio_checks.py": "a80a21256c2adea7ed3fc463abd9dd6f38658fa316f5c08e7987475b9e12fd8f",
       "oddstar/vet/spectral_checks.py": "fc0c86caac14a3a652c7d45740d2725cbe3a573f5db40b6f0d1198ec0a0995b7",
       "oddstar/vet/underluminous_checks.py": "50f9093f9d224f15068f8b456ca535032df7e3f835bd2e5a6ab5d680f6ed74a0",
       "oddstar/vet/vanishing_checks.py": "6dc1a99d71d9d792aa581152313f874e4dd03d6487fcb3cd3b5d36bf77490128"
     }
   },
-  "code_fingerprint": "3f72c9788e0e11e5e6b442d4a38e55078605e762b83da893beae5b9df64f628c"
+  "code_fingerprint": "f18ea6ba153233c2ef37c09335613e8ede86eb7bf776269f35a09f4870b28541"
 }
