@@ -116,13 +116,22 @@ def test_m3_all_vetting_checks_have_pass_fail_fixtures_and_evidence(tmp_path: Pa
     clean_star = copy.deepcopy(get_named_object("115725517896200320"))  # BD+20 307
     assert clean_star is not None
     clean_star["vetting_archive"]["deep_imaging_available"] = True
+
+    # A SPHEREx comparison [synthetic fixture value]: twelve bare photospheres and a star whose colours SPHEREx reproduces
+    def _sx(sid: str, d_kw2: float, d_w1w2: float) -> dict:
+        return {"source_id": sid, "complete": True, "catalogue": {"Ks": 10.5, "W1": 10.4, "W2": 10.3},
+                "windows": {w: {"n": 30, "mag": 10.3} for w in ("k", "w1", "w2")},
+                "k_w2": 0.2 + d_kw2, "w1_w2": 0.1 + d_w1w2, "k_w2_err": 0.003, "w1_w2_err": 0.003}
+
+    sx_comparison = [_sx(str(i), 0.07 + 0.004 * (i % 5 - 2), 0.11 - 0.004 * (i % 5 - 2)) for i in range(12)]
+    clean_star["vetting_archive"]["spherex_colours"] = {"target": _sx("115725517896200320", 0.07, 0.11), "comparison": sx_comparison}
     clean_res = run_ir_vetting(clean_star, cfg, tmp_path / "ir_pass")
-    assert len(clean_res) == 16
+    assert len(clean_res) == 17
     for r in clean_res:
         assert r.status == "pass", f"Expected BD+20 307 to pass {r.check}: {r.note}"
         assert r.evidence is not None and Path(r.evidence).exists()
 
-    # Failing IR fixtures (all 15 checks covered)
+    # Failing IR fixtures (all 16 checks covered)
     imp_radio = get_named_object("4418120359123456128")
     imp_dog = get_named_object("3141592653589793280")
     imp_cirrus = get_named_object("5812938471029384960")
@@ -134,6 +143,11 @@ def test_m3_all_vetting_checks_have_pass_fail_fixtures_and_evidence(tmp_path: Pa
     assert {r.check: r.status for r in run_ir_vetting(imp_cirrus, cfg, tmp_path / "ir_f3")}["cirrus"] == "fail"
     f4 = {r.check: r.status for r in run_ir_vetting(imp_art, cfg, tmp_path / "ir_f4")}
     assert f4["wise_quality"] == "fail" and f4["single_frames"] == "fail"
+
+    # SPHEREx measures the star bluer than the catalogues by more than the comparison stars allow
+    bluer = copy.deepcopy(clean_star)
+    bluer["vetting_archive"]["spherex_colours"]["target"] = _sx("115725517896200320", -0.30, 0.11)
+    assert {r.check: r.status for r in run_ir_vetting(bluer, cfg, tmp_path / "ir_f5")}["spherex_colours"] == "fail"
 
     # Melis et al. 2012 TYC 8241-2652-1 secular change fixture
     melis = get_named_object("5391513322976037248")
