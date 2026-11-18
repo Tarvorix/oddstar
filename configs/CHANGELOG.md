@@ -21,7 +21,7 @@ when the rule becomes a check. This version does that.
 - **Two changes to the rule as written**, made after the first verdict and not altering it. Comparison stars are
   the nearest on the sky of like colour (BP - RP within 0.2) and brightness (W1 within 0.6), with clean AllWISE and
   2MASS photometry, in place of the first twelve of one run's sample: the first rule could only serve stars of that
-  sample. The widths are those of the first rule's windows (BP - RP 1.15 to 1.55 for a star of 1.354; W1 10.0 to
+  sample. The widths are about those of the first rule's windows (BP - RP 1.15 to 1.55 for a star of 1.354; W1 10.0 to
   11.2 for a star of 10.665). And only comparison stars with a complete run count; the first verdict was the same
   with all twelve (z +19.6, +1.0) and with the eight complete ones (+18.2, +0.8).
 - **Where the measurement comes from.** `oddstar spherex verdict --ids <id>` measures the star and its comparison
