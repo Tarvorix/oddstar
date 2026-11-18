@@ -1,10 +1,10 @@
 {
   "channel": "ir_timedomain",
-  "gaia_release": "dr4",
+  "gaia_release": "dr3",
   "split": "all",
-  "config_hash": "4b4d6ddac2cb",
-  "git_commit": "6deeaeb06cc9df7f64d5fd7b3f41ce74d3d20d6c",
-  "timestamp_utc": "2026-11-18T18:08:03.195127+00:00",
+  "config_hash": "fe9c2aa57d3c",
+  "git_commit": "a00a3d9207009fd86ae5263a7b1b8721340a779b",
+  "timestamp_utc": "2026-11-18T18:52:01.928749+00:00",
   "passed": true,
   "blind_recovery_rate": 1.0,
   "blind_total": 6,
@@ -75,39 +75,39 @@
   "expected_false_positives": 3.333333333333333,
   "calibration_curve": [
     {
-      "stat": 2.0624498743808086,
+      "stat": 2.0624498743808117,
       "fap": 0.5
     },
     {
-      "stat": 2.451834055131432,
+      "stat": 2.451834055131434,
       "fap": 0.25
     },
     {
-      "stat": 2.828073097471875,
+      "stat": 2.828073097471871,
       "fap": 0.09999999999999998
     },
     {
-      "stat": 3.0373091837801294,
+      "stat": 3.037309183780127,
       "fap": 0.050000000000000044
     },
     {
-      "stat": 3.39740708896953,
+      "stat": 3.3974070889695267,
       "fap": 0.010000000000000009
     },
     {
-      "stat": 5.726406928916332,
+      "stat": 5.726406928916329,
       "fap": 0.0001
     },
     {
-      "stat": 7.226406928916332,
+      "stat": 7.226406928916329,
       "fap": 1e-6
     },
     {
-      "stat": 10.226406928916333,
+      "stat": 10.22640692891633,
       "fap": 1e-9
     },
     {
-      "stat": 16.226406928916333,
+      "stat": 16.22640692891633,
       "fap": 1e-12
     }
   ],
@@ -207,7 +207,7 @@
       "oddstar/validate/harness.py": "d63ed92087688d45acb51f58b4b68bd7f81a3ca298b9c8cf540bf1d656a46388",
       "oddstar/vet/common.py": "0107f4da0f5b310f759688785f0c9347c5785db6ca6129452441ced3cb96622e",
       "oddstar/vet/engine.py": "aeb74a5b12a2a16bff0a33aeeb6890fd758709200c40f49a3bdad131efc3d945",
-      "oddstar/vet/ir_checks.py": "e6dc7ac512512b0e93144dd238540cd100073b6ea62fc2cdfe33bbe4d3f81f5c",
+      "oddstar/vet/ir_checks.py": "298ccaf4a17aa5e58f088577681773aa90e9ba5bfdbdbf77a9e9c61772bcf1f6",
       "oddstar/vet/lc_checks.py": "f8c925d6553298f2cc2d28bf8d1976b8aaa450723702374ae0e40af2a8681138",
       "oddstar/vet/radio_checks.py": "4cb0f9a2a482f96245a4950ff64ff4d82071c6a4cbd9de55d49f56c14a659246",
       "oddstar/vet/spectral_checks.py": "f9d6171de7e05d89db987dedb1bd0521ebce4fe1cce2989aba078ea1a7a69c15",
@@ -215,5 +215,5 @@
       "oddstar/vet/vanishing_checks.py": "1ad95fbc05f1e38f5f704e9422daf76b0ecb8f890ae0dbbd4ac84e5be71d6104"
     }
   },
-  "code_fingerprint": "c43326bde54dff5a02fc34e69a89b965b5c77344882478a142a009b657c9c54d"
+  "code_fingerprint": "6a2cbe50994b4952bfd1ac8661a4a904783130057fe01173c0ad789cebb2161b"
 }
