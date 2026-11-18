@@ -50,7 +50,10 @@ Fixtures set explicit `w1_w2_neighbour_blend` / `scan_systematic` flags (present
   scan/zero-point systematic if the target correlates with the ensemble (r >= `systematics_ensemble_corr` with ensemble amplitude
   >= `systematics_ensemble_corr_min_amp_frac` x target) or the ensemble varies significantly (reduced chi2 >= `reduced_chi2_threshold`)
   by >= `systematics_ensemble_amp_frac` x the target amplitude. Fewer than `neowise_comparison_min_stars` stars or a failed query
-  gives `not_evaluated` for this part.
+  gives `not_evaluated` for this part. Since config 1.2.0 the cone is 600" (was 150", which held 0 or 1 usable stars for almost
+  every target) and is filtered by the archive to the target's W1 +/- (`neowise_comparison_mag_window` + 0.25 mag). Since 1.2.0 a
+  star whose NEOWISE light curve varies and whose NEOWISE part is `not_evaluated` cannot pass `systematics_window` on its TESS
+  part: the check is `not_evaluated`. Targets brighter than about W1 = 8 rarely have comparison stars and stay `not_evaluated`.
 - **`neighbour_signal`** (NEOWISE part): per-visit RA*cos(Dec)/Dec residuals from the Gaia PM track (`neowise.pm_residual_*_arcsec`)
   are fitted with offset + scan-direction parity + linear trend + W2 fractional flux. (a) A stationary blend makes the residual lag
   the PM track: the along-track trend gives a stationary flux share, failing when >= `vetting.neighbour_blend_flux_frac` at

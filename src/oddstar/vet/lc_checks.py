@@ -645,9 +645,17 @@ def check_systematics_window(star: dict[str, Any], cfg: PipelineConfig, out_dir:
         notes.append(part["note"])
         metrics[key] = {k: v for k, v in part.items() if k != "note"}
     status = _combine(statuses)
+    # The star varies in NEOWISE and the NEOWISE part could not be tested: a TESS result says nothing about the
+    # infrared frames, so it must not carry the check. An explicit fixture flag counts as an evaluation.
+    ir_untested = bool(neow["status"] == "not_evaluated" and "scan_systematic" not in neo
+                       and _ir_variation(neo, cfg).get("active"))
+    metrics["neowise_variation_untested"] = ir_untested
     if status == "pass" and tess.get("edge_blocked"):
         status = "not_evaluated"
         notes.insert(0, "A TESS dip candidate inside the detrend edge zone is not evaluated, so the check cannot pass")
+    elif status == "pass" and ir_untested:
+        status = "not_evaluated"
+        notes.insert(0, "The star varies in NEOWISE and the NEOWISE frames could not be tested for systematics, so the check cannot pass")
     elif status == "not_evaluated" and not tess.get("edge_blocked"):
         notes.insert(0, "Neither TESS background/centroid series nor a NEOWISE comparison ensemble available")
     return make_vet_result(out_dir, check="systematics_window", status=status, note=" | ".join(notes), metrics=metrics)

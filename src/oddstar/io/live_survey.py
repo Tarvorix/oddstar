@@ -16,6 +16,7 @@ from oddstar.config import PipelineConfig
 from oddstar.errors import ArchiveAccessError
 from oddstar.io.cache import RawCache
 from oddstar.io.optical_timeseries import (
+    _call_with_deadline,
     fetch_asassn_lightcurve,
     fetch_tess_pipeline_pair,
     fetch_ztf_lightcurve,
@@ -41,6 +42,11 @@ GAIA_TAP_URLS = [
     "https://gaia.aip.de/tap/sync",
 ]
 IRSA_GATOR_URL = "https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-query"
+# A Gator answer may take this many times its socket timeout in total before it is abandoned (a socket timeout
+# bounds only the gap between bytes, so a trickling answer would otherwise never end)
+GATOR_TOTAL_TIMEOUT_FACTOR = 3.0
+# The comparison-star cone is filtered by the archive to the target's W1 +/- (neowise_comparison_mag_window + this)
+NEOWISE_COMPARISON_FETCH_MARGIN_MAG = 0.25
 IRSA_TAP_URL = "https://irsa.ipac.caltech.edu/TAP/sync"
 NOIRLAB_TAP_URL = "https://datalab.noirlab.edu/tap/sync"
 LS_DR10_CONE_ARCSEC = 17.0  # circumscribes the former +/-12 arcsec box; rows are filtered by separation downstream
@@ -334,11 +340,18 @@ def _gator_cone_cached(
     cache: RawCache,
     timeout_s: int = 20,
     selcols: str | None = None,
+    constraints: str | None = None,
 ) -> tuple[list[dict[str, Any]], ManifestRecord, bool]:
-    """Execute an IRSA Gator cone query with RawCache provenance (optionally restricted to `selcols`)."""
+    """Execute an IRSA Gator cone query with RawCache provenance.
+
+    `selcols` restricts the returned columns and `constraints` is a Gator row filter (SQL, e.g.
+    "w1mpro between 11.0 and 13.0") applied by the archive. Both are part of the cache key.
+    """
     query_desc = f"GATOR {catalog} cone({ra:.6f}, {dec:+.6f}, {radius_arcsec:.2f} arcsec)"
     if selcols:
         query_desc += f" selcols={selcols}"
+    if constraints:
+        query_desc += f" constraints={constraints}"
     sig = hashlib.sha256(f"{IRSA_GATOR_URL}|{query_desc}".encode("utf-8")).hexdigest()[:24]
     cached = cache.lookup(archive, release, sig)
     if cached is not None and not cached.offline_fixture:
@@ -355,7 +368,13 @@ def _gator_cone_cached(
     }
     if selcols:
         gator_params["selcols"] = selcols
-    resp = requests.get(IRSA_GATOR_URL, params=gator_params, timeout=timeout_s)
+    if constraints:
+        gator_params["constraints"] = constraints
+    try:
+        resp = _call_with_deadline(lambda: requests.get(IRSA_GATOR_URL, params=gator_params, timeout=timeout_s),
+                                   GATOR_TOTAL_TIMEOUT_FACTOR * timeout_s, f"GATOR {catalog}")
+    except TimeoutError as exc:
+        raise ArchiveAccessError(f"IRSA Gator query for {catalog} did not finish: {exc}", retryable=True) from exc
     if resp.status_code != 200 or '[struct stat="ERROR"' in resp.text[:400]:
         raise ArchiveAccessError(
             f"IRSA Gator query for {catalog} failed (HTTP {resp.status_code}): {resp.text[:250]}",
@@ -1542,10 +1561,16 @@ def enrich_star_live_for_vetting(
 
         itd = cfg.channels["ir_timedomain"]
         comp_r = float(itd["neowise_comparison_radius_arcsec"])
+        # Only detections near the target's brightness are asked for: an unfiltered cone of this size is hundreds of
+        # thousands of single exposures. The margin keeps a star at the edge of the magnitude window from losing its
+        # fainter (or brighter) exposures, which would bias its median.
+        comp_win = float(itd["neowise_comparison_mag_window"]) + NEOWISE_COMPARISON_FETCH_MARGIN_MAG
+        comp_filter = f"w1mpro between {target_w1_mag - comp_win:.2f} and {target_w1_mag + comp_win:.2f}"
         try:
             c_rows, m_cmp, _ = _gator_cone_cached(
                 catalog="neowiser_p1bs_psd", ra=ra, dec=dec, radius_arcsec=comp_r,
-                archive="neowise", release="neowise_r_field", cache=cache, timeout_s=120,
+                archive="neowise", release="neowise_r_field", cache=cache, timeout_s=180,
+                selcols="ra,dec,mjd,w1mpro,w2mpro,qual_frame", constraints=comp_filter,
             )
             manifests.append(m_cmp)
             comp = build_neowise_comparison(
@@ -1556,7 +1581,7 @@ def enrich_star_live_for_vetting(
                 min_stars=int(itd["neowise_comparison_min_stars"]),
                 max_stars=int(itd["neowise_comparison_max_stars"]),
             )
-            comp["query_log"] = [f"Gator neowiser_p1bs_psd {comp_r:.0f}\" cone: {len(c_rows)} rows"]
+            comp["query_log"] = [f"Gator neowiser_p1bs_psd {comp_r:.0f}\" cone, {comp_filter}: {len(c_rows)} rows"]
         except (ArchiveAccessError, requests.RequestException, ValueError, KeyError, OSError) as exc:
             comp = {"status": "query_failed", "n_stars": 0, "query_log": [f"{type(exc).__name__}: {str(exc)[:240]}"]}
         comp["radius_arcsec"] = comp_r

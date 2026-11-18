@@ -1,4 +1,4 @@
-version: "1.1.2"
+version: "1.2.0"
 
 storage:
   max_cache_gb: 10.0
@@ -63,7 +63,7 @@ channels:
     optical_flat_max_chi2: 2.5
     design_point_amp_mag: 0.35
     # Vetting-only (since 1.1.0): systematics_window NEOWISE field-star ensemble
-    neowise_comparison_radius_arcsec: 150.0
+    neowise_comparison_radius_arcsec: 600.0
     neowise_comparison_exclude_arcsec: 8.0
     neowise_comparison_mag_window: 1.0
     neowise_comparison_min_stars: 3
@@ -97,6 +97,13 @@ channels:
     secular_fade_snr_threshold: 4.5
     periodic_bls_veto_snr: 8.0
     design_point_depth_frac: 0.15
+    # Survey TESS fetch (since 1.2.0): QLP light curves for every sample star (operational, not thresholds).
+    # tess_bulk_max_sectors equals the sector limit of the vetting fetch, so vetting sees the sectors the search saw.
+    tess_bulk_max_sectors: 8
+    tess_bulk_max_attempts: 3
+    tess_bulk_backoff_s: 2.0
+    tess_bulk_workers: 4
+    tess_bulk_rate_limit_rps: 4.0
     # Vetting-only (since 1.1.0): pipeline_agreement (first three were literals in _depths_agree)
     pipeline_quiet_depth_frac: 0.02
     pipeline_depth_abs_tol_frac: 0.08

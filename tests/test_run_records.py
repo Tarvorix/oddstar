@@ -45,6 +45,22 @@ def _fake_run(root: Path, run_id: str, *, n: int = 6, flagged: tuple[str, ...] =
     return rd
 
 
+def test_record_flattens_not_searched_ids_grouped_by_reason(tmp_path: Path) -> None:
+    """A real search payload groups the not-searched ids by reason; the record must list the ids, not the reasons."""
+    rd = _fake_run(tmp_path, "v-test-grouped", timedomain=True)
+    sf = rd / "search_ir_timedomain.json"
+    payload = json.loads(sf.read_text(encoding="utf-8"))
+    payload["not_searched_ids"] = {"no_coverage": ["2"], "failed": ["1"]}
+    payload["tess_fetch"] = {"n_ok": 4, "n_failed": 1}
+    sf.write_text(json.dumps(payload), encoding="utf-8")
+    rec, _ = build_run_record(rd)
+    s = rec["searches"][0]
+    assert s["not_searched_ids"] == ["1", "2"] and s["tess_fetch"] == {"n_ok": 4, "n_failed": 1}
+    assert "n_no_light_curve" in s["coverage"]
+    export_run_record(tmp_path, "v-test-grouped")
+    assert verify_run_records(tmp_path)["problems"] == []
+
+
 def test_record_keeps_counts_flagged_stars_and_vetting_without_measurements(tmp_path: Path) -> None:
     rd = _fake_run(tmp_path, "v-test-itd", timedomain=True)
     rec, samples = build_run_record(rd)

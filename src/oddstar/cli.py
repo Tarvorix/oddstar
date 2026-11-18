@@ -14,7 +14,7 @@ from oddstar import __version__
 from oddstar.channels import ALL_CHANNEL_NAMES, build_channel
 from oddstar.config import PipelineConfig, compute_config_hash, current_git_commit, load_config, repo_root
 from oddstar.dossier import write_dossier, write_null_report
-from oddstar.errors import ArtifactNotFoundError, OddstarError, PolicyViolationError
+from oddstar.errors import ArchiveAccessError, ArtifactNotFoundError, OddstarError, PolicyViolationError
 from oddstar.fuse import fuse_results
 from oddstar.io import (
     ArchiveFetcher,
@@ -58,6 +58,14 @@ from oddstar.schemas import (
 )
 from oddstar.validate import load_certificate, require_valid_certificate, run_validation
 from oddstar.vet import vet_target
+
+# Channels whose inputs no live ingestion provides yet, with the data each one still needs. `search --live` refuses
+# them: measuring empty inputs for every star would report a search that did not happen.
+CHANNELS_WITHOUT_LIVE_SOURCE: dict[str, str] = {
+    "spectral_lines": "needs repeat spectra per star; no spectroscopic survey ingestion exists",
+    "vanishing": "needs historical plate catalogue sources around each position; no plate ingestion exists",
+    "radio_narrowband": "needs observed radio cadences at the sample positions; only the built-in cadences exist",
+}
 
 
 def _emit(resp: CLIResponse, as_json: bool) -> None:
@@ -221,6 +229,14 @@ def _cmd_validate(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str
 
 
 def _cmd_search(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, root: Path) -> CLIResponse:
+    if args.live and args.channel in CHANNELS_WITHOUT_LIVE_SOURCE:
+        # These channels read data no live ingestion provides. A live run would measure empty inputs for every star
+        # and report "searched N, flagged 0" without having looked at anything, which is not a null result.
+        raise ArchiveAccessError(
+            f"Channel '{args.channel}' has no real-data source yet ({CHANNELS_WITHOUT_LIVE_SOURCE[args.channel]}); "
+            "a live search would count stars as searched without any data",
+            retryable=False,
+        )
     cert = require_valid_certificate(args.channel, cfg, root)
     run_id = args.run_id or f"run-{args.channel}-{cfg.gaia.release}-{short_hash}"
     run_dir = root / cfg.storage.runs_dir / run_id
@@ -251,6 +267,7 @@ def _cmd_search(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, 
 
     ch = build_channel(args.channel, cfg, root)
     neowise_fetch: dict[str, Any] | None = None
+    tess_fetch: dict[str, Any] | None = None
     if args.channel == "radio_narrowband":
         stars = [dict(v) for v in RADIO_CADENCES.values()]
         cuts = []
@@ -268,6 +285,16 @@ def _cmd_search(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, 
             for es in extra_stars:
                 by_id[es["source_id"]] = es
             stars = list(by_id.values())
+        if args.channel == "optical_dips":
+            # QLP light curves for every sample star (cached, rate-limited, retried, resumable). Stars beyond
+            # --tess-max-stars, without TESS coverage, or whose fetch failed stay in the sample as not searched.
+            from oddstar.io.tess_bulk import enrich_sample_tess
+
+            def _tess_progress(done: int, total: int, sid: str, status: str) -> None:
+                if not args.json and (done == total or done % 100 == 0):
+                    print(f"  tess {done}/{total} (last {sid}: {status.split(':')[0]})", file=sys.stderr)
+
+            stars, tess_fetch = enrich_sample_tess(stars, cfg, cache, max_stars=args.tess_max_stars, progress=_tess_progress)
         if args.channel == "ir_timedomain":
             # NEOWISE-R single-exposure rows only, for every sample star (cached, rate-limited, retried, resumable).
             # Full vetting enrichment still runs below, for flagged stars only. Stars beyond --neowise-max-stars or
@@ -343,7 +370,7 @@ def _cmd_search(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, 
         if sc.flagged:
             flagged_ids.append(sc.source_id)
 
-    if is_live and flagged_ids:
+    if is_live and flagged_ids and not args.defer_enrichment:
         live_flagged: dict[str, Any] = {}
         for fsid in flagged_ids:
             enriched, _ = enrich_star_live_for_vetting(stars_by_id[fsid], cfg, cache)
@@ -355,6 +382,10 @@ def _cmd_search(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, 
         from oddstar.channels.ir_timedomain.channel import search_coverage_summary
 
         coverage = search_coverage_summary(stars, cfg)
+    elif args.channel == "optical_dips" and is_live:
+        from oddstar.channels.optical_dips.channel import search_coverage_summary as dips_coverage_summary
+
+        coverage = dips_coverage_summary(stars, cfg)
     n_searched = coverage["n_searched"] if coverage is not None else len(stars)
 
     payload = {
@@ -376,7 +407,10 @@ def _cmd_search(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, 
     if coverage is not None:
         # n_input, n_searched, n_not_searched, n_no_coverage, n_failed, n_not_fetched, n_insufficient_visits, not_searched_ids
         payload.update(coverage)
-        payload["neowise_fetch"] = neowise_fetch
+        if neowise_fetch is not None:
+            payload["neowise_fetch"] = neowise_fetch
+        if tess_fetch is not None:
+            payload["tess_fetch"] = tess_fetch
     if is_live or coverage is not None:
         # The real searched sample, so the null report is built from these stars and not from regenerated fixtures
         payload["sample_stars"] = [
@@ -404,7 +438,8 @@ def _cmd_search(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, 
         warnings.append(
             f"{coverage['n_not_searched']} of {coverage['n_input']} stars not searched "
             f"(no_coverage={coverage['n_no_coverage']}, failed={coverage['n_failed']}, not_fetched={coverage['n_not_fetched']}, "
-            f"insufficient_visits={coverage['n_insufficient_visits']}); they are excluded from the null result"
+            f"insufficient_visits={coverage.get('n_insufficient_visits', 0)}, no_light_curve={coverage.get('n_no_light_curve', 0)}); "
+            "they are excluded from the null result"
         )
     return CLIResponse(
         ok=True,
@@ -417,7 +452,8 @@ def _cmd_search(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, 
             "n_flagged": len(flagged_ids),
             "flagged_ids": flagged_ids,
             **(
-                {"coverage": {k: v for k, v in coverage.items() if k != "not_searched_ids"}, "neowise_fetch": neowise_fetch}
+                {"coverage": {k: v for k, v in coverage.items() if k != "not_searched_ids"}, "neowise_fetch": neowise_fetch,
+                 "tess_fetch": tess_fetch}
                 if coverage is not None
                 else {}
             ),
@@ -1261,6 +1297,17 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=None,
         help="ir_timedomain --live: fetch NEOWISE for at most N sample stars (default: all); the rest are reported as not searched",
+    )
+    p_search.add_argument(
+        "--defer-enrichment",
+        action="store_true",
+        help="--live: do not fetch vetting data for flagged stars now (minutes per star); `vet --live` fetches it later",
+    )
+    p_search.add_argument(
+        "--tess-max-stars",
+        type=int,
+        default=None,
+        help="optical_dips --live: fetch TESS light curves for at most N sample stars (default: all); the rest are reported as not searched",
     )
 
     p_vet = sub.add_parser("vet", parents=[common], help="Stage 4 vetting checks on flagged targets")

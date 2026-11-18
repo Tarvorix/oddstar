@@ -2,6 +2,74 @@
 
 All threshold, sample-cut, and prompt changes must be logged here under Ground Rule R4 before running validation or search.
 
+## [1.2.0] - 2026-11-18
+
+Two changes. Both were decided from how the pipeline behaved, not from which stars it flagged, and neither can
+turn a failed or open check into a pass.
+
+### The optical-dip search reads real TESS light curves for every sample star
+Until now a live `search optical_dips` measured empty arrays for every star and reported "searched N, flagged 0":
+a live sample star only received a light curve after some other channel had flagged it. The channel was therefore
+never run on real data.
+
+- New survey fetch (`oddstar/io/tess_bulk.py`, used by `search optical_dips --live`): the QLP `SAP_FLUX` light curve
+  of each sector, good-quality cadences averaged into 30-minute bins, each sector divided by its median. New
+  operational keys under `channels.optical_dips` (not thresholds): `tess_bulk_max_sectors: 8` (the sector limit of the
+  vetting fetch, so vetting sees the sectors the search saw), `tess_bulk_max_attempts: 3`, `tess_bulk_backoff_s: 2.0`,
+  `tess_bulk_workers: 4`, `tess_bulk_rate_limit_rps: 4.0`.
+- A star counts as searched only when at least one light-curve segment has 20 points inside the edge margins. A star
+  with no TIC entry, no sector, no QLP file, a failed fetch, or one beyond `--tess-max-stars` is reported as not
+  searched, with the reason, and is excluded from the null result (`n_no_coverage`, `n_failed`, `n_not_fetched`,
+  `n_no_light_curve`).
+- `OpticalDipsChannel.measure` now works on segments. The light curve is cut where the sector changes or cadences
+  are more than `tess_segment_gap_days` apart, and each segment is detrended and searched alone. The old code ran one
+  median filter and one box filter across orbit gaps and sector boundaries, where the per-sector normalisation leaves
+  a step. The first and last `systematics_edge_margin_days` of a segment are not searched: thermal settling and
+  scattered light sit there, and `systematics_window` cannot clear an event in that zone. `dip_depth` is the median
+  deficit inside the best box (was: the single lowest point within a few cadences of the peak), so one bad cadence is
+  not a dip. The periodicity veto runs on the sector that holds the best box. No threshold changed
+  (`dip_snr_threshold`, `min_dip_depth_frac`, `min_duration_hours`, `periodic_bls_veto_snr` are as in 1.1.2).
+- Effect on validation (fixtures, dr3 and dr4 identical): blind recovery 3/3, impostors at most Explained, false-alarm
+  rate 0, design point (0.15 depth) 100%, all unchanged. Completeness at the shallowest injected depth fell, because
+  the median inside a box wider than the dip is below `min_dip_depth_frac`:
+
+  | duration (days) | depth | 1.1.2 | 1.2.0 |
+  |---|---|---|---|
+  | 0.5 | 0.04 | 1.00 | 0.70 |
+  | 1.5 | 0.04 | 1.00 | 0.85 |
+
+  All other grid cells are unchanged (3.0 days at 0.04 was and is 0.00). The loss is real and is the price of not
+  flagging single low points; the null report carries the new grid.
+- `search --live` now refuses `spectral_lines`, `vanishing` and `radio_narrowband`. No live ingestion provides their
+  inputs, so a live run would again report a search that did not happen (`radio_narrowband --live` crashed instead).
+
+### A star that varies in NEOWISE cannot pass `systematics_window` on its TESS data
+The first live `ir_timedomain` runs (1,800 stars, 30 flagged) showed the NEOWISE half of `systematics_window`
+almost never ran: the field-star ensemble had 0 or 1 stars for nearly every target, the half returned
+`not_evaluated`, and the check passed on the TESS half alone. A check that has not looked at the infrared frames was
+passing stars flagged for an infrared change. Eight stars of one run shared one faint W2 trend, which is what an
+untested zero-point drift would look like.
+
+- `check_systematics_window`: when the star's NEOWISE light curve varies by the channel's own thresholds and the
+  NEOWISE half is `not_evaluated`, the check is `not_evaluated`, whatever the TESS half says. A fixture's explicit
+  `scan_systematic` flag still counts as an evaluation. This can only move a result from `pass` to `not_evaluated`.
+- `channels.ir_timedomain.neowise_comparison_radius_arcsec: 600.0` (was 150.0). A 150" cone around a W1 = 11.9 halo
+  star holds one other star within `neowise_comparison_mag_window` (1.0 mag); 450" holds seven (AllWISE count around
+  Gaia DR3 3580358134642783872, made to size the cone, not to judge that star). The zero-point and scan systematics
+  the ensemble tests are common to a 47' frame, so stars 10' away see them. `neowise_comparison_mag_window`,
+  `neowise_comparison_min_stars`, `neowise_comparison_max_stars`, `neowise_comparison_exclude_arcsec` and the three
+  `systematics_ensemble_*` thresholds are unchanged.
+- The cone is filtered by the archive to the target's W1 +/- (window + 0.25 mag) and to six columns; unfiltered it
+  would be hundreds of thousands of single exposures. The margin keeps a star at the edge of the window from losing
+  part of its exposures.
+- Stars brighter than about W1 = 8 will usually still have no comparison stars. They now stay `not_evaluated`.
+
+Known limits:
+- Results of the 1.1.2 `ir_timedomain` runs (`v113-*`) were vetted with the old rule; their `systematics_window`
+  passes for varying stars are not evidence. They must be vetted again under 1.2.0 before any tier is quoted.
+- `neighbour_signal` combines its TESS and NEOWISE halves the same way and was not changed here.
+- `version: "1.2.0"` (was "1.1.2"). The config hash changes; every certificate is regenerated in a separate commit.
+
 ## [1.1.2] - 2026-11-17
 
 ### The image-shape check is judged against measured stars

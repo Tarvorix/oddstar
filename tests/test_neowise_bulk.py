@@ -141,7 +141,11 @@ def test_section_3c_output_is_byte_identical_after_refactor(tmp_path: Path, cfg:
     out, _ = ls.enrich_star_live_for_vetting(star, cfg, cache, enrich_optical=False, sleep=lambda s: None)
     assert out["vetting_archive"]["query_status"]["neowise"] == "ok"
     assert out["neowise"]["comparison"]["status"] == "query_failed"
-    assert hashlib.sha256(json.dumps(out["neowise"]).encode()).hexdigest() == SECTION_3C_GOLDEN_SHA256
+    # The golden record predates config 1.2.0, which widened the comparison cone from 150" to 600". The visit binning
+    # under test is unchanged, so the recorded radius is put back before hashing.
+    assert out["neowise"]["comparison"]["radius_arcsec"] == 600.0
+    golden = dict(out["neowise"], comparison=dict(out["neowise"]["comparison"], radius_arcsec=150.0))
+    assert hashlib.sha256(json.dumps(golden).encode()).hexdigest() == SECTION_3C_GOLDEN_SHA256
 
 
 def test_bin_neowise_visits_drops_bad_frames_and_keeps_pm_vectors() -> None:

@@ -539,3 +539,94 @@ def test_ztf_fetch_stops_at_its_time_budget_and_reports_a_failure(tmp_path: Path
                                           budget_s=1.0e9, clock=lambda: now["t"])
     assert summary2 is not None and summary2.get("status") != "query_failed"
     assert ot.ZTF_FETCH_BUDGET_S >= 300.0
+
+
+# ------------------------------------------------------------------------- NEOWISE comparison-star cone (config 1.2.0)
+
+def _gator_table(rows: list[dict[str, Any]], cols: list[str]) -> str:
+    w = {c: max([len(c)] + [len(str(r[c])) for r in rows]) + 2 for c in cols}
+    lines = ["\\fixlen = T"] + ["|" + "|".join((h or c).rjust(w[c]) for c in cols) + "|" for h in ("", "char", " ", "null")]
+    lines += [" " + " ".join(str(r[c]).rjust(w[c]) for c in cols) + " " for r in rows]
+    return "\n".join(lines) + "\n"
+
+
+def test_gator_row_filter_is_sent_and_is_part_of_the_cache_key(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: list[dict[str, Any]] = []
+    cols = ["ra", "dec", "mjd", "w1mpro", "w2mpro", "qual_frame"]
+
+    def get(url: str, params: Any = None, timeout: float = 0.0) -> Any:
+        seen.append(dict(params))
+        return _Resp(200, _gator_table([{"ra": 1.0, "dec": 2.0, "mjd": 57000.0, "w1mpro": 12.0, "w2mpro": 12.1, "qual_frame": 10}], cols))
+
+    monkeypatch.setattr(requests, "get", get)
+    cache = RawCache(tmp_path / "raw")
+    kw = dict(catalog="neowiser_p1bs_psd", ra=1.0, dec=2.0, radius_arcsec=600.0, archive="neowise", release="neowise_r_field",
+              cache=cache, selcols=",".join(cols))
+    rows, _, hit = ls._gator_cone_cached(**kw, constraints="w1mpro between 10.69 and 13.19")
+    assert not hit and len(rows) == 1 and seen[0]["constraints"] == "w1mpro between 10.69 and 13.19" and seen[0]["radius"] == "600.00"
+    assert ls._gator_cone_cached(**kw, constraints="w1mpro between 10.69 and 13.19")[2] is True and len(seen) == 1
+    # Another filter, or none, is another question to the archive and never served from the filtered answer
+    assert ls._gator_cone_cached(**kw, constraints="w1mpro between 8.00 and 10.50")[2] is False
+    assert ls._gator_cone_cached(**kw)[2] is False and "constraints" not in seen[-1] and len(seen) == 3
+
+
+def test_gator_answer_that_never_finishes_is_an_archive_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import threading
+
+    release = threading.Event()
+
+    def trickle(url: str, params: Any = None, timeout: float = 0.0) -> Any:
+        release.wait(20.0)
+        raise requests.exceptions.ConnectionError("released")
+
+    monkeypatch.setattr(requests, "get", trickle)
+    monkeypatch.setattr(ls, "GATOR_TOTAL_TIMEOUT_FACTOR", 0.2)
+    with pytest.raises(ArchiveAccessError, match="did not finish"):
+        ls._gator_cone_cached(catalog="neowiser_p1bs_psd", ra=1.0, dec=2.0, radius_arcsec=600.0, archive="neowise",
+                              release="neowise_r_field", cache=RawCache(tmp_path / "raw"), timeout_s=1)
+    release.set()
+
+
+def test_comparison_cone_asks_only_for_stars_near_the_target_brightness(tmp_path: Path, cfg: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The enrichment asks for a wide cone filtered by the archive to the target's W1, and builds the ensemble from it."""
+    from test_neowise_bulk import _fake_neowise_rows
+
+    cache = RawCache(tmp_path / "raw")
+    asked: dict[str, Any] = {}
+
+    def no_net(*a: Any, **k: Any) -> Any:
+        raise requests.exceptions.ConnectionError("offline test")
+
+    monkeypatch.setattr(requests, "get", no_net)
+    monkeypatch.setattr(requests, "post", no_net)
+    import math
+
+    target = _fake_neowise_rows(ra=RA, dec=DEC, pmra=PMRA, pmdec=PMDEC)
+    field = []
+    for i, (dx, dy, dm) in enumerate([(60.0, 0.0, 0.3), (-200.0, 150.0, -0.4), (300.0, -350.0, 0.8), (0.0, 520.0, -0.9)]):
+        field += _fake_neowise_rows(ra=RA + dx / 3600.0 / math.cos(math.radians(DEC)), dec=DEC + dy / 3600.0, pmra=0.0, pmdec=0.0)
+        for r in field[-len(target):]:
+            r["w1mpro"] = f"{float(r['w1mpro']) + dm:.3f}"
+
+    def gator(**kw: Any) -> Any:
+        man = cache.put(archive="neowise", release="x", request_signature=f"fake{kw['radius_arcsec']}", query_text="q", payload=b"[]", row_count=0)
+        if kw["catalog"] == "neowiser_p1bs_psd" and kw["radius_arcsec"] == 3.0:
+            return target, man, False
+        if kw["catalog"] == "neowiser_p1bs_psd":
+            asked.update(kw)
+            return [*target, *field], man, False
+        raise ArchiveAccessError("offline")
+
+    monkeypatch.setattr(ls, "_gator_cone_cached", gator)
+    star = {"source_id": "123", "name": "x", "ra_deg": RA, "dec_deg": DEC, "pmra_mas_yr": PMRA, "pmdec_mas_yr": PMDEC,
+            "mags": {"G": 11.0, "W1": 10.5, "W2": 10.5}, "flux_mjy": {}, "flux_err_mjy": {}, "vetting_archive": {"query_status": {}}}
+    out, _ = ls.enrich_star_live_for_vetting(star, cfg, cache, enrich_optical=False, sleep=lambda s: None)
+    itd = cfg.channels["ir_timedomain"]
+    assert asked["radius_arcsec"] == float(itd["neowise_comparison_radius_arcsec"]) == 600.0
+    assert asked["selcols"] == "ra,dec,mjd,w1mpro,w2mpro,qual_frame"
+    lo, hi = (float(x) for x in asked["constraints"].replace("w1mpro between ", "").split(" and "))
+    half = float(itd["neowise_comparison_mag_window"]) + ls.NEOWISE_COMPARISON_FETCH_MARGIN_MAG
+    assert hi - lo == pytest.approx(2 * half, abs=0.011) and (lo + hi) / 2 == pytest.approx(10.51, abs=0.05)
+    comp = out["neowise"]["comparison"]
+    assert comp["status"] == "ok" and comp["n_stars"] == 4 and comp["radius_arcsec"] == 600.0
+    assert "w1mpro between" in comp["query_log"][0]
