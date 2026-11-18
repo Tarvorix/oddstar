@@ -38,13 +38,17 @@ def get_with_retries(
     attempts: int = 3,
     backoff_s: float = 2.0,
     sleep: Sleeper = time.sleep,
+    no_content_ok: bool = False,
 ) -> Any:
-    """GET with bounded retries; raises ArchiveAccessError after `attempts` or on a non-retryable HTTP status."""
+    """GET with bounded retries; raises ArchiveAccessError after `attempts` or on a non-retryable HTTP status.
+
+    `no_content_ok` also accepts HTTP 204, for services that answer "nothing found" that way (IMCCE SkyBoT).
+    """
     errors: list[str] = []
     for i in range(attempts):
         try:
             resp = requests.get(url, params=params, timeout=timeout_s)
-            if resp.status_code == 200:
+            if resp.status_code == 200 or (no_content_ok and resp.status_code == 204):
                 return resp
             errors.append(f"HTTP {resp.status_code}")
             if resp.status_code < 500 and resp.status_code != 429:
@@ -72,23 +76,35 @@ def cached_get(
     attempts: int = 3,
     sleep: Sleeper = time.sleep,
     validate: Callable[[bytes], None] | None = None,
+    no_content_ok: bool = False,
 ) -> tuple[bytes, ManifestRecord, bool]:
     """Fetch raw bytes once into the content-addressed cache.
 
     `validate` is called on fresh payloads before caching; it raises to reject an error page so that a bad
-    response is never cached as data.
+    response is never cached as data. It is also called on a cached payload: one stored under an older, laxer rule
+    (for example an unfinished MAST job once accepted as an empty result) is fetched again instead of being served
+    forever. With `no_content_ok`, an HTTP 204 answer is cached as an empty payload without validation (an empty
+    body with HTTP 200 still goes through `validate`).
     """
     desc, sig = request_signature(url, params)
     cached = cache.lookup(archive, release, sig)
     if cached is not None and not cached.offline_fixture:
         try:
-            return cache.read_bytes(cached), cached, True
+            payload = cache.read_bytes(cached)
+            if validate is not None and not (no_content_ok and payload == b""):
+                validate(payload)
+            return payload, cached, True
         except FileNotFoundError:
             pass  # evicted blob: refetch
-    resp = get_with_retries(url, params, timeout_s=timeout_s, attempts=attempts, sleep=sleep)
-    payload = response_bytes(resp)
-    if validate is not None:
-        validate(payload)
+        except ArchiveAccessError:
+            pass  # cached payload no longer passes validation: refetch and replace it
+    resp = get_with_retries(url, params, timeout_s=timeout_s, attempts=attempts, sleep=sleep, no_content_ok=no_content_ok)
+    if no_content_ok and resp.status_code == 204:
+        payload = b""
+    else:
+        payload = response_bytes(resp)
+        if validate is not None:
+            validate(payload)
     man = cache.put(
         archive=archive,
         release=release,

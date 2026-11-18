@@ -2,11 +2,12 @@
 
 Input rule (R9, lessons L007/L008): a check returns `pass` or `fail` only from inputs that were actually obtained.
 
-- The vanishing channel has NO live ingestion: no code path fetches a USNO-B1.0 / historical plate record,
-  a Pan-STARRS depth, a plate-epoch Solar System ephemeris, modern high-resolution imaging or a variable-star
-  catalogue cross-match for a live star. A live star (`live_enriched` key) counts such an input only when
-  `vetting_archive.query_status[<query>] == "ok"`, which nothing writes today, so every check here returns
-  `not_evaluated` for live stars and names the missing data product.
+- A live object (`live_enriched` key) counts an input only when `vetting_archive.query_status[<query>] == "ok"`.
+  The plate-source survey of the vanishing search (`oddstar.io.plate_survey`) writes `usno_b1`,
+  `modern_counterpart` and `panstarrs_depth` for a USNO-B1.0 source it compared with Gaia and Pan-STARRS. No code
+  path fetches a plate-epoch Solar System ephemeris, modern high-resolution imaging or a variable-star catalogue
+  cross-match, so `sso_plate`, `blend_split` and `known_variable` return `not_evaluated` for live objects and name
+  the missing data product. A live sample star (not a plate source) has none of these inputs.
 - Synthetic fixtures and hand-built dicts count an input only when its key is explicitly present and not None.
 - The SIMBAD part of `known_variable` follows `oddstar.vet.common.simbad_lookup` (failed lookup ->
   `not_evaluated`, "no entry" -> a real negative answer).

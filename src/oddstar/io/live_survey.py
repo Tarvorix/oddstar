@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import re
 import time
 from typing import Any
 
@@ -15,6 +16,7 @@ from oddstar.config import PipelineConfig
 from oddstar.errors import ArchiveAccessError
 from oddstar.io.cache import RawCache
 from oddstar.io.optical_timeseries import (
+    _call_with_deadline,
     fetch_asassn_lightcurve,
     fetch_tess_pipeline_pair,
     fetch_ztf_lightcurve,
@@ -27,6 +29,7 @@ from oddstar.io.physics import (
     propagate_position,
 )
 from oddstar.io.cutouts import fetch_allwise_cutouts, fetch_ps1_stack_cutout, measure_wise_cutouts
+from oddstar.io.high_energy import fetch_galex_sources, heasarc_cone
 from oddstar.io.skybot import skybot_cone_search
 from oddstar.io.storage import equatorial_to_galactic
 from oddstar.io.vetting_queries import fetch_irsa_dust, fetch_subarcsec_imaging, target_excess_mjy
@@ -39,8 +42,14 @@ GAIA_TAP_URLS = [
     "https://gaia.aip.de/tap/sync",
 ]
 IRSA_GATOR_URL = "https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-query"
+# A Gator answer may take this many times its socket timeout in total before it is abandoned (a socket timeout
+# bounds only the gap between bytes, so a trickling answer would otherwise never end)
+GATOR_TOTAL_TIMEOUT_FACTOR = 3.0
+# The comparison-star cone is filtered by the archive to the target's W1 +/- (neowise_comparison_mag_window + this)
+NEOWISE_COMPARISON_FETCH_MARGIN_MAG = 0.25
 IRSA_TAP_URL = "https://irsa.ipac.caltech.edu/TAP/sync"
 NOIRLAB_TAP_URL = "https://datalab.noirlab.edu/tap/sync"
+LS_DR10_CONE_ARCSEC = 17.0  # circumscribes the former +/-12 arcsec box; rows are filtered by separation downstream
 MAST_PS1_DR2_URL = "https://catalogs.mast.stsci.edu/api/v0.1/panstarrs/dr2/mean.json"
 VIZIER_TAP_URL = "https://tapvizier.cds.unistra.fr/TAPVizieR/tap/sync"
 VIZIER_TAP_URLS = [
@@ -50,6 +59,9 @@ VIZIER_TSV_URLS = [
     "https://vizier.cfa.harvard.edu/viz-bin/asu-tsv",
     "https://vizier.cds.unistra.fr/viz-bin/asu-tsv",
 ]
+# Waits between rounds when a TAP service says it is busy (HTTP 429). The ESA Gaia sync queue stayed full for more
+# than ten minutes in the 2026-11-17 live test; these waits total about thirteen minutes before the query gives up.
+TAP_BUSY_WAITS_S: tuple[float, ...] = (20.0, 60.0, 180.0, 480.0)
 SIMBAD_TAP_URL = "https://simbad.cfa.harvard.edu/simbad/sim-tap/sync"
 SIMBAD_TAP_URLS = [
     "https://simbad.cfa.harvard.edu/simbad/sim-tap/sync",
@@ -90,26 +102,105 @@ def _parse_ipac_table(text: str) -> list[dict[str, Any]]:
 
 
 def _parse_vizier_tsv(text: str) -> list[dict[str, Any]]:
-    """Parse a VizieR asu-tsv response into a list of dicts."""
+    """Parse a VizieR asu-tsv response into a list of dicts.
+
+    The table block is: column names, units, a line of dashes, then data rows. The dashes line anchors the parse, so
+    a table printed with its header and no data rows gives [] (and never the units line as a row).
+    """
     lines = [
         ln
         for ln in text.splitlines()
         if ln.strip() and not ln.startswith("#")
     ]
-    data_lines = [ln for ln in lines if not set(ln.replace("\t", "").strip()).issubset({"-", " "})]
-    if len(data_lines) < 2:
-        return []
-    cols = [c.strip() for c in data_lines[0].split("\t")]
-    # Skip unit row immediately under header when it contains standard unit strings or blanks
-    start_idx = 2 if len(data_lines) >= 3 else 1
+    dash = next((i for i, ln in enumerate(lines) if set(ln.replace("\t", "").strip()).issubset({"-", " "})), None)
+    if dash is not None:
+        if dash == 0:
+            return []
+        cols = [c.strip() for c in lines[dash - 2 if dash >= 2 else dash - 1].split("\t")]
+        body = lines[dash + 1 :]
+    else:
+        if len(lines) < 2:
+            return []
+        cols = [c.strip() for c in lines[0].split("\t")]
+        # No dashes line: skip a unit row under the header when at least one data row follows it
+        body = lines[2 if len(lines) >= 3 else 1 :]
     rows: list[dict[str, Any]] = []
-    for ln in data_lines[start_idx:]:
+    for ln in body:
         vals = [v.strip() for v in ln.split("\t")]
         if len(vals) < len(cols):
             vals.extend([""] * (len(cols) - len(vals)))
         row = {c: (None if v == "" else v) for c, v in zip(cols, vals)}
         rows.append(row)
     return rows
+
+
+_VOTABLE_JSON_INT_TYPES = {"short", "int", "long", "unsignedByte"}
+_VOTABLE_JSON_FLOAT_TYPES = {"float", "double"}
+
+
+def _rows_from_tap_json(data: Any) -> list[dict[str, Any]]:
+    """Rows of a TAP `FORMAT=json` answer, in either layout the archives use; any other layout is an error.
+
+    - ESA Gaia, SIMBAD and GAVO services answer `{"metadata": [{"name": ...}], "data": [[...], ...]}` with typed
+      values.
+    - IRSA answers a VOTable written out as JSON: `{"VOTABLE": {"RESOURCE_ARRAY": [{"INFO_ARRAY": [...],
+      "TABLE": {"FIELD_ARRAY": [{"<xmlattr>": {"name", "datatype"}}], "DATA": {"TABLEDATA": [[...]]}}}]}}`, every
+      value a string. Until 2026-11-17 this layout was read as "no rows" without an error, so every IRSA TAP query
+      looked like an empty answer. Values are converted by the field's datatype; an empty string is a null.
+
+    A layout that is neither raises ValueError: an unreadable answer must never be recorded as an empty one.
+    """
+    if isinstance(data, dict) and isinstance(data.get("metadata"), list) and isinstance(data.get("data"), list):
+        cols = [m["name"] for m in data["metadata"]]
+        return [dict(zip(cols, r)) for r in data["data"]]
+    if isinstance(data, dict) and isinstance(data.get("VOTABLE"), dict):
+        resources = data["VOTABLE"].get("RESOURCE_ARRAY")
+        if resources is None and "RESOURCE" in data["VOTABLE"]:
+            resources = [data["VOTABLE"]["RESOURCE"]]
+        for res in resources or []:
+            infos = res.get("INFO_ARRAY") or ([res["INFO"]] if "INFO" in res else [])
+            status = {str((i.get("<xmlattr>") or {}).get("name")): str((i.get("<xmlattr>") or {}).get("value")) for i in infos}
+            if status.get("QUERY_STATUS", "OK") != "OK":
+                raise ValueError(f"TAP QUERY_STATUS={status.get('QUERY_STATUS')}")
+            table = res.get("TABLE")
+            if not isinstance(table, dict):
+                continue
+            fields = table.get("FIELD_ARRAY")
+            if fields is None and "FIELD" in table:
+                fields = [table["FIELD"]]
+            tabledata = (table.get("DATA") or {}).get("TABLEDATA")
+            if not isinstance(fields, list) or not isinstance(tabledata, list):
+                raise ValueError("VOTable-JSON answer without FIELD_ARRAY or DATA.TABLEDATA")
+            attrs = [f.get("<xmlattr>") or {} for f in fields]
+            names = [str(a["name"]) for a in attrs]
+            kinds = [(str(a.get("datatype")), a.get("arraysize")) for a in attrs]
+            rows: list[dict[str, Any]] = []
+            for raw in tabledata:
+                if not isinstance(raw, list) or len(raw) != len(names):
+                    raise ValueError("VOTable-JSON row does not match its FIELD list")
+                row: dict[str, Any] = {}
+                for name, (dtype, arraysize), val in zip(names, kinds, raw):
+                    if val is None or (isinstance(val, str) and val.strip() == ""):
+                        row[name] = None
+                    elif arraysize is None and dtype in _VOTABLE_JSON_INT_TYPES:
+                        row[name] = int(val)
+                    elif arraysize is None and dtype in _VOTABLE_JSON_FLOAT_TYPES:
+                        f = float(val)
+                        row[name] = f if math.isfinite(f) else None
+                    else:
+                        row[name] = val
+                rows.append(row)
+            return rows
+        raise ValueError("VOTable-JSON answer without a result TABLE")
+    keys = sorted(data)[:6] if isinstance(data, dict) else type(data).__name__
+    raise ValueError(f"unrecognised TAP JSON layout (top-level {keys})")
+
+
+def _tap_signature(candidates: list[str], query: str) -> str:
+    """Cache key of a TAP query. IRSA answers stored before its layout was understood are all `[]`, whatever the
+    archive really said, so queries that can reach IRSA carry a marker that keeps those stored answers out."""
+    marker = "|votable-json-v1" if any("irsa.ipac.caltech.edu" in c for c in candidates) else ""
+    return hashlib.sha256(f"{'|'.join(candidates)}|{query}{marker}".encode("utf-8")).hexdigest()[:24]
 
 
 def _tap_query_cached(
@@ -121,53 +212,72 @@ def _tap_query_cached(
     release: str,
     cache: RawCache,
     timeout_s: int = 45,
+    busy_waits_s: tuple[float, ...] = TAP_BUSY_WAITS_S,
+    sleep: Any = None,
 ) -> tuple[list[dict[str, Any]], ManifestRecord, bool]:
-    """Execute an ADQL sync TAP query with mirror fallback and content-addressed RawCache provenance."""
+    """Execute an ADQL sync TAP query with mirror fallback and content-addressed RawCache provenance.
+
+    An endpoint that answers HTTP 429 (or 503 with a Retry-After header) is busy, not broken: the ESA Gaia archive
+    does this for minutes at a time when its sync queue is full, and it is the only service that holds the
+    AllWISE/2MASS original tables the sample joins need. When no endpoint answered and at least one was busy, the
+    whole round is retried after each wait in `busy_waits_s`.
+    """
     candidates = urls or ([url] if url else [])
     if not candidates:
         raise ArchiveAccessError(f"No TAP URLs configured for {archive}", retryable=False)
 
-    sig = hashlib.sha256(f"{'|'.join(candidates)}|{query}".encode("utf-8")).hexdigest()[:24]
+    sig = _tap_signature(candidates, query)
     cached = cache.lookup(archive, release, sig)
     if cached is not None and not cached.offline_fixture:
         rows = json.loads(cache.read_bytes(cached).decode("utf-8"))
         return rows, cached, True
 
     errors: list[str] = []
-    for endpoint in candidates:
-        try:
-            resp = requests.post(
-                endpoint,
-                data={"REQUEST": "doQuery", "LANG": "ADQL", "FORMAT": "json", "QUERY": query},
-                timeout=timeout_s,
-            )
-            if resp.status_code != 200:
-                errors.append(f"{endpoint}: HTTP {resp.status_code}")
-                continue
-            data = resp.json()
-            cols = [m["name"] for m in data.get("metadata", [])]
-            raw_rows = data.get("data", [])
-            rows = [dict(zip(cols, r)) for r in raw_rows]
-            # Some GAVO DaCHS mirrors echo header row when FORMAT=json isn't honored
-            if rows and cols and str(rows[0].get(cols[0])) == cols[0]:
-                errors.append(f"{endpoint}: non-JSON TAP echo")
-                continue
-            payload = json.dumps(rows, sort_keys=True).encode("utf-8")
-            manifest = cache.put(
-                archive=archive,
-                release=release,
-                request_signature=sig,
-                query_text=query,
-                payload=payload,
-                row_count=len(rows),
-                offline_fixture=False,
-            )
-            return rows, manifest, False
-        except Exception as exc:
-            errors.append(f"{endpoint}: {type(exc).__name__}: {exc}")
+    waits = list(busy_waits_s)
+    do_sleep = sleep if sleep is not None else time.sleep
+    while True:
+        errors = []
+        busy = False
+        for endpoint in candidates:
+            try:
+                resp = requests.post(
+                    endpoint,
+                    data={"REQUEST": "doQuery", "LANG": "ADQL", "FORMAT": "json", "QUERY": query},
+                    timeout=timeout_s,
+                )
+                if resp.status_code != 200:
+                    headers = getattr(resp, "headers", None) or {}
+                    if resp.status_code == 429 or (resp.status_code == 503 and headers.get("Retry-After")):
+                        busy = True
+                    errors.append(f"{endpoint}: HTTP {resp.status_code}")
+                    continue
+                rows = _rows_from_tap_json(resp.json())
+                cols = list(rows[0]) if rows else []
+                # Some GAVO DaCHS mirrors echo header row when FORMAT=json isn't honored
+                if rows and cols and str(rows[0].get(cols[0])) == cols[0]:
+                    errors.append(f"{endpoint}: non-JSON TAP echo")
+                    continue
+                payload = json.dumps(rows, sort_keys=True).encode("utf-8")
+                manifest = cache.put(
+                    archive=archive,
+                    release=release,
+                    request_signature=sig,
+                    query_text=query,
+                    payload=payload,
+                    row_count=len(rows),
+                    offline_fixture=False,
+                )
+                return rows, manifest, False
+            except Exception as exc:
+                errors.append(f"{endpoint}: {type(exc).__name__}: {exc}")
+        if not busy or not waits:
+            break
+        do_sleep(waits.pop(0))
 
     raise ArchiveAccessError(
-        f"TAP query to {archive} failed across {len(candidates)} endpoint(s): {'; '.join(errors)}",
+        f"TAP query to {archive} failed across {len(candidates)} endpoint(s)"
+        + (f" after {len(busy_waits_s) - len(waits)} wait(s) on a busy service" if busy else "")
+        + f": {'; '.join(errors)}",
         retryable=True,
     )
 
@@ -230,11 +340,18 @@ def _gator_cone_cached(
     cache: RawCache,
     timeout_s: int = 20,
     selcols: str | None = None,
+    constraints: str | None = None,
 ) -> tuple[list[dict[str, Any]], ManifestRecord, bool]:
-    """Execute an IRSA Gator cone query with RawCache provenance (optionally restricted to `selcols`)."""
+    """Execute an IRSA Gator cone query with RawCache provenance.
+
+    `selcols` restricts the returned columns and `constraints` is a Gator row filter (SQL, e.g.
+    "w1mpro between 11.0 and 13.0") applied by the archive. Both are part of the cache key.
+    """
     query_desc = f"GATOR {catalog} cone({ra:.6f}, {dec:+.6f}, {radius_arcsec:.2f} arcsec)"
     if selcols:
         query_desc += f" selcols={selcols}"
+    if constraints:
+        query_desc += f" constraints={constraints}"
     sig = hashlib.sha256(f"{IRSA_GATOR_URL}|{query_desc}".encode("utf-8")).hexdigest()[:24]
     cached = cache.lookup(archive, release, sig)
     if cached is not None and not cached.offline_fixture:
@@ -251,7 +368,13 @@ def _gator_cone_cached(
     }
     if selcols:
         gator_params["selcols"] = selcols
-    resp = requests.get(IRSA_GATOR_URL, params=gator_params, timeout=timeout_s)
+    if constraints:
+        gator_params["constraints"] = constraints
+    try:
+        resp = _call_with_deadline(lambda: requests.get(IRSA_GATOR_URL, params=gator_params, timeout=timeout_s),
+                                   GATOR_TOTAL_TIMEOUT_FACTOR * timeout_s, f"GATOR {catalog}")
+    except TimeoutError as exc:
+        raise ArchiveAccessError(f"IRSA Gator query for {catalog} did not finish: {exc}", retryable=True) from exc
     if resp.status_code != 200 or '[struct stat="ERROR"' in resp.text[:400]:
         raise ArchiveAccessError(
             f"IRSA Gator query for {catalog} failed (HTTP {resp.status_code}): {resp.text[:250]}",
@@ -313,6 +436,60 @@ def _mast_ps1_cone_cached(
     return rows, manifest, False
 
 
+# A position where each VizieR table queried through asu-tsv certainly has rows (ra, dec, radius_arcsec). A mirror
+# that does not hold a table answers HTTP 200 with metadata and zero rows for every cone (seen live 2026-11-17 on the
+# CfA mirror for GALEX and eRASS1), which is indistinguishable from "no source here". An empty answer is therefore
+# accepted from a mirror only after that mirror returned rows for the table at its canary position.
+VIZIER_CANARY_CONES: dict[str, tuple[float, float, float]] = {
+    "VIII/65/nvss": (187.277915, 2.052388, 60.0),  # 3C 273
+    "II/349/ps1": (150.119000, 2.205800, 30.0),  # COSMOS field centre
+}
+_vizier_mirror_serves: dict[tuple[str, str], bool] = {}
+
+
+def _strip_leaked_cgi_headers(text: str) -> str:
+    """Drop CGI header lines a mirror sometimes leaks ahead of the body (seen live on the CfA mirror)."""
+    lines = text.splitlines()
+    for i, ln in enumerate(lines[:20]):
+        if ln.startswith("#"):
+            head = lines[:i]
+            if all((not h.strip()) or re.match(r"^[A-Za-z][A-Za-z0-9-]*:\s", h) for h in head):
+                return "\n".join(lines[i:]) + "\n"
+            return text
+    return text
+
+
+def _vizier_tsv_get(base: str, source: str, ra: float, dec: float, radius_arcsec: float, timeout_s: int) -> list[dict[str, Any]]:
+    resp = requests.get(
+        base,
+        params={
+            "-source": source,
+            "-c": f"{ra:.6f} {dec:+.6f}",
+            "-c.r": f"{radius_arcsec:.2f}",
+            "-c.u": "arcsec",
+            "-out.max": "50",
+        },
+        timeout=timeout_s,
+    )
+    body = _strip_leaked_cgi_headers(resp.text) if resp.status_code == 200 else ""
+    if resp.status_code != 200 or not body.strip().startswith("#"):
+        raise ArchiveAccessError(f"HTTP {resp.status_code}" + ("" if resp.status_code != 200 else " with a non-VizieR body"), retryable=True)
+    return _parse_vizier_tsv(body)
+
+
+def _vizier_mirror_holds_table(base: str, source: str, timeout_s: int) -> bool:
+    key = (base, source)
+    if key not in _vizier_mirror_serves:
+        canary = VIZIER_CANARY_CONES.get(source)
+        if canary is None:
+            raise ArchiveAccessError(
+                f"no canary position for VizieR table {source}: an empty answer cannot be told from a table the mirror does not hold",
+                retryable=False,
+            )
+        _vizier_mirror_serves[key] = bool(_vizier_tsv_get(base, source, canary[0], canary[1], canary[2], timeout_s))
+    return _vizier_mirror_serves[key]
+
+
 def _vizier_tsv_cone_cached(
     *,
     source: str,
@@ -324,9 +501,14 @@ def _vizier_tsv_cone_cached(
     cache: RawCache,
     timeout_s: int = 15,
 ) -> tuple[list[dict[str, Any]], ManifestRecord, bool]:
-    """Query VizieR asu-tsv across primary and CfA mirrors with RawCache provenance."""
+    """Query VizieR asu-tsv across mirrors with RawCache provenance.
+
+    An empty answer is accepted only from a mirror shown to hold the table (see `VIZIER_CANARY_CONES`).
+    """
     query_desc = f"VIZIER_TSV {source} cone({ra:.6f}, {dec:+.6f}, {radius_arcsec:.2f} arcsec)"
-    sig = hashlib.sha256(f"{'|'.join(VIZIER_TSV_URLS)}|{query_desc}".encode("utf-8")).hexdigest()[:24]
+    # "held-checked" keeps answers stored before the mirror check apart: an old cached empty list may have come from
+    # a mirror that does not hold the table, so it is not reused.
+    sig = hashlib.sha256(f"{'|'.join(VIZIER_TSV_URLS)}|held-checked|{query_desc}".encode("utf-8")).hexdigest()[:24]
     cached = cache.lookup(archive, release, sig)
     if cached is not None and not cached.offline_fixture:
         rows = json.loads(cache.read_bytes(cached).decode("utf-8"))
@@ -335,21 +517,10 @@ def _vizier_tsv_cone_cached(
     errors: list[str] = []
     for base in VIZIER_TSV_URLS:
         try:
-            resp = requests.get(
-                base,
-                params={
-                    "-source": source,
-                    "-c": f"{ra:.6f} {dec:+.6f}",
-                    "-c.r": f"{radius_arcsec:.2f}",
-                    "-c.u": "arcsec",
-                    "-out.max": "50",
-                },
-                timeout=timeout_s,
-            )
-            if resp.status_code != 200 or not resp.text.strip().startswith("#"):
-                errors.append(f"{base}: HTTP {resp.status_code}")
+            rows = _vizier_tsv_get(base, source, ra, dec, radius_arcsec, timeout_s)
+            if not rows and not _vizier_mirror_holds_table(base, source, timeout_s):
+                errors.append(f"{base}: mirror returns no rows for {source} even at its canary position (table not held)")
                 continue
-            rows = _parse_vizier_tsv(resp.text)
             payload = json.dumps(rows, sort_keys=True).encode("utf-8")
             manifest = cache.put(
                 archive=archive,
@@ -549,6 +720,79 @@ def _phot_quality_where_sql(cfg: PipelineConfig) -> str:
     """
 
 
+# The ESA sync service returns at most this many rows and gives no error when it stops there (seen live on
+# 2026-11-17: the bulge region index came back with exactly 50,000 rows). An answer this long is not the whole region.
+GAIA_SYNC_ROW_CAP = 50_000
+# Key-range slices: rows per page (well under the cap), where each key starts and ends, and the first slice width.
+# source_id packs a HEALPix level-12 pixel into its high bits, so a source_id range is a patch of sky.
+SLICE_PAGE_ROWS = 1000
+SLICE_MAX_NARROWINGS = 6
+SLICE_KEYS: dict[str, dict[str, int]] = {
+    "random_index": {"max": 2**33, "initial_width": 1_000_000},
+    "source_id": {"max": 2**63 - 1, "initial_width": 2**52},
+}
+
+
+def _fetch_live_sliced(
+    *,
+    where_gaia: str,
+    key: str,
+    reg: str,
+    n_lim: int,
+    after_key: int | None,
+    cfg: PipelineConfig,
+    cache: RawCache,
+) -> tuple[list[dict[str, Any]], list[ManifestRecord]]:
+    """The first `n_lim` stars by `key` (after `after_key`) that pass the region and photometry cuts, read in slices.
+
+    This is the same sample the single-shot `SELECT TOP n ... ORDER BY g.<key>` defines, built without asking the
+    archive to sort the whole region: each query covers one range `lo < g.<key> <= hi`, sorted and limited to one
+    page. A full page means the range may hold more, so the next query starts after the last key returned; a short
+    page means the range is done. Everything below the current `lo` is therefore complete at every step, and the
+    answer does not depend on how the ranges were cut. A range that fails (the archive times out) is retried
+    narrower; a range that returns little is followed by a wider one.
+    """
+    spec = SLICE_KEYS[key]
+    key_max = int(spec["max"])
+    width = int(spec["initial_width"])
+    lo = int(after_key) if after_key is not None else -1
+    rows_all: list[dict[str, Any]] = []
+    manifests: list[ManifestRecord] = []
+    narrowings = 0
+    while len(rows_all) < n_lim and lo < key_max:
+        hi = min(lo + width, key_max)
+        query = " ".join(
+            f"""
+            SELECT TOP {SLICE_PAGE_ROWS} {_select_columns_sql()}
+            {_join_and_phot_cuts_sql()}
+            WHERE {where_gaia}
+            AND g.{key} > {lo} AND g.{key} <= {hi}
+            {_phot_quality_where_sql(cfg)}
+            ORDER BY g.{key} ASC
+            """.split()
+        )
+        try:
+            rows, man, _ = _tap_query_cached(
+                urls=GAIA_TAP_URLS, query=query, archive="gaia", release=f"{cfg.gaia.release}_{reg}_slice", cache=cache, timeout_s=90,
+            )
+        except ArchiveAccessError:
+            if narrowings >= SLICE_MAX_NARROWINGS or width <= 1:
+                raise
+            narrowings += 1
+            width = max(1, width // 4)
+            continue
+        manifests.append(man)
+        rows_all.extend(rows)
+        if len(rows) >= SLICE_PAGE_ROWS:
+            lo = max(int(r[key]) for r in rows)
+        else:
+            lo = hi
+            if len(rows) < SLICE_PAGE_ROWS // 4:
+                width *= 2
+    rows_all.sort(key=lambda r: int(r[key]))
+    return rows_all[:n_lim], manifests
+
+
 def _fetch_live_two_stage(
     *,
     base_where_gaia: str,
@@ -558,7 +802,12 @@ def _fetch_live_two_stage(
     cfg: PipelineConfig,
     cache: RawCache,
 ) -> tuple[list[dict[str, Any]], list[ManifestRecord]]:
-    """Two-stage Gaia-index -> AllWISE/2MASS batch join for paginated live queries."""
+    """Two-stage Gaia-index -> AllWISE/2MASS batch join for paginated live queries.
+
+    The index lists the whole region, which only works while the region is smaller than the archive's row cap.
+    An index at the cap is truncated to an arbitrary part of the region, so it is not used: the sample is then read
+    in `random_index` slices instead, which gives the stars the untruncated index would have given.
+    """
     idx_query = " ".join(
         f"SELECT g.source_id, g.random_index FROM gaiadr3.gaia_source AS g WHERE {base_where_gaia}".split()
     )
@@ -570,6 +819,11 @@ def _fetch_live_two_stage(
         cache=cache,
         timeout_s=90,
     )
+    if len(idx_rows) >= GAIA_SYNC_ROW_CAP:
+        rows, mans = _fetch_live_sliced(
+            where_gaia=base_where_gaia, key="random_index", reg=reg, n_lim=n_lim, after_key=after_random_index, cfg=cfg, cache=cache,
+        )
+        return rows, [idx_man, *mans]
     ordered = sorted(idx_rows, key=lambda r: int(r["random_index"]))
     if after_random_index is not None:
         ordered = [r for r in ordered if int(r["random_index"]) > int(after_random_index)]
@@ -678,7 +932,7 @@ def fetch_live_halo_bulge_sample(
         idx_query = " ".join(
             f"SELECT g.source_id, g.random_index FROM gaiadr3.gaia_source AS g WHERE {base_where_gaia}".split()
         )
-        idx_sig = hashlib.sha256(f"{'|'.join(GAIA_TAP_URLS)}|{idx_query}".encode("utf-8")).hexdigest()[:24]
+        idx_sig = _tap_signature(GAIA_TAP_URLS, idx_query)
         cached_idx = cache.lookup("gaia", f"{cfg.gaia.release}_{reg}_index", idx_sig)
         if cached_idx is not None and not cached_idx.offline_fixture:
             rows, mans = _fetch_live_two_stage(
@@ -700,6 +954,35 @@ def fetch_live_halo_bulge_sample(
     {_phot_quality_where_sql(cfg)}
     {order_clause}
     """
+    if reg in {"halo", "bulge"}:
+        # The single-shot join over the whole region timed out server-side (HTTP 408 after about a minute) on every
+        # live attempt on 2026-11-17, and a failure is never cached, so each run paid for it again. A stored
+        # single-shot answer from an earlier run is still used; otherwise go straight to the index + batch-join
+        # route, which returns the same stars (first `n_lim` by random_index that pass the same cuts).
+        one_sig = _tap_signature(GAIA_TAP_URLS, " ".join(query.split()))
+        cached_one = cache.lookup("gaia", f"{cfg.gaia.release}_{reg}", one_sig)
+        if cached_one is None or cached_one.offline_fixture:
+            rows, mans = _fetch_live_two_stage(
+                base_where_gaia=base_where_gaia,
+                reg=reg,
+                n_lim=n_lim,
+                after_random_index=after_random_index,
+                cfg=cfg,
+                cache=cache,
+            )
+            return [_row_to_star_dict(r, gaia_release=cfg.gaia.release) for r in rows], mans
+    else:
+        # The local cut has no random-index paging: its sample is the first `n_lim` stars by source_id. The
+        # single-shot form of that also timed out live (HTTP 408 after about a minute, 2026-11-17), and no mirror
+        # holds the AllWISE/2MASS original tables. A stored single-shot answer is still used; otherwise the same
+        # stars are read in source_id slices.
+        one_sig = _tap_signature(GAIA_TAP_URLS, " ".join(query.split()))
+        cached_one = cache.lookup("gaia", f"{cfg.gaia.release}_{reg}", one_sig)
+        if cached_one is None or cached_one.offline_fixture:
+            rows, mans = _fetch_live_sliced(
+                where_gaia=base_where_gaia, key="source_id", reg=reg, n_lim=n_lim, after_key=None, cfg=cfg, cache=cache,
+            )
+            return [_row_to_star_dict(r, gaia_release=cfg.gaia.release) for r in rows], mans
     try:
         rows, man, _ = _tap_query_cached(
             urls=GAIA_TAP_URLS,
@@ -974,8 +1257,10 @@ def _search_sso(
     """SkyBoT (WISE observer C51) at the median epoch of each 2010 visit, propagated to every frame epoch."""
     match_r = float(vcfg["sso_match_radius_arcsec"])
     max_rate = float(vcfg["sso_max_rate_arcsec_per_hr"])
+    max_err = float(vcfg["sso_max_pos_err_arcsec"])
     visits_out: list[dict[str, Any]] = []
     matches: list[dict[str, Any]] = []
+    unconstrained: dict[str, dict[str, Any]] = {}
     manifests: list[ManifestRecord] = []
     for frames in _group_visits(frame_mjds, float(vcfg["sso_visit_gap_days"])):
         ep_mjd = float(np.median(frames))
@@ -1004,7 +1289,14 @@ def _search_sso(
         closest: float | None = None
         for b in bodies:
             dra, ddec = b.get("dra_arcsec_hr"), b.get("ddec_arcsec_hr")
-            err = float(b.get("pos_err_arcsec") or 0.0)
+            raw_err = float(b.get("pos_err_arcsec") or 0.0)
+            # A body whose ephemeris uncertainty exceeds the cap (lost or poorly observed objects reach degrees) is not
+            # located by its catalogue position at all. Its uncertainty must not widen the match radius, or it would
+            # "match" any target in the field. It is tested at its nominal position only and listed as unconstrained.
+            err = raw_err if raw_err <= max_err else 0.0
+            if raw_err > max_err:
+                unconstrained[str(b["name"])] = {"name": b["name"], "class": b.get("class"), "v_mag": b.get("v_mag"),
+                                                 "pos_err_arcsec": raw_err, "nominal_sep_arcsec": round(float(b.get("sep_arcsec") or 0.0), 1)}
             for f in frames:
                 dt_h = (f - ep_mjd) * 24.0
                 s_ra, s_dec = propagate_position(ra, dec, pmra, pmdec, 2016.0, 2000.0 + (f - 51544.5) / 365.25)
@@ -1023,13 +1315,14 @@ def _search_sso(
                 closest = sep if closest is None else min(closest, sep)
                 if sep <= match_r + err:
                     matches.append({"name": b["name"], "class": b.get("class"), "v_mag": b.get("v_mag"),
-                                    "frame_mjd": f, "sep_arcsec": round(sep, 2), "pos_err_arcsec": err})
+                                    "frame_mjd": f, "sep_arcsec": round(sep, 2), "pos_err_arcsec": raw_err})
         if ambiguous:
             visit["status"] = f"ambiguous: no rates for {sorted(set(ambiguous))[:5]}"
         visit["closest_approach_arcsec"] = None if closest is None else round(closest, 1)
         visits_out.append(visit)
     return {"frame_mjds": sorted(frame_mjds), "visits": visits_out, "matches": matches,
-            "observer": "C51", "match_radius_arcsec": match_r}, manifests
+            "observer": "C51", "match_radius_arcsec": match_r, "max_pos_err_arcsec": max_err,
+            "unconstrained_bodies": sorted(unconstrained.values(), key=lambda u: u["nominal_sep_arcsec"])}, manifests
 
 
 def enrich_star_live_for_vetting(
@@ -1180,9 +1473,10 @@ def enrich_star_live_for_vetting(
             try:
                 q_aw_dl = (
                     f"SELECT ra, dec, w4rchi2, w4m, w4nm, w4snr, cc_flags, ext_flg, ph_qual "
-                    f"FROM allwise.source WHERE q3c_radial_query(ra, dec, {ra:.6f}, {dec:.6f}, 0.0015)"
+                    f"FROM allwise.source WHERE 't' = q3c_radial_query(ra, dec, {ra:.6f}, {dec:.6f}, 0.0015)"
                 )
-                aw_rows, m_aw, _ = _tap_query_cached(url=NOIRLAB_TAP_URL, query=q_aw_dl, archive="allwise", release="datalab", cache=cache, timeout_s=20)
+                # Data Lab is read as CSV (the layout its Legacy Survey query is known to return); values are strings, as from Gator
+                aw_rows, m_aw, _ = _tap_csv_query_cached(url=NOIRLAB_TAP_URL, query=q_aw_dl, archive="allwise", release="datalab", cache=cache, timeout_s=20)
                 manifests.append(m_aw)
                 aw_ok = True
             except Exception as exc3:
@@ -1267,10 +1561,16 @@ def enrich_star_live_for_vetting(
 
         itd = cfg.channels["ir_timedomain"]
         comp_r = float(itd["neowise_comparison_radius_arcsec"])
+        # Only detections near the target's brightness are asked for: an unfiltered cone of this size is hundreds of
+        # thousands of single exposures. The margin keeps a star at the edge of the magnitude window from losing its
+        # fainter (or brighter) exposures, which would bias its median.
+        comp_win = float(itd["neowise_comparison_mag_window"]) + NEOWISE_COMPARISON_FETCH_MARGIN_MAG
+        comp_filter = f"w1mpro between {target_w1_mag - comp_win:.2f} and {target_w1_mag + comp_win:.2f}"
         try:
             c_rows, m_cmp, _ = _gator_cone_cached(
                 catalog="neowiser_p1bs_psd", ra=ra, dec=dec, radius_arcsec=comp_r,
-                archive="neowise", release="neowise_r_field", cache=cache, timeout_s=120,
+                archive="neowise", release="neowise_r_field", cache=cache, timeout_s=180,
+                selcols="ra,dec,mjd,w1mpro,w2mpro,qual_frame", constraints=comp_filter,
             )
             manifests.append(m_cmp)
             comp = build_neowise_comparison(
@@ -1281,7 +1581,7 @@ def enrich_star_live_for_vetting(
                 min_stars=int(itd["neowise_comparison_min_stars"]),
                 max_stars=int(itd["neowise_comparison_max_stars"]),
             )
-            comp["query_log"] = [f"Gator neowiser_p1bs_psd {comp_r:.0f}\" cone: {len(c_rows)} rows"]
+            comp["query_log"] = [f"Gator neowiser_p1bs_psd {comp_r:.0f}\" cone, {comp_filter}: {len(c_rows)} rows"]
         except (ArchiveAccessError, requests.RequestException, ValueError, KeyError, OSError) as exc:
             comp = {"status": "query_failed", "n_stars": 0, "query_log": [f"{type(exc).__name__}: {str(exc)[:240]}"]}
         comp["radius_arcsec"] = comp_r
@@ -1409,16 +1709,15 @@ def enrich_star_live_for_vetting(
         qs["deep_optical_ps1"] = "no_coverage"
 
     try:
-        cos_dec = max(0.1, math.cos(math.radians(dec)))
-        dra = (12.0 / 3600.0) / cos_dec
-        ddec = 12.0 / 3600.0
+        # q3c_radial_query uses the Data Lab positional index; an RA/Dec BETWEEN box does not and timed out live.
+        # Data Lab's ADQL parser rejects a bare boolean function as a predicate, so it is compared with 't'
+        # (verified live: the bare form is a syntax error, CONTAINS/POINT is not accepted there either).
         q_ls = (
             f"SELECT ls_id, ra, dec, type, flux_g, flux_r, flux_z, flux_w3, flux_w4, flux_ivar_w4 "
             f"FROM ls_dr10.tractor "
-            f"WHERE ra BETWEEN {ra - dra:.6f} AND {ra + dra:.6f} "
-            f"AND dec BETWEEN {dec - ddec:.6f} AND {dec + ddec:.6f}"
+            f"WHERE 't' = q3c_radial_query(ra, dec, {ra:.6f}, {dec:.6f}, {LS_DR10_CONE_ARCSEC / 3600.0:.6f})"
         )
-        ls_rows, m_ls, _ = _tap_csv_query_cached(url=NOIRLAB_TAP_URL, query=q_ls, archive="deep_optical", release="ls_dr10", cache=cache, timeout_s=25)
+        ls_rows, m_ls, _ = _tap_csv_query_cached(url=NOIRLAB_TAP_URL, query=q_ls, archive="deep_optical", release="ls_dr10", cache=cache, timeout_s=60)
         manifests.append(m_ls)
         qs["deep_optical_ls_dr10"] = "ok" if ls_rows else "no_coverage"
         if ls_rows:
@@ -1509,20 +1808,29 @@ def enrich_star_live_for_vetting(
     g_ra, g_dec = propagate_position(ra, dec, pmra, pmdec, 2016.0, 2008.0)  # mid GALEX AIS epoch
     try:
         g_r = float(vcfg["youth_galex_match_radius_arcsec"])
-        g_rows, m_gal, _ = _vizier_tsv_cone_cached(source="II/335/galex_ais", ra=g_ra, dec=g_dec, radius_arcsec=g_r, archive="high_energy", release="galex_guvcat_ais", cache=cache)
+        g_cov = float(vcfg["youth_galex_coverage_radius_arcsec"])
+        g_rows, m_gal = fetch_galex_sources(ra_deg=g_ra, dec_deg=g_dec, radius_arcsec=g_r, cache=cache, sleep=sleep)
         manifests.append(m_gal)
-        cands = []
-        for gr in g_rows:
-            gra, gde = _vizier_radec(gr)
-            nuv = _vizier_value(gr, "NUVmag", "NUV", "nuv_mag")
-            if gra is None or gde is None or nuv is None:
-                continue
-            cands.append({"sep_arcsec": round(angular_separation_arcsec(g_ra, g_dec, gra, gde), 2), "nuv_mag": nuv,
-                          "nuv_err": _vizier_value(gr, "e_NUVmag", "e_NUV", "nuv_magerr"),
-                          "fuv_mag": _vizier_value(gr, "FUVmag", "FUV", "fuv_mag")})
-        youth["galex"] = {"status": "ok", "catalogue": "VizieR II/335/galex_ais (GUVcat AIS)", "match_radius_arcsec": g_r,
-                          "match": min(cands, key=lambda c: c["sep_arcsec"]) if cands else None}
-        qs["galex"] = "ok"
+        cands = [g for g in g_rows if g["sep_arcsec"] <= g_r and g["nuv_mag"] is not None]
+        n_cov: int | None = None
+        if not cands:
+            # No NUV source at the star. Whether that means anything depends on GALEX having observed the field at
+            # all, so count catalogue sources of any kind in a wider cone (a deep field can exceed one page; any row
+            # is enough to show coverage).
+            cov_rows, m_cov = fetch_galex_sources(ra_deg=g_ra, dec_deg=g_dec, radius_arcsec=max(g_r, g_cov), cache=cache, sleep=sleep,
+                                                  allow_truncated=True)
+            manifests.append(m_cov)
+            n_cov = len(cov_rows)
+        if n_cov == 0:
+            # The field was not observed, so a missing NUV detection says nothing about the star.
+            qs["galex"] = "no_coverage"
+            youth["galex"] = {"status": "no_coverage", "catalogue": "MAST Mast.Galex.Catalog", "coverage_radius_arcsec": g_cov,
+                              "note": f"no GALEX source within {g_cov:.0f} arcsec; field not observed by GALEX"}
+        else:
+            youth["galex"] = {"status": "ok", "catalogue": "MAST Mast.Galex.Catalog", "match_radius_arcsec": g_r,
+                              "coverage_radius_arcsec": g_cov, "n_sources_in_coverage_cone": n_cov,
+                              "match": ({k: cands[0][k] for k in ("sep_arcsec", "nuv_mag", "nuv_err", "fuv_mag", "survey")} if cands else None)}
+            qs["galex"] = "ok"
     except Exception as exc:
         qs["galex"] = _failed(exc)
         youth["galex"] = {"status": qs["galex"]}
@@ -1530,18 +1838,13 @@ def enrich_star_live_for_vetting(
     r_ra, r_dec = propagate_position(ra, dec, pmra, pmdec, 2016.0, 1990.8)  # ROSAT all-sky survey epoch
     try:
         x_r = float(vcfg["youth_rosat_match_radius_arcsec"])
-        x_rows, m_x, _ = _vizier_tsv_cone_cached(source="IX/47/2rxs", ra=r_ra, dec=r_dec, radius_arcsec=x_r, archive="high_energy", release="rosat_2rxs", cache=cache)
+        x_rows, m_x = heasarc_cone(table="rass2rxs", columns=["name", "ra", "dec", "count_rate", "count_rate_error", "hardness_ratio_1"],
+                                   ra_deg=r_ra, dec_deg=r_dec, radius_arcsec=x_r, cache=cache, release="rosat_2rxs_heasarc", sleep=sleep)
         manifests.append(m_x)
-        cands = []
-        for xr in x_rows:
-            xra, xde = _vizier_radec(xr)
-            rate = _vizier_value(xr, "Rate", "CRate", "CR", "RATE", "Cts")
-            if xra is None or xde is None or rate is None:
-                continue
-            cands.append({"sep_arcsec": round(angular_separation_arcsec(r_ra, r_dec, xra, xde), 1), "rate_cts_s": rate,
-                          "hr1": _vizier_value(xr, "HR1", "HR_1")})
-        youth["rosat_2rxs"] = {"status": "ok", "catalogue": "VizieR IX/47/2rxs", "match_radius_arcsec": x_r,
-                               "match": min(cands, key=lambda c: c["sep_arcsec"]) if cands else None}
+        cands = [{"sep_arcsec": xr["sep_arcsec"], "rate_cts_s": xr["count_rate"], "hr1": xr.get("hardness_ratio_1"), "name": xr.get("name")}
+                 for xr in x_rows if xr.get("count_rate") is not None]
+        youth["rosat_2rxs"] = {"status": "ok", "catalogue": "HEASARC rass2rxs (2RXS, Boller et al. 2016)", "match_radius_arcsec": x_r,
+                               "match": cands[0] if cands else None}
         qs["xray_2rxs"] = "ok"
     except Exception as exc:
         qs["xray_2rxs"] = _failed(exc)
@@ -1555,17 +1858,13 @@ def enrich_star_live_for_vetting(
         e_ra, e_dec = propagate_position(ra, dec, pmra, pmdec, 2016.0, 2020.1)
         try:
             e_r = float(vcfg["youth_erass1_match_radius_arcsec"])
-            e_rows, m_e, _ = _vizier_tsv_cone_cached(source="J/A+A/682/A34/erass1-m", ra=e_ra, dec=e_dec, radius_arcsec=e_r, archive="high_energy", release="erass1_main", cache=cache)
+            e_rows, m_e = heasarc_cone(table="erass1main", columns=["name", "ra", "dec", "b1_flux", "b1_flux_error"],
+                                       ra_deg=e_ra, dec_deg=e_dec, radius_arcsec=e_r, cache=cache, release="erass1_main_heasarc", sleep=sleep)
             manifests.append(m_e)
-            cands = []
-            for er in e_rows:
-                era, ede = _vizier_radec(er)
-                fl = _vizier_value(er, "Flux", "FluxP1", "ML_FLUX_1", "F0.2-2.3", "Fx")
-                if era is None or ede is None or fl is None:
-                    continue
-                cands.append({"sep_arcsec": round(angular_separation_arcsec(e_ra, e_dec, era, ede), 1), "flux_erg_cm2_s": fl})
-            youth["erass1"] = {"status": "ok", "catalogue": "VizieR J/A+A/682/A34/erass1-m", "match_radius_arcsec": e_r,
-                               "match": min(cands, key=lambda c: c["sep_arcsec"]) if cands else None}
+            cands = [{"sep_arcsec": er["sep_arcsec"], "flux_erg_cm2_s": er["b1_flux"], "name": er.get("name")}
+                     for er in e_rows if er.get("b1_flux") is not None]
+            youth["erass1"] = {"status": "ok", "catalogue": "HEASARC erass1main (eRASS1 main, 0.2-2.3 keV; Merloni et al. 2024)",
+                               "match_radius_arcsec": e_r, "match": cands[0] if cands else None}
             qs["xray_erass1"] = "ok"
         except Exception as exc:
             qs["xray_erass1"] = _failed(exc)
@@ -1606,7 +1905,7 @@ def enrich_star_live_for_vetting(
         manifests.extend(m_sso)
         va["sso_search"] = sso
         bad = [v["status"] for v in sso["visits"] if v["status"] != "ok"]
-        qs["skybot"] = "ok" if not bad else "failed: " + " | ".join(bad)
+        qs["skybot"] = "ok" if not bad else "failed: " + " | ".join(str(b).removeprefix("failed: ") for b in bad)
 
     # 10. Line-of-sight Galactic dust (IRSA DUST service). Stored apart from the per-star `ebv_sfd` used for
     #     stellar extinction, which is left untouched here.

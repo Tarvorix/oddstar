@@ -267,6 +267,37 @@ def test_systematics_window_tess_and_neowise(tmp_path: Path, cfg: Any) -> None:
     assert res_p.status == "pass" and "not shared by field stars" in res_p.note
 
 
+def test_untested_neowise_variation_cannot_pass_on_tess_alone(tmp_path: Path, cfg: Any) -> None:
+    """A star flagged for an infrared change, with no comparison stars, must not pass because its TESS data are clean."""
+    rng = np.random.default_rng(5)
+    too_few = {"status": "too_few_comparison_stars", "n_stars": 1, "query_log": ['Gator neowiser_p1bs_psd 600" cone: 9000 rows']}
+    varying = live_star(tess_sectors=[tess_sector(rng)])
+    varying["neowise"] = dict(step_neowise(rng), comparison=dict(too_few))
+    res = check_systematics_window(varying, cfg, tmp_path / "v")
+    assert res.status == "not_evaluated" and res.note.startswith("The star varies in NEOWISE")
+    assert res.metrics["neowise_variation_untested"] is True and res.metrics["tess"]["status"] == "pass"
+    assert "too_few_comparison_stars (1 stars)" in res.note
+
+    # No comparison ensemble at all (fetch never ran) is the same situation
+    missing = live_star(tess_sectors=[tess_sector(rng)])
+    missing["neowise"] = step_neowise(rng)
+    assert check_systematics_window(missing, cfg, tmp_path / "m").status == "not_evaluated"
+
+    # A star that is quiet in NEOWISE has nothing infrared to attribute: the TESS result stands
+    quiet = live_star(tess_sectors=[tess_sector(rng)])
+    quiet["neowise"] = dict(step_neowise(rng, amp_mag=0.0), comparison=dict(too_few))
+    res_q = check_systematics_window(quiet, cfg, tmp_path / "q")
+    assert res_q.status == "pass" and res_q.metrics["neowise_variation_untested"] is False
+
+    # A failing TESS part still fails, and an explicit fixture flag still counts as an evaluation
+    bad = live_star(tess_sectors=[tess_sector(rng, dip=0.06, bkg_spike_t=2150.5)])
+    bad["neowise"] = dict(step_neowise(rng), comparison=dict(too_few))
+    assert check_systematics_window(bad, cfg, tmp_path / "b").status == "fail"
+    flagged = live_star(tess_sectors=[tess_sector(rng)])
+    flagged["neowise"] = dict(step_neowise(rng), scan_systematic=False)
+    assert check_systematics_window(flagged, cfg, tmp_path / "f").status == "pass"
+
+
 def test_build_neowise_comparison_groups_stars_on_visit_grid() -> None:
     rng = np.random.default_rng(3)
     windows = [(56700.0 + 182.6 * k, 56701.5 + 182.6 * k) for k in range(12)]

@@ -2,6 +2,257 @@
 
 All threshold, sample-cut, and prompt changes must be logged here under Ground Rule R4 before running validation or search.
 
+## [1.5.0] - 2026-11-18
+
+### The radio search reads real Breakthrough Listen scans
+Until now `search radio_narrowband --live` was refused: the channel had only its built-in cadences. A fine-resolution
+archive scan is one block of 16 spectra by hundreds of millions of channels, which the channel cannot take whole.
+
+- New search of scans on local disk (`oddstar/io/bl_radio.py`, used by `search radio_narrowband --live`). It walks the
+  ON scan in blocks, cuts every window that stands out from the ON and OFF scans, and hands each to the channel as an
+  ordinary cadence. See `docs/channels/radio_narrowband.md` for the steps, the not-searched reasons
+  (`n_no_coverage`, `n_not_downloaded`, `n_no_comparison`, `n_failed`) and the known limits.
+- New keys under `channels.radio_narrowband`, all chosen before any archive scan was searched:
+  - `live_block_channels: 1048576`. One coarse channel of the Green Bank fine-resolution product; memory only.
+  - `live_window_channels: 2048`. 5.7 kHz at 2.8 Hz per channel: wider than the largest drift (4 Hz/s) carries a
+    line over one scan plus the gap to the neighbouring scan, so the OFF window holds where the line would be.
+  - `live_prefilter_snr: 8.0`. Below the channel's `min_snr: 10.0`, so a window is never lost because the block
+    search and the channel estimate the noise from slightly different stretches. Noise alone reached 6.6 in a
+    1,048,576-channel test block.
+  - `live_max_listed_windows: 200` limits the list kept per scan; the counts are of all windows.
+- The channel code did not change, and no threshold changed. `vet/radio_checks.py` changed in wording only: a live
+  star counts its inputs when `query_status["breakthrough_listen"]` is "ok", which the live search now writes; the
+  note of a missing input says whether no scans were compared or the search does not produce that input.
+  `multi_target` and `reobservation` stay `not_evaluated` for a live star.
+- `search --live` no longer refuses any channel.
+- The archive index applies its row limit before cutting to the requested circle, so the earlier limit of 500 could
+  drop files silently. Requests now use 20000 and an answer of 5000 rows or more is refused.
+
+Known limits: the certificates are measured on the built-in cadences; the false-alarm rate of the live search on
+archive scans is not measured; a scan set with a single ON scan cannot test persistence, so interference present
+only during that scan is flagged and stays a lead until a second epoch exists.
+
+## [1.4.0] - 2026-11-18
+
+### The vanishing search reads real plate sources
+Until now no code fetched a plate record for a live object and `search vanishing --live` was refused (1.2.0). The
+channel had only ever run on fixtures. A live sample star is in Gaia by construction and cannot vanish from it, so the
+live search has a different unit: the USNO-B1.0 plate sources around each sample position.
+
+- New survey fetch (`oddstar/io/plate_survey.py`, used by `search vanishing --live`): USNO-B1.0, Gaia DR3 and
+  Pan-STARRS1 DR2 for a field around every sample position. See `docs/channels/vanishing.md` for the steps and the
+  not-searched reasons (`n_too_faint`, `n_no_coverage`, `n_failed`).
+- New keys under `channels.vanishing`, all chosen before any field was searched:
+  - `plate_field_radius_arcsec: 60.0`. A high-latitude field of this size holds a handful of plate sources; 1,000
+    fields are 0.87 square degrees.
+  - `plate_ps1_min_detections: 2`. A Pan-STARRS object with fewer detections is not taken as a counterpart or into the
+    depth. A low value is the cautious choice for a search that flags absence: a doubtful modern object still counts
+    as "something is there".
+  - `plate_depth_percentile: 90.0` and `plate_depth_min_objects: 10`. The local depth is the 90th percentile of the
+    r-band PSF magnitudes of the field's Pan-STARRS objects (22.6 in the one field looked at to check the query
+    format). It is where detections become rare, not where they are complete; the existing `min_depth_margin_mag: 2.0`
+    is applied on top, so a searched plate source is at least 2 mag brighter than that.
+  - `plate_max_attempts: 3`, `plate_backoff_s: 2.0`, `plate_rate_limit_rps: 2.0` are operational.
+- The channel code did not change. Thresholds `min_early_plates`, `min_depth_margin_mag`, `match_radius_arcsec` and
+  `max_pm_residual_arcsec` are as in 1.3.0. `vet/vanishing_checks.py` changed in its description only (which inputs a
+  live object can have); every certificate value of all eight channels is identical to 1.3.0.
+- `search --live` now refuses only `radio_narrowband`.
+
+Known limits:
+- The certificate describes a Gaia star paired with a plate record. The rate of false USNO-B1.0 entries (plate flaws,
+  halos of bright stars, merged detections) is not part of it, so the false-alarm rate of a live run is not measured
+  and its flags are leads. The null report of such a run carries the fixture grid.
+- The two first-epoch plates are independent emulsions, usually of the same night, not independent epochs.
+- `sso_plate`, `blend_split` and `known_variable` have no live input and stay `not_evaluated`, so a live flag cannot
+  clear every check.
+- South of Dec -30 there is no Pan-STARRS coverage and nothing is searched.
+- `version: "1.4.0"` (was "1.3.0"). The config hash changes; every certificate is regenerated in a separate commit.
+
+## [1.3.0] - 2026-11-18
+
+### The spectral-line search reads real survey spectra
+Until now no code fetched a spectrum for a live star, and `search spectral_lines --live` was refused (1.2.0). The
+channel had only ever run on fixtures.
+
+- New survey fetch (`oddstar/io/lamost_bulk.py`, used by `search spectral_lines --live`): two epochs per star from the
+  LAMOST DR12 v2.0 low-resolution survey, reduced to the window around H-alpha in the stellar rest frame. See
+  `docs/channels/spectral_lines.md` for the steps and the not-searched reasons (`n_single_epoch`, `n_no_coverage`,
+  `n_failed`, `n_not_fetched`, `n_no_spectrum`). Only a star with two usable epochs from different nights is searched.
+- New keys under `channels.spectral_lines`: `lamost_min_snr_r: 20.0` is a selection cut (an epoch with a lower red
+  signal-to-noise is not used; the usual quality cut for LAMOST low-resolution work). It was chosen before any star was
+  searched. `lamost_max_attempts: 3`, `lamost_backoff_s: 2.0`, `lamost_rate_limit_rps: 2.0` are operational.
+- `SpectralLinesChannel.measure` now follows the line-spread width it is given. The H-alpha templates are broadened in
+  quadrature by the excess over 0.45 A (the width they were defined at). A known line is excluded out to
+  1.5 x `lsf_fwhm_a` when that exceeds the configured width: a matched filter still answers a line one FWHM away with
+  a quarter of its peak, so at R = 1800 the configured 1.5 A let a strong sky line flag from just outside its zone.
+  When `spectra.sky_line_wavelengths_a` is present, those positions are excluded (all of them, geocoronal H-alpha
+  included) in place of the laboratory list; a spectrum in the stellar rest frame has its sky lines displaced by the
+  star's velocity. Exposure arrays of unequal length are not measured. `sky_line` and `stellar_emission` in vetting
+  use the same list and width. No threshold changed (`residual_snr_threshold`, the 0.4 repeat ratio, both exclusion
+  widths and every `vetting.spectral_*` value are as in 1.2.0).
+- Effect on validation: none. The fixtures have `lsf_fwhm_a = 0.45` and no `sky_line_wavelengths_a`, so every code path
+  above reduces to the 1.2.0 arithmetic. Every certificate value of all eight channels was compared with 1.2.0: blind
+  recovery, impostor tiers, completeness grids and false-alarm rates are identical, and one `spectral_lines`
+  calibration-curve statistic per release moved by about 1e-14 (rounding of the rewritten template expression).
+- `search --live` still refuses `vanishing` and `radio_narrowband`.
+
+Known limits:
+- The certificate describes the channel at a line-spread width of 0.45 A. Nothing was injected at R = 1800: the
+  completeness and false-alarm rate of a LAMOST search are not measured, and its flags are leads, not calibrated
+  detections. The null report of such a run carries the fixture grid and must not be read as a LAMOST sensitivity.
+- The public LAMOST file has no sky spectrum per fibre and no detector map: `sky_line` can fail but not pass, and
+  `detector` is `not_evaluated`, so a LAMOST flag cannot clear every check.
+- About half of the 150 A window is excluded around sky and stellar lines at this resolution.
+- `version: "1.3.0"` (was "1.2.0"). The config hash changes; every certificate is regenerated in a separate commit.
+  Runs made under 1.2.0 (`v120-*`) keep their hash; to fuse channels they are run again under 1.3.0, from the cache.
+
+## [1.2.0] - 2026-11-18
+
+Two changes. Both were decided from how the pipeline behaved, not from which stars it flagged, and neither can
+turn a failed or open check into a pass.
+
+### The optical-dip search reads real TESS light curves for every sample star
+Until now a live `search optical_dips` measured empty arrays for every star and reported "searched N, flagged 0":
+a live sample star only received a light curve after some other channel had flagged it. The channel was therefore
+never run on real data.
+
+- New survey fetch (`oddstar/io/tess_bulk.py`, used by `search optical_dips --live`): the QLP `SAP_FLUX` light curve
+  of each sector, good-quality cadences averaged into 30-minute bins, each sector divided by its median. New
+  operational keys under `channels.optical_dips` (not thresholds): `tess_bulk_max_sectors: 8` (the sector limit of the
+  vetting fetch, so vetting sees the sectors the search saw), `tess_bulk_max_attempts: 3`, `tess_bulk_backoff_s: 2.0`,
+  `tess_bulk_workers: 4`, `tess_bulk_rate_limit_rps: 4.0`.
+- A star counts as searched only when at least one light-curve segment has 20 points inside the edge margins. A star
+  with no TIC entry, no sector, no QLP file, a failed fetch, or one beyond `--tess-max-stars` is reported as not
+  searched, with the reason, and is excluded from the null result (`n_no_coverage`, `n_failed`, `n_not_fetched`,
+  `n_no_light_curve`).
+- `OpticalDipsChannel.measure` now works on segments. The light curve is cut where the sector changes or cadences
+  are more than `tess_segment_gap_days` apart, and each segment is detrended and searched alone. The old code ran one
+  median filter and one box filter across orbit gaps and sector boundaries, where the per-sector normalisation leaves
+  a step. The first and last `systematics_edge_margin_days` of a segment are not searched: thermal settling and
+  scattered light sit there, and `systematics_window` cannot clear an event in that zone. `dip_depth` is the median
+  deficit inside the best box (was: the single lowest point within a few cadences of the peak), so one bad cadence is
+  not a dip. The periodicity veto runs on the sector that holds the best box. No threshold changed
+  (`dip_snr_threshold`, `min_dip_depth_frac`, `min_duration_hours`, `periodic_bls_veto_snr` are as in 1.1.2).
+- Effect on validation (fixtures, dr3 and dr4 identical): blind recovery 3/3, impostors at most Explained, false-alarm
+  rate 0, design point (0.15 depth) 100%, all unchanged. Completeness at the shallowest injected depth fell, because
+  the median inside a box wider than the dip is below `min_dip_depth_frac`:
+
+  | duration (days) | depth | 1.1.2 | 1.2.0 |
+  |---|---|---|---|
+  | 0.5 | 0.04 | 1.00 | 0.70 |
+  | 1.5 | 0.04 | 1.00 | 0.85 |
+
+  All other grid cells are unchanged (3.0 days at 0.04 was and is 0.00). The loss is real and is the price of not
+  flagging single low points; the null report carries the new grid.
+- `search --live` now refuses `spectral_lines`, `vanishing` and `radio_narrowband`. No live ingestion provides their
+  inputs, so a live run would again report a search that did not happen (`radio_narrowband --live` crashed instead).
+
+### A star that varies in NEOWISE cannot pass `systematics_window` on its TESS data
+The first live `ir_timedomain` runs (1,800 stars, 30 flagged) showed the NEOWISE half of `systematics_window`
+almost never ran: the field-star ensemble had 0 or 1 stars for nearly every target, the half returned
+`not_evaluated`, and the check passed on the TESS half alone. A check that has not looked at the infrared frames was
+passing stars flagged for an infrared change. Eight stars of one run shared one faint W2 trend, which is what an
+untested zero-point drift would look like.
+
+- `check_systematics_window`: when the star's NEOWISE light curve varies by the channel's own thresholds and the
+  NEOWISE half is `not_evaluated`, the check is `not_evaluated`, whatever the TESS half says. A fixture's explicit
+  `scan_systematic` flag still counts as an evaluation. This can only move a result from `pass` to `not_evaluated`.
+- `channels.ir_timedomain.neowise_comparison_radius_arcsec: 600.0` (was 150.0). A 150" cone around a W1 = 11.9 halo
+  star holds one other star within `neowise_comparison_mag_window` (1.0 mag); 450" holds seven (AllWISE count around
+  Gaia DR3 3580358134642783872, made to size the cone, not to judge that star). The zero-point and scan systematics
+  the ensemble tests are common to a 47' frame, so stars 10' away see them. `neowise_comparison_mag_window`,
+  `neowise_comparison_min_stars`, `neowise_comparison_max_stars`, `neowise_comparison_exclude_arcsec` and the three
+  `systematics_ensemble_*` thresholds are unchanged.
+- The cone is filtered by the archive to the target's W1 +/- (window + 0.25 mag) and to six columns; unfiltered it
+  would be hundreds of thousands of single exposures. The margin keeps a star at the edge of the window from losing
+  part of its exposures.
+- Stars brighter than about W1 = 8 will usually still have no comparison stars. They now stay `not_evaluated`.
+
+Known limits:
+- Results of the 1.1.2 `ir_timedomain` runs (`v113-*`) were vetted with the old rule; their `systematics_window`
+  passes for varying stars are not evidence. They must be vetted again under 1.2.0 before any tier is quoted.
+- `neighbour_signal` combines its TESS and NEOWISE halves the same way and was not changed here.
+- `version: "1.2.0"` (was "1.1.2"). The config hash changes; every certificate is regenerated in a separate commit.
+
+## [1.1.2] - 2026-11-17
+
+### The image-shape check is judged against measured stars
+`vision_rubric` calls a band "extended" when its fitted FWHM exceeds a reference by `vision_extended_fwhm_ratio`.
+In 1.1.0 and 1.1.1 the reference was theoretical: native beam x `wise_atlas_psf_broadening` (9.19" in W3, 16.97"
+in W4). The first live run measured the reference star at 1.40 x that in W3 and 1.31 x in W4 and failed it.
+Whether that meant extended emission or a reference that does not describe this fit could only be settled on
+known point sources, so the fit was run on ordinary stars.
+
+Calibration (`python -m oddstar.validate.atlas_psf`, output committed in ab488cb before this change):
+63 bright, isolated, unsaturated stars with photospheric W3-W4 in 12 fixed fields at |b| > 30 deg, none near a
+pipeline candidate, each measured by the unchanged `measure_wise_cutouts`. All 12 selection queries and all 63
+cutout sets succeeded.
+
+| Band | n | median fitted FWHM | robust sigma | min - max | median / theoretical reference |
+|---|---|---|---|---|---|
+| W3 | 63 | 12.971" | 0.099" | 12.85" - 13.32" | 1.41 |
+| W4 | 63 | 20.597" | 0.487" | 17.84" - 23.76" | 1.21 |
+
+So an ordinary star comes out of this fit 1.41 x (W3) and 1.21 x (W4) wider than the theoretical reference, and the
+1.1.1 check would have called essentially every star extended in W3.
+
+The selection and the rule for using the result were written in `oddstar/validate/atlas_psf.py` and committed
+(160a8f9) before the calibration ran. Applied as written:
+
+- `vetting.w3_atlas_point_fwhm_arcsec: 12.971` and `vetting.w4_atlas_point_fwhm_arcsec: 20.597` (new): the median
+  fitted FWHM of the calibration stars. `fwhm_ratio` is now fitted FWHM over this value. The geometry of the
+  measurement (aperture, fit box, peak search) still uses native beam x `wise_atlas_psf_broadening`, so fitted
+  widths are unchanged and stay comparable with the calibration file.
+- `vetting.vision_extended_fwhm_ratio: 1.3` (unchanged). The rule was max(1.3, 1 + 4 x robust sigma / median) over
+  the two bands, rounded up to 0.05; 1 + 4 sigma / median is 1.03 in W3 and 1.09 in W4, so the rule returns 1.3.
+- `version: "1.1.2"` (was "1.1.1"). The config hash changes; every certificate is regenerated in a separate commit.
+
+Known limits, recorded so they are not mistaken for results:
+- 1.3 is loose against the measured scatter (about 30 sigma in W3, 12 sigma in W4). The rule could only keep or
+  raise the threshold. Tightening it is a separate decision that must be made on calibration data alone.
+- Fitted width rises slightly with S/N (Spearman rho +0.43 in W3, +0.32 in W4), and the W4 scatter is larger for
+  faint stars: the 19 calibration stars with fit S/N below 25 span 17.8" - 23.8" (robust sigma 0.81").
+- The calibration stars have catalogue W4 S/N of 10 or more. A fainter target is outside the calibrated range.
+
+No search result is part of this change.
+
+## [1.1.1] - 2026-11-17
+
+### Fixes from the first live archive run of 1.1.0
+The 2026-11-17 live run of the reference star against the real archives exposed answers the 1.1.0 code misread.
+No channel threshold changes. Three keys are new; the config hash changes, so every certificate is regenerated
+(in a separate commit).
+
+- `version: "1.1.1"` (was "1.1.0").
+- `vetting.sso_max_pos_err_arcsec: 30.0` (new). SkyBoT lists lost and single-opposition bodies whose ephemeris
+  uncertainty reaches degrees (seen live: 2021 VU98, 225,012" uncertainty, nominal position 561" from the star).
+  The match test adds a body's uncertainty to `sso_match_radius_arcsec`, so such a body matched any target in the
+  field and failed `moving_object`. A body with an uncertainty above this cap is now tested at its nominal position
+  only and listed under `unconstrained_bodies` in the check's metrics and note. 30" is twice the 15" match radius
+  and 2.5 times the 12" W4 beam: beyond that the catalogue position no longer says whether the body was in the beam.
+- `vetting.youth_galex_coverage_radius_arcsec: 600.0` (new). GALEX did not observe the whole sky. A field with no
+  GALEX source of any kind within this radius was not observed (`galex: no_coverage`), which is different from an
+  observed field with no NUV source at the star. An observed AIS field holds of order a hundred catalogue sources
+  within 10 arcmin.
+- `channels.ir_timedomain.neowise_bulk_workers: 4` (new). Concurrent IRSA requests of the survey NEOWISE fetch; all
+  workers share the `archives.neowise.rate_limit_rps` limit. Results do not depend on the worker count (tested).
+
+Source changes without a config key (recorded here because they change which archive answers a check):
+- GALEX now comes from MAST `Mast.Galex.Catalog` and ROSAT 2RXS / eRASS1 from the HEASARC TAP tables `rass2rxs` /
+  `erass1main`. The CfA VizieR mirror answered HTTP 200 with zero rows for GALEX and eRASS1 everywhere (it does not
+  serve those tables), which was recorded as "queried, no counterpart", and the 2RXS identifier `IX/47/2rxs` does
+  not exist. Match radii and flux limits are unchanged.
+- The remaining VizieR `asu-tsv` tables (NVSS, PS1 fallback) accept an empty answer from a mirror only after that
+  mirror returned rows at a known position for the table (`VIZIER_CANARY_CONES` in `io/live_survey.py`).
+- The Legacy Survey DR10 neighbour query is a 17" `q3c_radial_query` cone (circumscribes the former +/-12" box,
+  which timed out); rows are still filtered by separation downstream.
+- SkyBoT HTTP 204 is "no body in the field", not a failure. IRSA image-search columns are read by name. A MAST
+  answer counts only when its status is `COMPLETE`. `_youth_uv` dereddens with the reddening applied to the star
+  (`ebv_star`), not the line-of-sight key, which is empty for live stars since 1.1.0.
+- Operational only (no effect on results): Bayestar19 stops being asked for 30 minutes after a failed connection;
+  a TAP service answering HTTP 429 is retried after 20, 60, 180 and 480 s; halo and bulge samples skip the
+  single-shot join that timed out and use the index + batch route unless a single-shot answer is already cached.
+
 ## [1.1.0] - 2026-11-17
 
 ### Infrared vetting inputs

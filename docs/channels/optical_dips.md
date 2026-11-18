@@ -7,9 +7,34 @@ Aperiodic, asymmetric, or unusually deep optical dimming events and multi-year s
 - Two independent TESS extractions (public QLP / SPOC and pipeline TESScut aperture photometry), Kepler/K2 light curves, ZTF, and ASAS-SN.
 
 ## Algorithm
-1. Detrend light curves with an iterative upper-clipped sliding median filter preserving multi-day dips.
-2. Compute Box-Least-Squares (BLS) periodogram to veto strictly periodic eclipsing binaries.
-3. Run multi-duration boxcar matched filter for dip SNR, depth, ingress/egress asymmetry, and long-baseline ZTF linear fading slope.
+1. Cut the light curve into segments where the sector changes or cadences are more than `tess_segment_gap_days` apart.
+2. Detrend each segment alone with an iterative upper-clipped sliding median filter preserving multi-day dips.
+3. Run a multi-duration boxcar matched filter (6 h to 3.5 days) inside each segment, leaving out the first and last
+   `systematics_edge_margin_days`. Depth is the median deficit inside the best box; asymmetry is measured around its deepest point.
+4. Compute a Box-Least-Squares (BLS) periodogram on the sector holding the best box to veto strictly periodic eclipsing binaries.
+5. Fit the long-baseline ZTF linear fading slope when ZTF photometry is loaded.
+
+## Live survey search (config 1.2.0)
+`oddstar search optical_dips --live` fetches a TESS light curve for every sample star before measuring
+(`oddstar/io/tess_bulk.py`): the QLP `SAP_FLUX` file of up to `tess_bulk_max_sectors` sectors from the public MAST bucket,
+good-quality cadences averaged into 30-minute bins, each sector divided by its median. The cache keeps the reduced series
+with the URL, size and SHA-256 of the file it came from, and remembers sectors that have no QLP file, so an interrupted run
+resumes. `--tess-max-stars N` limits the fetch; `--defer-enrichment` skips the per-star vetting fetch for flagged stars
+(`vet --live` does it later), which is how to look at the flag rate first.
+
+A star is **searched** only when at least one segment has 20 points inside the edge margins. Every other star is listed
+with its reason and excluded from the null result:
+
+| Reason | Meaning |
+|---|---|
+| `no_coverage` | no TIC entry, no TESS sector at the position, or no sector with a QLP light curve (QLP is magnitude-limited) |
+| `failed` | a lookup or every existing sector failed after `tess_bulk_max_attempts`; not cached, retried on the next run |
+| `not_fetched` | beyond `--tess-max-stars` |
+| `no_light_curve` | no fetch record and no usable light curve |
+
+The search uses one extraction (QLP). The second extraction (TESScut) and the background and centroid series are fetched
+for flagged stars only, by vetting. `radio_narrowband` has no live data source yet and `search --live` refuses it
+(`spectral_lines` has one since config 1.3.0, `vanishing` since 1.4.0).
 
 ## Thresholds in Config
 Defined in `configs/default.yaml` under `channels.optical_dips`:

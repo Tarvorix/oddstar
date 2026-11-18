@@ -2,11 +2,12 @@
 
 Input rule (R9, lessons L007/L008): a check returns `pass` or `fail` only from inputs that were actually obtained.
 
-- The spectral_lines channel has NO live ingestion: no code path fetches per-exposure optical spectra, a sky
-  spectrum, the instrument line-spread function or a detector artifact map for a live star (`live_enriched` key
-  sets `spectra: {}`). A live star counts a spectral input only when `vetting_archive.query_status["spectra"] ==
-  "ok"`, which nothing writes today, so every check here returns `not_evaluated` for live stars and names the
-  missing data product.
+- A live star counts a spectral input only when `vetting_archive.query_status["spectra"] == "ok"`. The survey
+  fetch of the spectral_lines search (`oddstar.io.lamost_bulk`, LAMOST low-resolution spectra) writes that status
+  when it loaded two epochs; it supplies the wavelength grid, two exposures, the line-spread width and
+  `sky_line_wavelengths_a` (where the night-sky lines fall in the star's rest frame). It supplies no sky spectrum
+  and no detector artifact map, so the checks that need those return `not_evaluated`. Every other live star has
+  `spectra: {}` and every check here returns `not_evaluated` and names the missing data product.
 - Synthetic fixtures and hand-built dicts count an input only when its key is explicitly present, not None and
   (for arrays) non-empty with matching lengths. There is no default LSF width, pixel size or artifact flag.
 
@@ -27,6 +28,10 @@ from oddstar.vet.common import make_vet_result
 KNOWN_SKY_LINES_A = [6562.79, 6577.20, 6596.60, 6604.10]  # H-alpha geocoronal & OH airglow lines
 KNOWN_STELLAR_LINES_A = [6562.80, 6548.05, 6583.45]  # H-alpha, [N II]
 
+# A known line is excluded out to this many line-spread FWHM (or the configured width, if larger). A matched filter
+# still responds to a line 1.0 FWHM away at a quarter of its peak; at 1.5 FWHM the response is 4 per cent.
+LINE_EXCLUSION_LSF_FWHM = 1.5
+
 SPECTRA_QUERY = "spectra"
 _PRODUCTS = {
     "wavelength_a": "wavelength grid of the optical spectrum",
@@ -36,7 +41,7 @@ _PRODUCTS = {
     "lsf_fwhm_a": "instrument line-spread function FWHM",
     "detector_artifact": "detector bad-pixel / ghost / cross-talk map lookup",
 }
-NO_LIVE_INGESTION = "the spectral_lines channel has no live ingestion of survey spectra"
+NO_LIVE_INGESTION = "no two-epoch survey spectrum was loaded for this star"
 
 
 def _is_live(star: dict[str, Any]) -> bool:
@@ -74,6 +79,25 @@ def _arrays(star: dict[str, Any], keys: list[str]) -> tuple[dict[str, np.ndarray
 
 def _scalar(star: dict[str, Any], key: str) -> Any:
     return _spec(star).get(key)
+
+
+def _line_tolerance(star: dict[str, Any], cfg_tol: float) -> float:
+    """Exclusion half-width around a known line: the configured value or `LINE_EXCLUSION_LSF_FWHM` line-spread widths."""
+    lsf = _scalar(star, "lsf_fwhm_a")
+    return max(cfg_tol, LINE_EXCLUSION_LSF_FWHM * float(lsf)) if lsf is not None else cfg_tol
+
+
+def _sky_line_list(star: dict[str, Any]) -> tuple[list[float], str]:
+    """Night-sky line positions on this star's wavelength grid, and where the list came from.
+
+    A survey spectrum moved to the stellar rest frame carries `sky_line_wavelengths_a` (every airglow line and
+    geocoronal H-alpha at its displaced position). Otherwise the laboratory OH list is used; geocoronal H-alpha is
+    left to the stellar-line check there, because it coincides with the star's own H-alpha.
+    """
+    given = _spec(star).get("sky_line_wavelengths_a")
+    if given is not None:
+        return [float(x) for x in given], "spectra.sky_line_wavelengths_a"
+    return [sl for sl in KNOWN_SKY_LINES_A if sl != 6562.79], "laboratory OH airglow list"
 
 
 def _not_evaluated(out_dir: Path, check: str, star: dict[str, Any], missing: list[str], metrics: dict[str, Any] | None = None) -> VettingResult:
@@ -142,12 +166,14 @@ def check_sky_line(star: dict[str, Any], cfg: PipelineConfig, out_dir: Path) -> 
     comb = 0.5 * (e1 + e2)
     target_sigma = float(cfg.vetting["spectral_target_peak_sigma"])
     target_peaks = wave[(comb - float(np.median(comb))) / max(1e-4, float(np.std(comb))) > target_sigma]
-    tol = float(cfg.channels["spectral_lines"]["sky_line_exclusion_angstrom"])
-    matched_oh = any(abs(float(tp) - sl) <= tol for tp in target_peaks for sl in KNOWN_SKY_LINES_A if sl != 6562.79)
+    tol = _line_tolerance(star, float(cfg.channels["spectral_lines"]["sky_line_exclusion_angstrom"]))
+    sky_lines, sky_list_source = _sky_line_list(star)
+    matched_oh = any(abs(float(tp) - sl) <= tol for tp in target_peaks for sl in sky_lines)
     metrics: dict[str, Any] = {
         "input_values": _grid(wave), "n_target_peaks": int(len(target_peaks)),
         "target_peak_wavelengths_a": [round(float(x), 2) for x in target_peaks[:20]], "matched_airglow_catalog": matched_oh,
-        "exclusion_angstrom": tol, "target_peak_sigma": target_sigma,
+        "exclusion_angstrom": tol, "target_peak_sigma": target_sigma, "sky_line_list_source": sky_list_source,
+        "sky_line_wavelengths_a": [round(float(x), 2) for x in sky_lines],
     }
     sky_arrs, sky_missing = _arrays(star, ["wavelength_a", "sky_flux"])
     if sky_missing:
@@ -179,7 +205,7 @@ def check_stellar_emission(star: dict[str, Any], cfg: PipelineConfig, out_dir: P
         return _not_evaluated(out_dir, "stellar_emission", star, missing)
     wave, e1, e2 = arrs["wavelength_a"], arrs["flux_exp1"], arrs["flux_exp2"]
     comb = 0.5 * (e1 + e2)
-    tol = float(cfg.channels["spectral_lines"]["stellar_line_exclusion_angstrom"])
+    tol = _line_tolerance(star, float(cfg.channels["spectral_lines"]["stellar_line_exclusion_angstrom"]))
     min_amp = float(cfg.vetting["spectral_stellar_line_min_amp"])
     # Chromospheric emission near H-alpha (6562.8 A) or [N II]
     peak_idx = int(np.argmax(comb))

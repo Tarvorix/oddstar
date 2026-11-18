@@ -78,7 +78,8 @@ def parse_allwise_sia(payload: bytes, ra: float, dec: float) -> dict[str, str]:
     from astropy.io.votable import parse
 
     try:
-        table = parse(io.BytesIO(payload)).get_first_table().to_table()
+        # IRSA gives every FIELD an ID ("col_0" ...); without use_names_over_ids astropy names the columns by ID
+        table = parse(io.BytesIO(payload)).get_first_table().to_table(use_names_over_ids=True)
     except Exception as exc:  # astropy raises several types on a non-VOTable body
         raise ArchiveAccessError(f"IRSA SIA response is not a VOTable: {type(exc).__name__}: {exc}", retryable=True) from exc
     cols = set(table.colnames)
@@ -248,8 +249,15 @@ def measure_band(
     beam_arcsec: float,
     annulus_arcsec: tuple[float, float],
     peak_snr_min: float,
+    point_fwhm_arcsec: float | None = None,
 ) -> dict[str, Any]:
-    """Quantitative image metrics for one band (see module docstring)."""
+    """Quantitative image metrics for one band (see module docstring).
+
+    `native_fwhm_arcsec * psf_broadening` sets the geometry of the measurement (aperture, fit box, peak search).
+    `point_fwhm_arcsec` is what this same fit returns for a point source, measured on ordinary stars
+    (`validation/calibration/atlas_point_source_fwhm.json`); when given, `fwhm_ratio` is the fitted width over it,
+    so a ratio of 1 means "as wide as a star". Without it the ratio falls back to the geometric reference.
+    """
     from astropy.wcs import WCS
     from astropy.wcs.utils import proj_plane_pixel_scales
     from scipy.ndimage import maximum_filter
@@ -350,6 +358,7 @@ def measure_band(
     c_ra, c_dec = (float(v) for v in wcs.pixel_to_world_values(xc, yc))
     offset = angular_separation_arcsec(ra_pred, dec_pred, c_ra, c_dec)
     fwhm_fit = s * GAUSS_FWHM_PER_SIGMA * pix
+    point_ref = float(point_fwhm_arcsec) if point_fwhm_arcsec is not None else fwhm_ref
 
     # Local maxima within one beam FWHM of the target
     fp = max(3, int(round(0.5 * fwhm_ref / pix)) | 1)
@@ -380,7 +389,8 @@ def measure_band(
             "offset_sigma_arcsec": sig_c,
             "offset_sigma_formal_arcsec": sig_formal,
             "fwhm_arcsec": fwhm_fit,
-            "fwhm_ratio": fwhm_fit / fwhm_ref,
+            "fwhm_point_ref_arcsec": point_ref,
+            "fwhm_ratio": fwhm_fit / point_ref,
             "flux_dn": flux_dn,
             "flux_mjy": flux_dn * dn_mjy if dn_mjy is not None else None,
             "flux_snr": snr,
@@ -407,6 +417,9 @@ def measure_wise_cutouts(
         "W3": float(vetting["w3_beam_arcsec"]),
         "W4": float(vetting["w4_beam_arcsec"]),
     }
+    # Measured point-source widths exist for the two bands the rubric judges; W1/W2 keep the geometric reference
+    point = {b: float(vetting[f"{b.lower()}_atlas_point_fwhm_arcsec"]) for b in ("W3", "W4")
+             if vetting.get(f"{b.lower()}_atlas_point_fwhm_arcsec") is not None}
     out: dict[str, dict[str, Any]] = {}
     for band, im in images.items():
         try:
@@ -421,6 +434,7 @@ def measure_wise_cutouts(
                 beam_arcsec=native[band],
                 annulus_arcsec=(float(vetting["cirrus_annulus_inner_arcsec"]), float(vetting["cirrus_annulus_outer_arcsec"])),
                 peak_snr_min=float(vetting["vision_peak_snr_min"]),
+                point_fwhm_arcsec=point.get(band),
             )
         except Exception as exc:
             m = {"band": band, "status": f"measure_failed: {type(exc).__name__}: {str(exc)[:120]}"}

@@ -202,6 +202,10 @@ def skybot_cone_search(
         attempts=3,
         sleep=sleep,
         validate=_validate,
+        no_content_ok=True,
     )
+    if not payload:
+        # HTTP 204: SkyBoT's answer when no known body is in the field at that epoch (verified live 2026-11-17)
+        return [], man
     bodies = parse_skybot_text(payload.decode("utf-8", errors="replace"), ra_deg=ra_deg, dec_deg=dec_deg, epoch_jd=epoch_jd)
     return bodies, man

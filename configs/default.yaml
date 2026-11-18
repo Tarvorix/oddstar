@@ -1,4 +1,4 @@
-version: "1.1.0"
+version: "1.5.0"
 
 storage:
   max_cache_gb: 10.0
@@ -63,7 +63,7 @@ channels:
     optical_flat_max_chi2: 2.5
     design_point_amp_mag: 0.35
     # Vetting-only (since 1.1.0): systematics_window NEOWISE field-star ensemble
-    neowise_comparison_radius_arcsec: 150.0
+    neowise_comparison_radius_arcsec: 600.0
     neowise_comparison_exclude_arcsec: 8.0
     neowise_comparison_mag_window: 1.0
     neowise_comparison_min_stars: 3
@@ -85,6 +85,8 @@ channels:
     # Survey-scale NEOWISE-only fetch (oddstar.io.neowise_bulk); rate limit comes from archives.neowise
     neowise_bulk_max_attempts: 3
     neowise_bulk_retry_backoff_s: 2.0
+    # Concurrent IRSA requests of the survey fetch; all workers share the archives.neowise rate limit
+    neowise_bulk_workers: 4
 
   optical_dips:
     detrend_window_days: 5.0
@@ -95,6 +97,13 @@ channels:
     secular_fade_snr_threshold: 4.5
     periodic_bls_veto_snr: 8.0
     design_point_depth_frac: 0.15
+    # Survey TESS fetch (since 1.2.0): QLP light curves for every sample star (operational, not thresholds).
+    # tess_bulk_max_sectors equals the sector limit of the vetting fetch, so vetting sees the sectors the search saw.
+    tess_bulk_max_sectors: 8
+    tess_bulk_max_attempts: 3
+    tess_bulk_backoff_s: 2.0
+    tess_bulk_workers: 4
+    tess_bulk_rate_limit_rps: 4.0
     # Vetting-only (since 1.1.0): pipeline_agreement (first three were literals in _depths_agree)
     pipeline_quiet_depth_frac: 0.02
     pipeline_depth_abs_tol_frac: 0.08
@@ -135,6 +144,13 @@ channels:
     require_all_on_scans: true
     require_zero_off_scans: true
     design_point_snr: 20.0
+    # Live search of fine-resolution scans (io/bl_radio.py): the scan is read in blocks; every window of
+    # live_window_channels whose drift-summed excess reaches live_prefilter_snr is cut from the ON and OFF scans
+    # and measured by the channel. The window must hold the largest drift over a scan set (2048 x 2.8 Hz = 5.7 kHz).
+    live_block_channels: 1048576
+    live_window_channels: 2048
+    live_prefilter_snr: 8.0
+    live_max_listed_windows: 200
 
   underluminous:
     delta_m_sigma_threshold: 4.5
@@ -162,12 +178,25 @@ channels:
     sky_line_exclusion_angstrom: 1.5
     stellar_line_exclusion_angstrom: 1.5
     design_point_flux_snr: 12.0
+    # LAMOST low-resolution survey fetch (`search spectral_lines --live`)
+    lamost_min_snr_r: 20.0
+    lamost_max_attempts: 3
+    lamost_backoff_s: 2.0
+    lamost_rate_limit_rps: 2.0
 
   vanishing:
     min_early_plates: 2
     min_depth_margin_mag: 2.0
     match_radius_arcsec: 3.0
     max_pm_residual_arcsec: 1.5
+    # Live plate-source search (`search vanishing --live`): USNO-B1.0 sources around each sample position
+    plate_field_radius_arcsec: 60.0
+    plate_ps1_min_detections: 2
+    plate_depth_percentile: 90.0
+    plate_depth_min_objects: 10
+    plate_max_attempts: 3
+    plate_backoff_s: 2.0
+    plate_rate_limit_rps: 2.0
     design_point_mag_diff: 3.0
     # Vetting-only (since 1.1.0): SIMBAD types that explain a vanished plate source (was a literal in vanishing_checks.py)
     vetting_variable_simbad_types: ["Mira", "LPV*", "CV*", "Flare*"]
@@ -203,15 +232,19 @@ vetting:
   youth_nuv_locus_sigma_mag: 0.5
   youth_uv_constraint_nsigma: 2.0
   youth_galex_match_radius_arcsec: 3.0
+  youth_galex_coverage_radius_arcsec: 600.0
   youth_rosat_match_radius_arcsec: 30.0
   youth_rosat_flux_limit_erg_cm2_s: 1.0e-13
   youth_erass1_match_radius_arcsec: 15.0
   youth_erass1_flux_limit_erg_cm2_s: 5.0e-14
   sso_visit_gap_days: 3.0
   sso_max_rate_arcsec_per_hr: 120.0
+  sso_max_pos_err_arcsec: 30.0
   w1_beam_arcsec: 6.1
   w2_beam_arcsec: 6.4
   wise_atlas_psf_broadening: 1.414
+  w3_atlas_point_fwhm_arcsec: 12.971
+  w4_atlas_point_fwhm_arcsec: 20.597
   vision_cutout_size_arcsec: 200.0
   vision_centroid_max_sigma: 3.0
   vision_extended_fwhm_ratio: 1.3

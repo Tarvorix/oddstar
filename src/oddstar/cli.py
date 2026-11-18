@@ -14,7 +14,7 @@ from oddstar import __version__
 from oddstar.channels import ALL_CHANNEL_NAMES, build_channel
 from oddstar.config import PipelineConfig, compute_config_hash, current_git_commit, load_config, repo_root
 from oddstar.dossier import write_dossier, write_null_report
-from oddstar.errors import ArtifactNotFoundError, OddstarError, PolicyViolationError
+from oddstar.errors import ArchiveAccessError, ArtifactNotFoundError, OddstarError, PolicyViolationError
 from oddstar.fuse import fuse_results
 from oddstar.io import (
     ArchiveFetcher,
@@ -58,6 +58,11 @@ from oddstar.schemas import (
 )
 from oddstar.validate import load_certificate, require_valid_certificate, run_validation
 from oddstar.vet import vet_target
+
+# Channels whose inputs no live ingestion provides yet, with the data each one still needs. `search --live` refuses
+# them: measuring empty inputs for every star would report a search that did not happen. Empty since config 1.5.0:
+# every channel has a real-data source, and each reports the stars it could not search.
+CHANNELS_WITHOUT_LIVE_SOURCE: dict[str, str] = {}
 
 
 def _emit(resp: CLIResponse, as_json: bool) -> None:
@@ -221,6 +226,14 @@ def _cmd_validate(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str
 
 
 def _cmd_search(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, root: Path) -> CLIResponse:
+    if args.live and args.channel in CHANNELS_WITHOUT_LIVE_SOURCE:
+        # These channels read data no live ingestion provides. A live run would measure empty inputs for every star
+        # and report "searched N, flagged 0" without having looked at anything, which is not a null result.
+        raise ArchiveAccessError(
+            f"Channel '{args.channel}' has no real-data source yet ({CHANNELS_WITHOUT_LIVE_SOURCE[args.channel]}); "
+            "a live search would count stars as searched without any data",
+            retryable=False,
+        )
     cert = require_valid_certificate(args.channel, cfg, root)
     run_id = args.run_id or f"run-{args.channel}-{cfg.gaia.release}-{short_hash}"
     run_dir = root / cfg.storage.runs_dir / run_id
@@ -251,7 +264,11 @@ def _cmd_search(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, 
 
     ch = build_channel(args.channel, cfg, root)
     neowise_fetch: dict[str, Any] | None = None
-    if args.channel == "radio_narrowband":
+    tess_fetch: dict[str, Any] | None = None
+    spectra_fetch: dict[str, Any] | None = None
+    plate_fetch: dict[str, Any] | None = None
+    radio_fetch: dict[str, Any] | None = None
+    if args.channel == "radio_narrowband" and not is_live:
         stars = [dict(v) for v in RADIO_CADENCES.values()]
         cuts = []
         healpix_cells = []
@@ -268,6 +285,57 @@ def _cmd_search(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, 
             for es in extra_stars:
                 by_id[es["source_id"]] = es
             stars = list(by_id.values())
+        if args.channel == "optical_dips":
+            # QLP light curves for every sample star (cached, rate-limited, retried, resumable). Stars beyond
+            # --tess-max-stars, without TESS coverage, or whose fetch failed stay in the sample as not searched.
+            from oddstar.io.tess_bulk import enrich_sample_tess
+
+            def _tess_progress(done: int, total: int, sid: str, status: str) -> None:
+                if not args.json and (done == total or done % 100 == 0):
+                    print(f"  tess {done}/{total} (last {sid}: {status.split(':')[0]})", file=sys.stderr)
+
+            stars, tess_fetch = enrich_sample_tess(stars, cfg, cache, max_stars=args.tess_max_stars, progress=_tess_progress)
+        n_fields = len(stars)
+        if args.channel == "radio_narrowband":
+            # Breakthrough Listen fine-resolution scans for every sample star inside a telescope beam whose ON and
+            # OFF files are in the data directory (index answers cached; radio files are never downloaded here).
+            # Every other star stays in the sample as not searched, with the reason.
+            from oddstar.io.bl_radio import default_data_dir, enrich_sample_radio
+
+            def _radio_progress(done: int, total: int, sid: str, status: str) -> None:
+                if not args.json and (done == total or done % 100 == 0 or status == "ok"):
+                    print(f"  radio {done}/{total} (last {sid}: {status.split(':')[0]})", file=sys.stderr)
+
+            def _radio_blocks(sid: str, done: int, total: int) -> None:
+                if not args.json and (done == total or done % 16 == 0):
+                    print(f"  radio {sid}: block {done}/{total}", file=sys.stderr)
+
+            radio_dir = Path(args.radio_data_dir) if args.radio_data_dir else default_data_dir(root, cfg)
+            stars, radio_fetch = enrich_sample_radio(stars, cfg, cache, ch, radio_dir, max_stars=args.radio_max_stars,
+                                                     progress=_radio_progress, block_progress=_radio_blocks)
+        if args.channel == "vanishing":
+            # The unit of this search is a plate source, not a sample star (a sample star is in Gaia by
+            # construction): every USNO-B1.0 source with two first-epoch plates around each sample position,
+            # compared with Gaia and Pan-STARRS (cached, rate-limited, retried, resumable). From here on `stars`
+            # holds plate sources; those that could not be compared stay in the list as not searched.
+            from oddstar.io.plate_survey import fetch_plate_units
+
+            def _plate_progress(done: int, total: int, sid: str, status: str) -> None:
+                if not args.json and (done == total or done % 100 == 0):
+                    print(f"  plate fields {done}/{total} (last {sid}: {status.split(':')[0]})", file=sys.stderr)
+
+            stars, plate_fetch = fetch_plate_units(stars, cfg, cache, max_fields=args.plate_max_fields, progress=_plate_progress)
+        if args.channel == "spectral_lines":
+            # Two LAMOST low-resolution epochs around H-alpha for every sample star that has them (cached,
+            # rate-limited, retried, resumable). Stars beyond --spectra-max-stars, without a spectrum, with one
+            # usable epoch, or whose fetch failed stay in the sample as not searched.
+            from oddstar.io.lamost_bulk import enrich_sample_lamost
+
+            def _spectra_progress(done: int, total: int, sid: str, status: str) -> None:
+                if not args.json and (done == total or done % 100 == 0):
+                    print(f"  spectra {done}/{total} (last {sid}: {status.split(':')[0]})", file=sys.stderr)
+
+            stars, spectra_fetch = enrich_sample_lamost(stars, cfg, cache, max_stars=args.spectra_max_stars, progress=_spectra_progress)
         if args.channel == "ir_timedomain":
             # NEOWISE-R single-exposure rows only, for every sample star (cached, rate-limited, retried, resumable).
             # Full vetting enrichment still runs below, for flagged stars only. Stars beyond --neowise-max-stars or
@@ -285,11 +353,19 @@ def _cmd_search(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, 
         cuts = [
             {
                 "cut_name": f"gaia_{args.region}_live",
-                "description": f"Live Gaia DR3 x AllWISE x 2MASS region='{args.region}' (n={len(stars)}, after_random_index={args.after_random_index})",
-                "count_before": len(stars),
-                "count_after": len(stars),
+                "description": f"Live Gaia DR3 x AllWISE x 2MASS region='{args.region}' (n={n_fields}, after_random_index={args.after_random_index})",
+                "count_before": n_fields,
+                "count_after": n_fields,
             }
         ]
+        if plate_fetch is not None:
+            cuts.append({
+                "cut_name": "usno_b1_plate_sources",
+                "description": (f"USNO-B1.0 sources within {plate_fetch['field_radius_arcsec']:g}\" of each sample position with both first-epoch "
+                                f"plates and no spike flag ({plate_fetch['n_usno_sources']} catalogue sources in {plate_fetch['n_fields_requested']} fields)"),
+                "count_before": int(plate_fetch["n_usno_sources"]),
+                "count_after": len(stars),
+            })
         healpix_cells = sorted({ra_dec_to_healpix(float(s["ra_deg"]), float(s["dec_deg"]), nside=nside) for s in stars})
     else:
         spec, stars = build_parent_sample(
@@ -317,6 +393,19 @@ def _cmd_search(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, 
     for star in stars:
         m = ch.measure(star, {})
         sc = ch.score(m)
+        if plate_fetch is not None:
+            from oddstar.io.plate_survey import plate_search_status
+
+            plate_status = plate_search_status(star)
+            if plate_status != "searched":
+                # No modern comparison was made for this plate source, so it can be neither flagged nor cleared
+                sc = sc.model_copy(update={"flagged": False, "summary": f"NOT SEARCHED ({plate_status}): plate source not compared with modern catalogues"})
+        if radio_fetch is not None:
+            from oddstar.io.bl_radio import radio_search_status
+
+            radio_status = radio_search_status(star)
+            if radio_status != "searched":
+                sc = sc.model_copy(update={"flagged": False, "summary": f"NOT SEARCHED ({radio_status}): no ON/OFF radio scans were compared"})
         # Calibrate FAP immediately against the active certificate
         from oddstar.fuse.engine import calibrate_fap
 
@@ -343,7 +432,15 @@ def _cmd_search(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, 
         if sc.flagged:
             flagged_ids.append(sc.source_id)
 
-    if is_live and flagged_ids:
+    keep_as_searched = args.channel in ("vanishing", "radio_narrowband") or (args.channel == "spectral_lines" and args.defer_enrichment)
+    if is_live and flagged_ids and keep_as_searched:
+        # The spectral checks read only the spectra the survey fetch attached, the vanishing checks only the plate
+        # record and its modern comparison, and the radio checks only the cadence cut from the scans; `vet --live`
+        # cannot fetch any of them again for a single object. A plate source is not a Gaia star, so the per-star
+        # archive enrichment does not apply to it at all.
+        (run_dir / "live_stars.json").write_text(
+            json.dumps({fsid: stars_by_id[fsid] for fsid in flagged_ids}, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    if is_live and flagged_ids and not args.defer_enrichment and args.channel not in ("vanishing", "radio_narrowband"):
         live_flagged: dict[str, Any] = {}
         for fsid in flagged_ids:
             enriched, _ = enrich_star_live_for_vetting(stars_by_id[fsid], cfg, cache)
@@ -355,6 +452,22 @@ def _cmd_search(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, 
         from oddstar.channels.ir_timedomain.channel import search_coverage_summary
 
         coverage = search_coverage_summary(stars, cfg)
+    elif args.channel == "optical_dips" and is_live:
+        from oddstar.channels.optical_dips.channel import search_coverage_summary as dips_coverage_summary
+
+        coverage = dips_coverage_summary(stars, cfg)
+    elif args.channel == "spectral_lines" and is_live:
+        from oddstar.channels.spectral_lines.channel import search_coverage_summary as spectra_coverage_summary
+
+        coverage = spectra_coverage_summary(stars, cfg)
+    elif plate_fetch is not None:
+        from oddstar.io.plate_survey import search_coverage_summary as plate_coverage_summary
+
+        coverage = plate_coverage_summary(stars, cfg)
+    elif radio_fetch is not None:
+        from oddstar.io.bl_radio import search_coverage_summary as radio_coverage_summary
+
+        coverage = radio_coverage_summary(stars, cfg)
     n_searched = coverage["n_searched"] if coverage is not None else len(stars)
 
     payload = {
@@ -376,7 +489,18 @@ def _cmd_search(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, 
     if coverage is not None:
         # n_input, n_searched, n_not_searched, n_no_coverage, n_failed, n_not_fetched, n_insufficient_visits, not_searched_ids
         payload.update(coverage)
-        payload["neowise_fetch"] = neowise_fetch
+        if neowise_fetch is not None:
+            payload["neowise_fetch"] = neowise_fetch
+        if tess_fetch is not None:
+            payload["tess_fetch"] = tess_fetch
+        if spectra_fetch is not None:
+            payload["spectra_fetch"] = spectra_fetch
+        if plate_fetch is not None:
+            payload["plate_fetch"] = plate_fetch
+        if radio_fetch is not None:
+            payload["radio_fetch"] = radio_fetch
+            # Counts and evaluated windows of every searched star, flagged or not
+            payload["radio_search"] = {str(s["source_id"]): s["radio_search"] for s in stars if s.get("radio_search")}
     if is_live or coverage is not None:
         # The real searched sample, so the null report is built from these stars and not from regenerated fixtures
         payload["sample_stars"] = [
@@ -403,9 +527,16 @@ def _cmd_search(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, 
     if coverage is not None and coverage["n_not_searched"]:
         warnings.append(
             f"{coverage['n_not_searched']} of {coverage['n_input']} stars not searched "
-            f"(no_coverage={coverage['n_no_coverage']}, failed={coverage['n_failed']}, not_fetched={coverage['n_not_fetched']}, "
-            f"insufficient_visits={coverage['n_insufficient_visits']}); they are excluded from the null result"
+            f"(no_coverage={coverage.get('n_no_coverage', 0)}, failed={coverage.get('n_failed', 0)}, not_fetched={coverage.get('n_not_fetched', 0)}, "
+            f"insufficient_visits={coverage.get('n_insufficient_visits', 0)}, no_light_curve={coverage.get('n_no_light_curve', 0)}, "
+            f"single_epoch={coverage.get('n_single_epoch', 0)}, no_spectrum={coverage.get('n_no_spectrum', 0)}, "
+            f"too_faint={coverage.get('n_too_faint', 0)}, not_downloaded={coverage.get('n_not_downloaded', 0)}, "
+            f"no_comparison={coverage.get('n_no_comparison', 0)}); "
+            "they are excluded from the null result"
         )
+    if plate_fetch is not None and plate_fetch["n_fields_failed_usno"]:
+        warnings.append(f"{plate_fetch['n_fields_failed_usno']} of {plate_fetch['n_fields_requested']} fields returned no plate catalogue "
+                        "(query failed); their plate sources are unknown and are in no count")
     return CLIResponse(
         ok=True,
         summary=f"Searched {n_searched} of {len(stars)} targets on '{args.channel}' -> {len(flagged_ids)} flagged (run_id={run_id})",
@@ -417,7 +548,8 @@ def _cmd_search(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, 
             "n_flagged": len(flagged_ids),
             "flagged_ids": flagged_ids,
             **(
-                {"coverage": {k: v for k, v in coverage.items() if k != "not_searched_ids"}, "neowise_fetch": neowise_fetch}
+                {"coverage": {k: v for k, v in coverage.items() if k != "not_searched_ids"}, "neowise_fetch": neowise_fetch,
+                 "tess_fetch": tess_fetch, "spectra_fetch": spectra_fetch, "plate_fetch": plate_fetch, "radio_fetch": radio_fetch}
                 if coverage is not None
                 else {}
             ),
@@ -891,6 +1023,64 @@ def _cmd_evidence_export(args: argparse.Namespace, cfg: PipelineConfig, short_ha
     )
 
 
+def _cmd_report(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, root: Path) -> CLIResponse:
+    from oddstar.report import stale_documents, write_documents
+
+    if args.report_cmd == "check" or args.dry_run:
+        stale = stale_documents(root, cfg.storage.registry_dir)
+        if stale and args.report_cmd == "check":
+            raise PolicyViolationError(
+                "Generated documents differ from a fresh build: " + ", ".join(stale),
+                hint="Run `oddstar report build` and commit the result; edit commentary only in docs/notes/",
+            )
+        return CLIResponse(ok=True, summary=f"{len(stale)} generated document(s) would change" if stale else "Generated documents are current",
+                           data={"stale": stale})
+    changed = write_documents(root, cfg.storage.registry_dir)
+    return CLIResponse(ok=True, summary=f"Rebuilt generated documents ({len(changed)} changed)", artifacts=changed, data={"changed": changed})
+
+
+def _cmd_runs_export(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, root: Path) -> CLIResponse:
+    from oddstar.run_records import build_run_record, export_run_record
+
+    if args.dry_run:
+        for rid in args.run_ids:
+            build_run_record(root / cfg.storage.runs_dir / rid)
+        return CLIResponse(ok=True, summary=f"[dry-run] Would export {len(args.run_ids)} run record(s)")
+    written: list[str] = []
+    rows: list[dict[str, Any]] = []
+    for rid in args.run_ids:
+        out = export_run_record(root, rid, runs_dir=cfg.storage.runs_dir, registry_dir=cfg.storage.registry_dir, replace=args.replace)
+        written.extend(out["written"])
+        rec = out["record"]
+        rows.append({
+            "run_id": rid,
+            "record_path": out["record_path"],
+            "record_sha256": out["record_sha256"],
+            "searches": [{"channel": s["channel"], "n_sample": s["sample"]["n"], "n_searched": s["n_searched"], "n_flagged": s["n_flagged"]}
+                         for s in rec.get("searches", [])],
+            "fusion_tier_counts": (rec.get("fusion") or {}).get("tier_counts"),
+        })
+    return CLIResponse(
+        ok=True,
+        summary=f"Exported {len(rows)} run record(s) ({len(written)} file(s) written) under {cfg.storage.registry_dir}/",
+        artifacts=sorted(set(written)),
+        data={"records": rows},
+        next="oddstar runs verify --json",
+    )
+
+
+def _cmd_runs_verify(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, root: Path) -> CLIResponse:
+    from oddstar.run_records import verify_run_records
+
+    rep = verify_run_records(root, cfg.storage.registry_dir)
+    if rep["problems"]:
+        raise PolicyViolationError(
+            "Run record verification failed: " + "; ".join(rep["problems"][:20]),
+            hint="Re-export the run with `oddstar runs export <run_id> --replace` from the machine that holds runs/",
+        )
+    return CLIResponse(ok=True, summary=f"{rep['n_records']} run record(s) and {rep['n_samples']} sample file(s) verified", data=rep)
+
+
 def _cmd_evidence_verify(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, root: Path) -> CLIResponse:
     rep = verify_evidence(root, cfg.storage, args.source_id)
     scope = clean_source_id(args.source_id) if args.source_id else "all sources"
@@ -1204,6 +1394,40 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="ir_timedomain --live: fetch NEOWISE for at most N sample stars (default: all); the rest are reported as not searched",
     )
+    p_search.add_argument(
+        "--defer-enrichment",
+        action="store_true",
+        help="--live: do not fetch vetting data for flagged stars now (minutes per star); `vet --live` fetches it later",
+    )
+    p_search.add_argument(
+        "--plate-max-fields",
+        type=int,
+        default=None,
+        help="vanishing --live: read plate sources around at most N sample positions (default: all)",
+    )
+    p_search.add_argument(
+        "--radio-data-dir",
+        default=None,
+        help="radio_narrowband --live: folder holding downloaded Breakthrough Listen scans (default: data/breakthrough_listen_scans)",
+    )
+    p_search.add_argument(
+        "--radio-max-stars",
+        type=int,
+        default=None,
+        help="radio_narrowband --live: look up radio scans for at most N sample stars (default: all); the rest are reported as not searched",
+    )
+    p_search.add_argument(
+        "--spectra-max-stars",
+        type=int,
+        default=None,
+        help="spectral_lines --live: look up LAMOST spectra for at most N sample stars (default: all); the rest are reported as not searched",
+    )
+    p_search.add_argument(
+        "--tess-max-stars",
+        type=int,
+        default=None,
+        help="optical_dips --live: fetch TESS light curves for at most N sample stars (default: all); the rest are reported as not searched",
+    )
 
     p_vet = sub.add_parser("vet", parents=[common], help="Stage 4 vetting checks on flagged targets")
     p_vet.add_argument("run_id")
@@ -1228,6 +1452,18 @@ def build_parser() -> argparse.ArgumentParser:
     p_ee.add_argument("--run-id", default=None)
     p_evv = ev_sub.add_parser("verify", parents=[common], help="Re-hash evidence and check ledger references")
     p_evv.add_argument("source_id", nargs="?", default=None)
+
+    p_rep = sub.add_parser("report", parents=[common], help="Generated documents (docs/candidates.md, reviewed_candidate.md)")
+    rep_sub = p_rep.add_subparsers(dest="report_cmd", required=True)
+    rep_sub.add_parser("build", parents=[common], help="Rebuild the candidate documents from committed outputs")
+    rep_sub.add_parser("check", parents=[common], help="Fail if a generated document differs from a fresh build")
+
+    p_runs = sub.add_parser("runs", parents=[common], help="Committed run records (registry/runs, registry/samples)")
+    runs_sub = p_runs.add_subparsers(dest="runs_cmd", required=True)
+    p_rx = runs_sub.add_parser("export", parents=[common], help="Write the compact committed record of search or fusion runs")
+    p_rx.add_argument("run_ids", nargs="+")
+    p_rx.add_argument("--replace", action="store_true", help="Overwrite an existing record whose content differs")
+    runs_sub.add_parser("verify", parents=[common], help="Check every committed run record against its sample files")
 
     p_rev = sub.add_parser("review", parents=[common], help="Stage 7 isolated adversarial review")
     rev_sub = p_rev.add_subparsers(dest="review_cmd", required=True)
@@ -1331,6 +1567,12 @@ def dispatch(argv: list[str] | None = None, *, root: Path | None = None) -> tupl
             resp = _cmd_evidence_export(args, cfg, short_hash, base)
         elif cmd == "evidence" and args.evidence_cmd == "verify":
             resp = _cmd_evidence_verify(args, cfg, short_hash, base)
+        elif cmd == "report":
+            resp = _cmd_report(args, cfg, short_hash, base)
+        elif cmd == "runs" and args.runs_cmd == "export":
+            resp = _cmd_runs_export(args, cfg, short_hash, base)
+        elif cmd == "runs" and args.runs_cmd == "verify":
+            resp = _cmd_runs_verify(args, cfg, short_hash, base)
         elif cmd == "null-report":
             resp = _cmd_null_report(args, cfg, short_hash, base)
         elif cmd == "status":

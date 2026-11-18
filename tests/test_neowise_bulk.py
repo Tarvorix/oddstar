@@ -141,7 +141,11 @@ def test_section_3c_output_is_byte_identical_after_refactor(tmp_path: Path, cfg:
     out, _ = ls.enrich_star_live_for_vetting(star, cfg, cache, enrich_optical=False, sleep=lambda s: None)
     assert out["vetting_archive"]["query_status"]["neowise"] == "ok"
     assert out["neowise"]["comparison"]["status"] == "query_failed"
-    assert hashlib.sha256(json.dumps(out["neowise"]).encode()).hexdigest() == SECTION_3C_GOLDEN_SHA256
+    # The golden record predates config 1.2.0, which widened the comparison cone from 150" to 600". The visit binning
+    # under test is unchanged, so the recorded radius is put back before hashing.
+    assert out["neowise"]["comparison"]["radius_arcsec"] == 600.0
+    golden = dict(out["neowise"], comparison=dict(out["neowise"]["comparison"], radius_arcsec=150.0))
+    assert hashlib.sha256(json.dumps(golden).encode()).hexdigest() == SECTION_3C_GOLDEN_SHA256
 
 
 def test_bin_neowise_visits_drops_bad_frames_and_keeps_pm_vectors() -> None:
@@ -216,7 +220,7 @@ def test_enrich_sample_neowise_resumes_from_cache_without_refetching(tmp_path: P
             raise KeyboardInterrupt
 
     with pytest.raises(KeyboardInterrupt):
-        enrich_sample_neowise(stars, cfg, RawCache(cache_dir), progress=kill_after_two, sleep=lambda s: None)
+        enrich_sample_neowise(stars, cfg, RawCache(cache_dir), progress=kill_after_two, sleep=lambda s: None, workers=1)
     first_keys = [c[1] for c in fake.calls]
     assert first_keys == [FakeIrsa.key(150.0, 20.0), FakeIrsa.key(151.0, 20.5)]
 
@@ -293,3 +297,75 @@ def test_ir_timedomain_reports_failed_and_uncovered_stars_as_not_searched(tmp_pa
     with pytest.raises(ValueError, match="absent from sample_stars"):
         write_null_report(channel="ir_timedomain", run_id="t2", sample_stars=sample[:2], sample_cuts=[], healpix_cells=[], n_flagged=0,
                           tier_breakdown={}, cert=cert, manifests=[], cfg=cfg, root=tmp_path, not_searched={"failed": ["103"]})
+
+
+def test_concurrent_workers_give_the_same_stars_in_input_order(tmp_path: Path, cfg: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Several workers change how long the fetch takes, not what it returns."""
+    import threading
+
+    stars, fake = _survey()
+    stars = [*stars, *[_star(str(200 + i), 160.0 + i, 22.0) for i in range(12)]]
+    for st in stars[5:]:
+        fake.behaviour[FakeIrsa.key(st["ra_deg"], st["dec_deg"])] = "empty"
+    in_flight = {"now": 0, "max": 0}
+    lock = threading.Lock()
+    real_get = fake.get
+
+    def slow_get(url: str, params: dict[str, Any] | None = None, timeout: float = 0) -> Any:
+        with lock:
+            in_flight["now"] += 1
+            in_flight["max"] = max(in_flight["max"], in_flight["now"])
+        try:
+            import time as _t
+
+            _t.sleep(0.02)
+            return real_get(url, params, timeout)
+        finally:
+            with lock:
+                in_flight["now"] -= 1
+
+    monkeypatch.setattr(requests, "get", slow_get)
+    monkeypatch.setattr(requests, "post", fake.post)
+    progress: list[int] = []
+    par, sum_par = enrich_sample_neowise(stars, cfg, RawCache(tmp_path / "par"), sleep=lambda s: None, workers=4,
+                                         progress=lambda done, *a: progress.append(done))
+    assert sum_par["workers"] == 4 and in_flight["max"] > 1, "requests must overlap"
+    assert progress == list(range(1, len(stars) + 1))
+
+    fake2 = _survey()[1]
+    fake2.behaviour.update(fake.behaviour)
+    monkeypatch.setattr(requests, "get", fake2.get)
+    monkeypatch.setattr(requests, "post", fake2.post)
+    seq, sum_seq = enrich_sample_neowise(stars, cfg, RawCache(tmp_path / "seq"), sleep=lambda s: None, workers=1)
+    assert [s["source_id"] for s in par] == [s["source_id"] for s in stars]
+
+    def strip(star: dict[str, Any]) -> dict[str, Any]:
+        d = json.loads(json.dumps(star))
+        d["neowise_fetch"].pop("manifest_ids", None)
+        st = d["neowise_fetch"]["status"]
+        if st.startswith("failed"):  # the failure text carries no order-dependent detail, but keep the comparison to its class
+            d["neowise_fetch"]["status"] = d["vetting_archive"]["query_status"]["neowise"] = "failed"
+        return d
+
+    assert [strip(a) for a in par] == [strip(b) for b in seq]
+    for k in ("n_ok", "n_no_coverage", "n_failed", "failed_ids", "n_network_requests", "n_cache_hits"):
+        assert sum_par[k] == sum_seq[k], k
+    # Every manifest line written by the workers is whole and the cache replays the run without the network
+    cache = RawCache(tmp_path / "par")
+    assert not cache.recovered_truncated_manifest_line
+    monkeypatch.setattr(requests, "get", lambda *a, **k: (_ for _ in ()).throw(requests.exceptions.ConnectionError("offline")))
+    again, sum_again = enrich_sample_neowise(stars, cfg, cache, sleep=lambda s: None, workers=4)
+    assert sum_again["n_ok"] == sum_par["n_ok"] and sum_again["n_no_coverage"] == sum_par["n_no_coverage"]
+
+
+def test_pacer_spaces_request_starts_across_workers() -> None:
+    from oddstar.io.neowise_bulk import _RequestPacer
+
+    waits: list[float] = []
+    pacer = _RequestPacer(0.5, waits.append)
+    import time as _t
+
+    t0 = _t.monotonic()
+    for _ in range(3):  # three workers finish requests that all started at t0
+        pacer.after_network_request(t0)
+    assert len(waits) == 3 and 0.4 < waits[0] <= 0.5 and 0.9 < waits[1] <= 1.0 and 1.4 < waits[2] <= 1.5

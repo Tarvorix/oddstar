@@ -1,0 +1,2415 @@
+{
+  "config_hash": "dff37a1a3940",
+  "current_extended_fwhm_ratio": 1.3,
+  "fields": [
+    {
+      "dec_deg": 2.2,
+      "n_selected": 8,
+      "n_used": 6,
+      "query": "SELECT designation, ra, dec, w3mpro, w3snr, w3rchi2, w4mpro, w4snr, w4rchi2 FROM allwise_p3as_psd WHERE CONTAINS(POINT('ICRS', ra, dec), CIRCLE('ICRS', 150.0000, 2.2000, 1.0)) = 1 AND ext_flg = 0 AND cc_flags = '0000' AND nb = 1 AND na = 0 AND w3sat = 0 AND w4sat = 0 AND w3snr >= 20 AND w4snr >= 10 AND w3rchi2 < 2 AND w4rchi2 < 2 AND w3mpro - w4mpro BETWEEN -0.2 AND 0.3",
+      "ra_deg": 150.0,
+      "radius_deg": 1.0,
+      "status": "ok"
+    },
+    {
+      "dec_deg": 30.0,
+      "n_selected": 1,
+      "n_used": 1,
+      "query": "SELECT designation, ra, dec, w3mpro, w3snr, w3rchi2, w4mpro, w4snr, w4rchi2 FROM allwise_p3as_psd WHERE CONTAINS(POINT('ICRS', ra, dec), CIRCLE('ICRS', 200.0000, 30.0000, 1.0)) = 1 AND ext_flg = 0 AND cc_flags = '0000' AND nb = 1 AND na = 0 AND w3sat = 0 AND w4sat = 0 AND w3snr >= 20 AND w4snr >= 10 AND w3rchi2 < 2 AND w4rchi2 < 2 AND w3mpro - w4mpro BETWEEN -0.2 AND 0.3",
+      "ra_deg": 200.0,
+      "radius_deg": 1.0,
+      "status": "ok"
+    },
+    {
+      "dec_deg": 10.0,
+      "n_selected": 16,
+      "n_used": 6,
+      "query": "SELECT designation, ra, dec, w3mpro, w3snr, w3rchi2, w4mpro, w4snr, w4rchi2 FROM allwise_p3as_psd WHERE CONTAINS(POINT('ICRS', ra, dec), CIRCLE('ICRS', 230.0000, 10.0000, 1.0)) = 1 AND ext_flg = 0 AND cc_flags = '0000' AND nb = 1 AND na = 0 AND w3sat = 0 AND w4sat = 0 AND w3snr >= 20 AND w4snr >= 10 AND w3rchi2 < 2 AND w4rchi2 < 2 AND w3mpro - w4mpro BETWEEN -0.2 AND 0.3",
+      "ra_deg": 230.0,
+      "radius_deg": 1.0,
+      "status": "ok"
+    },
+    {
+      "dec_deg": 45.0,
+      "n_selected": 10,
+      "n_used": 6,
+      "query": "SELECT designation, ra, dec, w3mpro, w3snr, w3rchi2, w4mpro, w4snr, w4rchi2 FROM allwise_p3as_psd WHERE CONTAINS(POINT('ICRS', ra, dec), CIRCLE('ICRS', 130.0000, 45.0000, 1.0)) = 1 AND ext_flg = 0 AND cc_flags = '0000' AND nb = 1 AND na = 0 AND w3sat = 0 AND w4sat = 0 AND w3snr >= 20 AND w4snr >= 10 AND w3rchi2 < 2 AND w4rchi2 < 2 AND w3mpro - w4mpro BETWEEN -0.2 AND 0.3",
+      "ra_deg": 130.0,
+      "radius_deg": 1.0,
+      "status": "ok"
+    },
+    {
+      "dec_deg": 20.0,
+      "n_selected": 9,
+      "n_used": 6,
+      "query": "SELECT designation, ra, dec, w3mpro, w3snr, w3rchi2, w4mpro, w4snr, w4rchi2 FROM allwise_p3as_psd WHERE CONTAINS(POINT('ICRS', ra, dec), CIRCLE('ICRS', 0.0000, 20.0000, 1.0)) = 1 AND ext_flg = 0 AND cc_flags = '0000' AND nb = 1 AND na = 0 AND w3sat = 0 AND w4sat = 0 AND w3snr >= 20 AND w4snr >= 10 AND w3rchi2 < 2 AND w4rchi2 < 2 AND w3mpro - w4mpro BETWEEN -0.2 AND 0.3",
+      "ra_deg": 0.0,
+      "radius_deg": 1.0,
+      "status": "ok"
+    },
+    {
+      "dec_deg": -30.0,
+      "n_selected": 2,
+      "n_used": 2,
+      "query": "SELECT designation, ra, dec, w3mpro, w3snr, w3rchi2, w4mpro, w4snr, w4rchi2 FROM allwise_p3as_psd WHERE CONTAINS(POINT('ICRS', ra, dec), CIRCLE('ICRS', 20.0000, -30.0000, 1.0)) = 1 AND ext_flg = 0 AND cc_flags = '0000' AND nb = 1 AND na = 0 AND w3sat = 0 AND w4sat = 0 AND w3snr >= 20 AND w4snr >= 10 AND w3rchi2 < 2 AND w4rchi2 < 2 AND w3mpro - w4mpro BETWEEN -0.2 AND 0.3",
+      "ra_deg": 20.0,
+      "radius_deg": 1.0,
+      "status": "ok"
+    },
+    {
+      "dec_deg": -15.0,
+      "n_selected": 8,
+      "n_used": 6,
+      "query": "SELECT designation, ra, dec, w3mpro, w3snr, w3rchi2, w4mpro, w4snr, w4rchi2 FROM allwise_p3as_psd WHERE CONTAINS(POINT('ICRS', ra, dec), CIRCLE('ICRS', 340.0000, -15.0000, 1.0)) = 1 AND ext_flg = 0 AND cc_flags = '0000' AND nb = 1 AND na = 0 AND w3sat = 0 AND w4sat = 0 AND w3snr >= 20 AND w4snr >= 10 AND w3rchi2 < 2 AND w4rchi2 < 2 AND w3mpro - w4mpro BETWEEN -0.2 AND 0.3",
+      "ra_deg": 340.0,
+      "radius_deg": 1.0,
+      "status": "ok"
+    },
+    {
+      "dec_deg": -40.0,
+      "n_selected": 10,
+      "n_used": 6,
+      "query": "SELECT designation, ra, dec, w3mpro, w3snr, w3rchi2, w4mpro, w4snr, w4rchi2 FROM allwise_p3as_psd WHERE CONTAINS(POINT('ICRS', ra, dec), CIRCLE('ICRS', 60.0000, -40.0000, 1.0)) = 1 AND ext_flg = 0 AND cc_flags = '0000' AND nb = 1 AND na = 0 AND w3sat = 0 AND w4sat = 0 AND w3snr >= 20 AND w4snr >= 10 AND w3rchi2 < 2 AND w4rchi2 < 2 AND w3mpro - w4mpro BETWEEN -0.2 AND 0.3",
+      "ra_deg": 60.0,
+      "radius_deg": 1.0,
+      "status": "ok"
+    },
+    {
+      "dec_deg": -20.0,
+      "n_selected": 6,
+      "n_used": 6,
+      "query": "SELECT designation, ra, dec, w3mpro, w3snr, w3rchi2, w4mpro, w4snr, w4rchi2 FROM allwise_p3as_psd WHERE CONTAINS(POINT('ICRS', ra, dec), CIRCLE('ICRS', 170.0000, -20.0000, 1.0)) = 1 AND ext_flg = 0 AND cc_flags = '0000' AND nb = 1 AND na = 0 AND w3sat = 0 AND w4sat = 0 AND w3snr >= 20 AND w4snr >= 10 AND w3rchi2 < 2 AND w4rchi2 < 2 AND w3mpro - w4mpro BETWEEN -0.2 AND 0.3",
+      "ra_deg": 170.0,
+      "radius_deg": 1.0,
+      "status": "ok"
+    },
+    {
+      "dec_deg": 40.0,
+      "n_selected": 9,
+      "n_used": 6,
+      "query": "SELECT designation, ra, dec, w3mpro, w3snr, w3rchi2, w4mpro, w4snr, w4rchi2 FROM allwise_p3as_psd WHERE CONTAINS(POINT('ICRS', ra, dec), CIRCLE('ICRS', 250.0000, 40.0000, 1.0)) = 1 AND ext_flg = 0 AND cc_flags = '0000' AND nb = 1 AND na = 0 AND w3sat = 0 AND w4sat = 0 AND w3snr >= 20 AND w4snr >= 10 AND w3rchi2 < 2 AND w4rchi2 < 2 AND w3mpro - w4mpro BETWEEN -0.2 AND 0.3",
+      "ra_deg": 250.0,
+      "radius_deg": 1.0,
+      "status": "ok"
+    },
+    {
+      "dec_deg": 60.0,
+      "n_selected": 8,
+      "n_used": 6,
+      "query": "SELECT designation, ra, dec, w3mpro, w3snr, w3rchi2, w4mpro, w4snr, w4rchi2 FROM allwise_p3as_psd WHERE CONTAINS(POINT('ICRS', ra, dec), CIRCLE('ICRS', 190.0000, 60.0000, 1.0)) = 1 AND ext_flg = 0 AND cc_flags = '0000' AND nb = 1 AND na = 0 AND w3sat = 0 AND w4sat = 0 AND w3snr >= 20 AND w4snr >= 10 AND w3rchi2 < 2 AND w4rchi2 < 2 AND w3mpro - w4mpro BETWEEN -0.2 AND 0.3",
+      "ra_deg": 190.0,
+      "radius_deg": 1.0,
+      "status": "ok"
+    },
+    {
+      "dec_deg": -50.0,
+      "n_selected": 21,
+      "n_used": 6,
+      "query": "SELECT designation, ra, dec, w3mpro, w3snr, w3rchi2, w4mpro, w4snr, w4rchi2 FROM allwise_p3as_psd WHERE CONTAINS(POINT('ICRS', ra, dec), CIRCLE('ICRS', 310.0000, -50.0000, 1.0)) = 1 AND ext_flg = 0 AND cc_flags = '0000' AND nb = 1 AND na = 0 AND w3sat = 0 AND w4sat = 0 AND w3snr >= 20 AND w4snr >= 10 AND w3rchi2 < 2 AND w4rchi2 < 2 AND w3mpro - w4mpro BETWEEN -0.2 AND 0.3",
+      "ra_deg": 310.0,
+      "radius_deg": 1.0,
+      "status": "ok"
+    }
+  ],
+  "max_per_field": 6,
+  "min_fit_snr": 5.0,
+  "min_stars_per_band": 15,
+  "n_stars": 63,
+  "proposed_extended_fwhm_ratio": 1.3,
+  "purpose": "Fitted FWHM of known point sources in AllWISE Atlas cutouts, measured with oddstar.io.cutouts.measure_wise_cutouts",
+  "stars": [
+    {
+      "bands": {
+        "W3": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 649.2911607858854,
+          "fwhm_arcsec": 12.921460300560486,
+          "fwhm_ratio": 1.4058818736329548,
+          "fwhm_ref_arcsec": 9.190999999999999,
+          "offset_arcsec": 0.07933371560939884,
+          "sha256": "48e1fca70c62cc0ff1bf71abed10697d6c7353349944e9944cb50a2671875cbb",
+          "status": "ok"
+        },
+        "W4": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 32.75222240995943,
+          "fwhm_arcsec": 20.256734453140332,
+          "fwhm_ratio": 1.193819805111995,
+          "fwhm_ref_arcsec": 16.968,
+          "offset_arcsec": 0.5652394633558517,
+          "sha256": "df98059e85ed4b34a6f21a114ed7c552a4470705231698d854cfbcd052db368d",
+          "status": "ok"
+        }
+      },
+      "catalogue": {
+        "w3mpro": 6.86,
+        "w3rchi2": 0.9694,
+        "w3snr": 63.1,
+        "w4mpro": 6.685,
+        "w4rchi2": 1.034,
+        "w4snr": 15.3
+      },
+      "dec_deg": 1.8149495,
+      "designation": "J095715.21+014853.8",
+      "ra_deg": 149.3133858,
+      "status": "ok"
+    },
+    {
+      "bands": {
+        "W3": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 701.988589717573,
+          "fwhm_arcsec": 12.885777244666416,
+          "fwhm_ratio": 1.4019994826097724,
+          "fwhm_ref_arcsec": 9.190999999999999,
+          "offset_arcsec": 0.23266456156437954,
+          "sha256": "56a4f1febb15095bf7ca9f4df4019dc4384a5dd923ea27b4a451b41ede1f874a",
+          "status": "ok"
+        },
+        "W4": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 16.5116236518269,
+          "fwhm_arcsec": 18.72179882554033,
+          "fwhm_ratio": 1.103359195281726,
+          "fwhm_ref_arcsec": 16.968,
+          "offset_arcsec": 1.2432848258279696,
+          "sha256": "1ae9e0c439e3183c5ab3261c02eb74da6ae02bfe86498fad09854489d4968543",
+          "status": "ok"
+        }
+      },
+      "catalogue": {
+        "w3mpro": 6.6,
+        "w3rchi2": 1.39,
+        "w3snr": 70.4,
+        "w4mpro": 6.513,
+        "w4rchi2": 1.007,
+        "w4snr": 14.6
+      },
+      "dec_deg": 1.6394733,
+      "designation": "J095737.84+013822.1",
+      "ra_deg": 149.4076962,
+      "status": "ok"
+    },
+    {
+      "bands": {
+        "W3": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 426.46632937455837,
+          "fwhm_arcsec": 12.861121862939237,
+          "fwhm_ratio": 1.3993169255727602,
+          "fwhm_ref_arcsec": 9.190999999999999,
+          "offset_arcsec": 0.21790710459963805,
+          "sha256": "5c97ba666a34f1b22b350f18167093e86b64c7a3728fb795f20b2d31d8dcca90",
+          "status": "ok"
+        },
+        "W4": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 16.25481974411479,
+          "fwhm_arcsec": 19.899142336581757,
+          "fwhm_ratio": 1.1727453050790757,
+          "fwhm_ref_arcsec": 16.968,
+          "offset_arcsec": 1.3398390077593745,
+          "sha256": "2eb1d40fb0ab896735f8d9bc8e1e3ea506154a3c8fe1bcb7fea81626f4cd1347",
+          "status": "ok"
+        }
+      },
+      "catalogue": {
+        "w3mpro": 7.044,
+        "w3rchi2": 0.899,
+        "w3snr": 61.1,
+        "w4mpro": 6.94,
+        "w4rchi2": 0.8554,
+        "w4snr": 11.1
+      },
+      "dec_deg": 2.3643606,
+      "designation": "J095820.26+022151.6",
+      "ra_deg": 149.5844513,
+      "status": "ok"
+    },
+    {
+      "bands": {
+        "W3": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 1390.3331311104357,
+          "fwhm_arcsec": 13.02039584573766,
+          "fwhm_ratio": 1.416646267624596,
+          "fwhm_ref_arcsec": 9.190999999999999,
+          "offset_arcsec": 0.08853566849057395,
+          "sha256": "77f17c409eb63f1180630213e499133a9d5c66b59dbf7f9491aa58101fa4f0d1",
+          "status": "ok"
+        },
+        "W4": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 38.45587461173827,
+          "fwhm_arcsec": 20.066445600814937,
+          "fwhm_ratio": 1.1826052334285089,
+          "fwhm_ref_arcsec": 16.968,
+          "offset_arcsec": 1.0160591661145262,
+          "sha256": "0572d01ae43cbb6e65e26d0d6e94101816f6bd28f62201ac3f44015096254a42",
+          "status": "ok"
+        }
+      },
+      "catalogue": {
+        "w3mpro": 5.731,
+        "w3rchi2": 0.9088,
+        "w3snr": 69.4,
+        "w4mpro": 5.597,
+        "w4rchi2": 0.9549,
+        "w4snr": 21.2
+      },
+      "dec_deg": 2.5028068,
+      "designation": "J095838.27+023010.1",
+      "ra_deg": 149.6594868,
+      "status": "ok"
+    },
+    {
+      "bands": {
+        "W3": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 717.4988485528311,
+          "fwhm_arcsec": 12.902357061032557,
+          "fwhm_ratio": 1.4038034012656466,
+          "fwhm_ref_arcsec": 9.190999999999999,
+          "offset_arcsec": 0.1755632965344313,
+          "sha256": "46a096623fd067a5e389cfba31b78a2c54891a7c32e87fc86be175d10fdf45ba",
+          "status": "ok"
+        },
+        "W4": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 23.63845579085753,
+          "fwhm_arcsec": 20.25899588250333,
+          "fwhm_ratio": 1.1939530812413561,
+          "fwhm_ref_arcsec": 16.968,
+          "offset_arcsec": 1.13858671895693,
+          "sha256": "7b803d4b53cdb557ae7ac4887361b7ed57de4acadea7bf6cb70ff5a03930df3c",
+          "status": "ok"
+        }
+      },
+      "catalogue": {
+        "w3mpro": 6.567,
+        "w3rchi2": 1.334,
+        "w3snr": 72.3,
+        "w4mpro": 6.434,
+        "w4rchi2": 1.042,
+        "w4snr": 18.1
+      },
+      "dec_deg": 3.1601082,
+      "designation": "J095956.32+030936.3",
+      "ra_deg": 149.9846909,
+      "status": "ok"
+    },
+    {
+      "bands": {
+        "W3": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 543.3218698384144,
+          "fwhm_arcsec": 12.914892644096064,
+          "fwhm_ratio": 1.4051672988897905,
+          "fwhm_ref_arcsec": 9.190999999999999,
+          "offset_arcsec": 0.13253156534476251,
+          "sha256": "854c6ac29d11d1b716a60d4ee1e37169abdac005aebc27cc6e25fcb35afe5f50",
+          "status": "ok"
+        },
+        "W4": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 23.83473389973139,
+          "fwhm_arcsec": 19.562068363139144,
+          "fwhm_ratio": 1.1528800308309255,
+          "fwhm_ref_arcsec": 16.968,
+          "offset_arcsec": 0.8493174228273328,
+          "sha256": "8c8fa9fb575afe6fc28b85698281dbd075a546ccb498c77685e9c0990ffc51d3",
+          "status": "ok"
+        }
+      },
+      "catalogue": {
+        "w3mpro": 6.843,
+        "w3rchi2": 0.8589,
+        "w3snr": 69.7,
+        "w4mpro": 6.706,
+        "w4rchi2": 1.049,
+        "w4snr": 14.2
+      },
+      "dec_deg": 3.1191169,
+      "designation": "J100025.52+030708.8",
+      "ra_deg": 150.106345,
+      "status": "ok"
+    },
+    {
+      "bands": {
+        "W3": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 953.1280441123114,
+          "fwhm_arcsec": 13.048609321367353,
+          "fwhm_ratio": 1.4197159527110603,
+          "fwhm_ref_arcsec": 9.190999999999999,
+          "offset_arcsec": 0.1027299815632169,
+          "sha256": "a2c1c4508bbdc3371947574b1d86f969355d01d86ff8eb8c9dd12dce50d99a96",
+          "status": "ok"
+        },
+        "W4": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 31.22333775873996,
+          "fwhm_arcsec": 20.84349905282796,
+          "fwhm_ratio": 1.2284004628022136,
+          "fwhm_ref_arcsec": 16.968,
+          "offset_arcsec": 1.131850301724084,
+          "sha256": "7c3720e2d0452f5c61069f86ea4ddaa0fb26f644b6cff27ae08ba684f2bf7432",
+          "status": "ok"
+        }
+      },
+      "catalogue": {
+        "w3mpro": 6.545,
+        "w3rchi2": 1.788,
+        "w3snr": 72.1,
+        "w4mpro": 6.459,
+        "w4rchi2": 0.9942,
+        "w4snr": 21.2
+      },
+      "dec_deg": 29.9319363,
+      "designation": "J132231.13+295554.9",
+      "ra_deg": 200.6297341,
+      "status": "ok"
+    },
+    {
+      "bands": {
+        "W3": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 826.2712283444328,
+          "fwhm_arcsec": 12.924792494114655,
+          "fwhm_ratio": 1.406244423252601,
+          "fwhm_ref_arcsec": 9.190999999999999,
+          "offset_arcsec": 0.38167726828971726,
+          "sha256": "ee9ca76dde37d188bcbba71b99706d3ee2dc052c252326dbfcf8b5ef07dfccbf",
+          "status": "ok"
+        },
+        "W4": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 27.44539995528026,
+          "fwhm_arcsec": 19.63430374151295,
+          "fwhm_ratio": 1.1571371842004332,
+          "fwhm_ref_arcsec": 16.968,
+          "offset_arcsec": 0.2758007131122607,
+          "sha256": "fc630c9f10413ef2d3f805c0de3d1baaf8e74d073b987f286a86444b4de743e1",
+          "status": "ok"
+        }
+      },
+      "catalogue": {
+        "w3mpro": 6.571,
+        "w3rchi2": 0.9079,
+        "w3snr": 70.8,
+        "w4mpro": 6.469,
+        "w4rchi2": 1.097,
+        "w4snr": 21.5
+      },
+      "dec_deg": 9.9309043,
+      "designation": "J151625.41+095551.2",
+      "ra_deg": 229.1058953,
+      "status": "ok"
+    },
+    {
+      "bands": {
+        "W3": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 1402.072747588525,
+          "fwhm_arcsec": 12.893667732644222,
+          "fwhm_ratio": 1.4028579841849877,
+          "fwhm_ref_arcsec": 9.190999999999999,
+          "offset_arcsec": 0.5018358028410972,
+          "sha256": "6b467cd35fdb867421b6d46a1f4fbdd18e3d16a03fcba0d0ac74ff22c01743b1",
+          "status": "ok"
+        },
+        "W4": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 68.85489806070235,
+          "fwhm_arcsec": 20.268664771534834,
+          "fwhm_ratio": 1.1945229120423642,
+          "fwhm_ref_arcsec": 16.968,
+          "offset_arcsec": 0.32396216069140177,
+          "sha256": "25fc885be3ed8b151967b99c7eeeb543ddbcbbbb08f47a6b0915d0a1ac4fa23f",
+          "status": "ok"
+        }
+      },
+      "catalogue": {
+        "w3mpro": 5.947,
+        "w3rchi2": 1.306,
+        "w3snr": 75.3,
+        "w4mpro": 5.883,
+        "w4rchi2": 0.8721,
+        "w4snr": 26.4
+      },
+      "dec_deg": 9.7130071,
+      "designation": "J151635.80+094246.8",
+      "ra_deg": 229.1491965,
+      "status": "ok"
+    },
+    {
+      "bands": {
+        "W3": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 924.4121302431079,
+          "fwhm_arcsec": 12.925600438431784,
+          "fwhm_ratio": 1.4063323292821006,
+          "fwhm_ref_arcsec": 9.190999999999999,
+          "offset_arcsec": 0.44004133191541606,
+          "sha256": "9cbcf660e6c6f8eaeb646cba26fcf06bb9426b2518181afa4225187688f580c4",
+          "status": "ok"
+        },
+        "W4": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 63.98557327410802,
+          "fwhm_arcsec": 21.30430606661724,
+          "fwhm_ratio": 1.2555578775705587,
+          "fwhm_ref_arcsec": 16.968,
+          "offset_arcsec": 0.29580403048186815,
+          "sha256": "f50e3463823415f95785fbe04b1ba79f1fbf9f1ea1ead99d8f6b244d6e28e986",
+          "status": "ok"
+        }
+      },
+      "catalogue": {
+        "w3mpro": 6.812,
+        "w3rchi2": 1.017,
+        "w3snr": 67.7,
+        "w4mpro": 6.752,
+        "w4rchi2": 1.05,
+        "w4snr": 16.6
+      },
+      "dec_deg": 9.8460141,
+      "designation": "J151641.39+095045.6",
+      "ra_deg": 229.1724889,
+      "status": "ok"
+    },
+    {
+      "bands": {
+        "W3": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 577.2149247294828,
+          "fwhm_arcsec": 12.889560456402103,
+          "fwhm_ratio": 1.4024111039497449,
+          "fwhm_ref_arcsec": 9.190999999999999,
+          "offset_arcsec": 0.41869847510478114,
+          "sha256": "3d5d7e8346cf59c3060a348e4bad5e969368bdf7ace5034a219da0b14b1387d8",
+          "status": "ok"
+        },
+        "W4": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 32.226571554752184,
+          "fwhm_arcsec": 20.840808419864196,
+          "fwhm_ratio": 1.2282418917883189,
+          "fwhm_ref_arcsec": 16.968,
+          "offset_arcsec": 1.2633269441911477,
+          "sha256": "08fda27454d8a767836645c41d5f3fb4cf171c8ae99a73d8ff8cb8cda7c53c18",
+          "status": "ok"
+        }
+      },
+      "catalogue": {
+        "w3mpro": 7.195,
+        "w3rchi2": 1.044,
+        "w3snr": 66.7,
+        "w4mpro": 7.039,
+        "w4rchi2": 0.9625,
+        "w4snr": 13.2
+      },
+      "dec_deg": 9.3797953,
+      "designation": "J151720.89+092247.2",
+      "ra_deg": 229.337051,
+      "status": "ok"
+    },
+    {
+      "bands": {
+        "W3": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 777.0410910470204,
+          "fwhm_arcsec": 12.953000469772327,
+          "fwhm_ratio": 1.40931350993062,
+          "fwhm_ref_arcsec": 9.190999999999999,
+          "offset_arcsec": 0.3518994177135819,
+          "sha256": "a6b07b5a88e7688946c0096e4c66852b4c5513013f8f645bdf3a5003ea15ea43",
+          "status": "ok"
+        },
+        "W4": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 35.508488413543816,
+          "fwhm_arcsec": 21.147230751081228,
+          "fwhm_ratio": 1.2463007279043627,
+          "fwhm_ref_arcsec": 16.968,
+          "offset_arcsec": 0.4765611063946862,
+          "sha256": "f57a92a88abfec319911767b8a8193f91a96e7a2c2b10651e96a2829524c44e3",
+          "status": "ok"
+        }
+      },
+      "catalogue": {
+        "w3mpro": 6.796,
+        "w3rchi2": 1.029,
+        "w3snr": 71.4,
+        "w4mpro": 6.738,
+        "w4rchi2": 0.9667,
+        "w4snr": 17.6
+      },
+      "dec_deg": 9.8114699,
+      "designation": "J151814.87+094841.2",
+      "ra_deg": 229.5619709,
+      "status": "ok"
+    },
+    {
+      "bands": {
+        "W3": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 1011.7798639691649,
+          "fwhm_arcsec": 12.935747613001334,
+          "fwhm_ratio": 1.4074363630727162,
+          "fwhm_ref_arcsec": 9.190999999999999,
+          "offset_arcsec": 0.3987789765608456,
+          "sha256": "e6eb75d4014e6658d2fbf8dda1e7156ea1b3ceda02307324864c3d16f860e90f",
+          "status": "ok"
+        },
+        "W4": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 45.14219672628004,
+          "fwhm_arcsec": 20.885823002587443,
+          "fwhm_ratio": 1.2308948021326875,
+          "fwhm_ref_arcsec": 16.968,
+          "offset_arcsec": 0.8238197467116322,
+          "sha256": "30a9b3e29036016c2366be30e1fa687103198616a7846dff4431e9de93b40c5c",
+          "status": "ok"
+        }
+      },
+      "catalogue": {
+        "w3mpro": 6.762,
+        "w3rchi2": 1.568,
+        "w3snr": 65.7,
+        "w4mpro": 6.648,
+        "w4rchi2": 1.005,
+        "w4snr": 18.2
+      },
+      "dec_deg": 9.1026858,
+      "designation": "J151832.06+090609.6",
+      "ra_deg": 229.6335911,
+      "status": "ok"
+    },
+    {
+      "bands": {
+        "W3": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 990.1759050515789,
+          "fwhm_arcsec": 12.914307367329046,
+          "fwhm_ratio": 1.4051036195548958,
+          "fwhm_ref_arcsec": 9.190999999999999,
+          "offset_arcsec": 0.16831208201445544,
+          "sha256": "24997bd03c507bd4adb776cf8ca98e7e9109c6dde762d5c546993bcbbbffaba1",
+          "status": "ok"
+        },
+        "W4": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 24.69430057584182,
+          "fwhm_arcsec": 20.612836345719177,
+          "fwhm_ratio": 1.214806479592125,
+          "fwhm_ref_arcsec": 16.968,
+          "offset_arcsec": 0.9141936026192774,
+          "sha256": "651005fc16ff893c062269cb93d18fe95dfd929eeaa191f8fb2c2c6c5b513f10",
+          "status": "ok"
+        }
+      },
+      "catalogue": {
+        "w3mpro": 6.523,
+        "w3rchi2": 0.7813,
+        "w3snr": 63.0,
+        "w4mpro": 6.478,
+        "w4rchi2": 0.8925,
+        "w4snr": 16.0
+      },
+      "dec_deg": 45.0426135,
+      "designation": "J083644.15+450233.4",
+      "ra_deg": 129.1839644,
+      "status": "ok"
+    },
+    {
+      "bands": {
+        "W3": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 641.2283454510152,
+          "fwhm_arcsec": 12.919298722897238,
+          "fwhm_ratio": 1.4056466894676576,
+          "fwhm_ref_arcsec": 9.190999999999999,
+          "offset_arcsec": 0.09154332973433754,
+          "sha256": "39e8b76577117aacfaee1d44f2f49d671bddee82b0507c28eaca1d67b641d0ea",
+          "status": "ok"
+        },
+        "W4": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 18.893416036896813,
+          "fwhm_arcsec": 20.257612681126936,
+          "fwhm_ratio": 1.1938715630084238,
+          "fwhm_ref_arcsec": 16.968,
+          "offset_arcsec": 0.7690598894217948,
+          "sha256": "1de02bfd27922e9938a660fa5385e033d689ce435089399938badd76098ad4ad",
+          "status": "ok"
+        }
+      },
+      "catalogue": {
+        "w3mpro": 6.88,
+        "w3rchi2": 1.202,
+        "w3snr": 66.6,
+        "w4mpro": 6.832,
+        "w4rchi2": 0.9212,
+        "w4snr": 12.2
+      },
+      "dec_deg": 45.6419806,
+      "designation": "J083707.23+453831.1",
+      "ra_deg": 129.280131,
+      "status": "ok"
+    },
+    {
+      "bands": {
+        "W3": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 405.44364410283964,
+          "fwhm_arcsec": 12.8514585980415,
+          "fwhm_ratio": 1.398265542165325,
+          "fwhm_ref_arcsec": 9.190999999999999,
+          "offset_arcsec": 0.2330416845388789,
+          "sha256": "529bee28fc33eab919305797cbf17330d0655e7f8476a8e7ff70ebe52cb46be3",
+          "status": "ok"
+        },
+        "W4": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 12.241086826769399,
+          "fwhm_arcsec": 20.85663567908398,
+          "fwhm_ratio": 1.2291746628408757,
+          "fwhm_ref_arcsec": 16.968,
+          "offset_arcsec": 1.7019923539007333,
+          "sha256": "e770a8b587cab7f9332ac5bbedd6ac4cbbb3819ffe4b67df0ed0c2a73013dd09",
+          "status": "ok"
+        }
+      },
+      "catalogue": {
+        "w3mpro": 7.379,
+        "w3rchi2": 0.9241,
+        "w3snr": 58.3,
+        "w4mpro": 7.312,
+        "w4rchi2": 1.049,
+        "w4snr": 10.6
+      },
+      "dec_deg": 44.4553123,
+      "designation": "J083745.71+442719.1",
+      "ra_deg": 129.4404925,
+      "status": "ok"
+    },
+    {
+      "bands": {
+        "W3": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 613.095405692312,
+          "fwhm_arcsec": 12.896493018826872,
+          "fwhm_ratio": 1.4031653812236833,
+          "fwhm_ref_arcsec": 9.190999999999999,
+          "offset_arcsec": 0.3076480957349329,
+          "sha256": "c0826a7f78de0cd97526d8cfd2d6ffb75f103c23aa32c5e135bc74baac0bab19",
+          "status": "ok"
+        },
+        "W4": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 25.434986196186486,
+          "fwhm_arcsec": 20.01148565408078,
+          "fwhm_ratio": 1.1793661983781694,
+          "fwhm_ref_arcsec": 16.968,
+          "offset_arcsec": 0.6103268352562449,
+          "sha256": "8e8b169941c80de4c696ab7386dc7b40d243529c0139caecb38eb1fd23f59cab",
+          "status": "ok"
+        }
+      },
+      "catalogue": {
+        "w3mpro": 6.813,
+        "w3rchi2": 1.023,
+        "w3snr": 63.8,
+        "w4mpro": 6.624,
+        "w4rchi2": 1.015,
+        "w4snr": 16.4
+      },
+      "dec_deg": 45.3496955,
+      "designation": "J083838.67+452058.9",
+      "ra_deg": 129.6611507,
+      "status": "ok"
+    },
+    {
+      "bands": {
+        "W3": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 1311.7324748456024,
+          "fwhm_arcsec": 12.848592263220295,
+          "fwhm_ratio": 1.3979536789490041,
+          "fwhm_ref_arcsec": 9.190999999999999,
+          "offset_arcsec": 0.22229252163028174,
+          "sha256": "7ed76c99f9852ae10d9ed294531bb0e385233507577e00d3042eea0d8682b51c",
+          "status": "ok"
+        },
+        "W4": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 56.98245936439979,
+          "fwhm_arcsec": 20.485114980635224,
+          "fwhm_ratio": 1.2072792892877902,
+          "fwhm_ref_arcsec": 16.968,
+          "offset_arcsec": 1.065696570048297,
+          "sha256": "2d99ba2755a58304e886dc04fdf9e87f84aec4954182baf9a354a9b9432d26fd",
+          "status": "ok"
+        }
+      },
+      "catalogue": {
+        "w3mpro": 5.938,
+        "w3rchi2": 1.184,
+        "w3snr": 72.0,
+        "w4mpro": 5.876,
+        "w4rchi2": 0.9498,
+        "w4snr": 27.8
+      },
+      "dec_deg": 44.2441196,
+      "designation": "J083915.96+441438.8",
+      "ra_deg": 129.8165261,
+      "status": "ok"
+    },
+    {
+      "bands": {
+        "W3": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 974.6179036156325,
+          "fwhm_arcsec": 12.959850861959191,
+          "fwhm_ratio": 1.410058846911021,
+          "fwhm_ref_arcsec": 9.190999999999999,
+          "offset_arcsec": 0.16068576095229645,
+          "sha256": "e8ad8b7228f1a5f25f09cc0951f630f64e7092b0793f38185836516fa988179b",
+          "status": "ok"
+        },
+        "W4": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 32.813651869657164,
+          "fwhm_arcsec": 19.030567907290976,
+          "fwhm_ratio": 1.1215563358846639,
+          "fwhm_ref_arcsec": 16.968,
+          "offset_arcsec": 0.7185729644807461,
+          "sha256": "39356e8051f112ada268d8fc6800ce396019cec3e36c1507b1dc783794bc8a8f",
+          "status": "ok"
+        }
+      },
+      "catalogue": {
+        "w3mpro": 6.5,
+        "w3rchi2": 0.8984,
+        "w3snr": 68.2,
+        "w4mpro": 6.382,
+        "w4rchi2": 0.7913,
+        "w4snr": 17.1
+      },
+      "dec_deg": 45.1498255,
+      "designation": "J084058.61+450859.3",
+      "ra_deg": 130.2442176,
+      "status": "ok"
+    },
+    {
+      "bands": {
+        "W3": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 881.5967295793314,
+          "fwhm_arcsec": 12.991930969419075,
+          "fwhm_ratio": 1.413549229618004,
+          "fwhm_ref_arcsec": 9.190999999999999,
+          "offset_arcsec": 0.5690213772822319,
+          "sha256": "59c7a04294c31678102820ab74f383b98ae641c81adf74adab11f7bfc0e83720",
+          "status": "ok"
+        },
+        "W4": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 33.820335203274745,
+          "fwhm_arcsec": 20.964383667646104,
+          "fwhm_ratio": 1.2355247328881485,
+          "fwhm_ref_arcsec": 16.968,
+          "offset_arcsec": 0.7793797732069352,
+          "sha256": "b415cb8a78a5465eec6fb4899f1e0d87ec6b1b26d96ed3e2802d307390b857bb",
+          "status": "ok"
+        }
+      },
+      "catalogue": {
+        "w3mpro": 6.716,
+        "w3rchi2": 0.7894,
+        "w3snr": 65.1,
+        "w4mpro": 6.563,
+        "w4rchi2": 0.8866,
+        "w4snr": 15.4
+      },
+      "dec_deg": 20.7251933,
+      "designation": "J000108.52+204330.6",
+      "ra_deg": 0.285529,
+      "status": "ok"
+    },
+    {
+      "bands": {
+        "W3": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 966.2869694626926,
+          "fwhm_arcsec": 13.05091445487411,
+          "fwhm_ratio": 1.4199667560520195,
+          "fwhm_ref_arcsec": 9.190999999999999,
+          "offset_arcsec": 0.6759823583459798,
+          "sha256": "04251c53fd093a26a94114fa75bcc228b42164d0d582ae0ad86d56a070c068a8",
+          "status": "ok"
+        },
+        "W4": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 43.67553533615515,
+          "fwhm_arcsec": 20.278810939344734,
+          "fwhm_ratio": 1.195120871012773,
+          "fwhm_ref_arcsec": 16.968,
+          "offset_arcsec": 0.8148597761552485,
+          "sha256": "afde325cbc54a8f52c2a68aa162e4cb09a66b0c336ae27e9cbc43adfa55b6804",
+          "status": "ok"
+        }
+      },
+      "catalogue": {
+        "w3mpro": 6.128,
+        "w3rchi2": 1.075,
+        "w3snr": 67.6,
+        "w4mpro": 6.037,
+        "w4rchi2": 0.9047,
+        "w4snr": 21.5
+      },
+      "dec_deg": 19.7411541,
+      "designation": "J000115.90+194428.1",
+      "ra_deg": 0.3162905,
+      "status": "ok"
+    },
+    {
+      "bands": {
+        "W3": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 1263.3215842623272,
+          "fwhm_arcsec": 13.317450929950041,
+          "fwhm_ratio": 1.4489664813350063,
+          "fwhm_ref_arcsec": 9.190999999999999,
+          "offset_arcsec": 0.36705983398914077,
+          "sha256": "00a000b1835661c7b78b662f6bf2372397423455cc07fb9d4f4655a06cfbc370",
+          "status": "ok"
+        },
+        "W4": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 71.69482373739953,
+          "fwhm_arcsec": 20.796437064688376,
+          "fwhm_ratio": 1.225626889715251,
+          "fwhm_ref_arcsec": 16.968,
+          "offset_arcsec": 0.37539962368111834,
+          "sha256": "2792e69962efb2a701ff6cb56bd443b1b7d1e917330db019122c44766e9204a9",
+          "status": "ok"
+        }
+      },
+      "catalogue": {
+        "w3mpro": 5.661,
+        "w3rchi2": 1.314,
+        "w3snr": 71.4,
+        "w4mpro": 5.575,
+        "w4rchi2": 0.8937,
+        "w4snr": 24.8
+      },
+      "dec_deg": 20.208973,
+      "designation": "J235619.90+201232.3",
+      "ra_deg": 359.0829438,
+      "status": "ok"
+    },
+    {
+      "bands": {
+        "W3": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 430.84775612047144,
+          "fwhm_arcsec": 12.988020869228494,
+          "fwhm_ratio": 1.4131238025490693,
+          "fwhm_ref_arcsec": 9.190999999999999,
+          "offset_arcsec": 0.5338378034032577,
+          "sha256": "45e86e855ad91c05f49b4f9828dedbaf5e77ed7f860eef29db9abfc56bb0306d",
+          "status": "ok"
+        },
+        "W4": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 15.435882942152732,
+          "fwhm_arcsec": 20.597249225513416,
+          "fwhm_ratio": 1.2138878610038553,
+          "fwhm_ref_arcsec": 16.968,
+          "offset_arcsec": 1.0909541528726097,
+          "sha256": "e8e37eeff525d094fb76cb0c9f15de99d3a3c281ec74d1df693019148c998920",
+          "status": "ok"
+        }
+      },
+      "catalogue": {
+        "w3mpro": 6.931,
+        "w3rchi2": 0.8515,
+        "w3snr": 68.4,
+        "w4mpro": 6.899,
+        "w4rchi2": 0.7379,
+        "w4snr": 11.2
+      },
+      "dec_deg": 19.5630238,
+      "designation": "J235729.73+193346.8",
+      "ra_deg": 359.3739075,
+      "status": "ok"
+    },
+    {
+      "bands": {
+        "W3": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 2491.2551294096324,
+          "fwhm_arcsec": 13.076170707608801,
+          "fwhm_ratio": 1.4227146891098685,
+          "fwhm_ref_arcsec": 9.190999999999999,
+          "offset_arcsec": 0.49635898274731827,
+          "sha256": "53f5e8957476b8355e137924ef19cb610f32d16b4c478468a8c6fa6885383411",
+          "status": "ok"
+        },
+        "W4": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 146.44888097537455,
+          "fwhm_arcsec": 20.83107118498637,
+          "fwhm_ratio": 1.2276680330614316,
+          "fwhm_ref_arcsec": 16.968,
+          "offset_arcsec": 0.3532682005222091,
+          "sha256": "8c2d1127178f38e9b82f90787b3481e2ee77ef7eeb2ee60d31e99c970f55bd6e",
+          "status": "ok"
+        }
+      },
+      "catalogue": {
+        "w3mpro": 4.818,
+        "w3rchi2": 0.8795,
+        "w3snr": 75.5,
+        "w4mpro": 4.749,
+        "w4rchi2": 1.215,
+        "w4snr": 40.7
+      },
+      "dec_deg": 20.3303587,
+      "designation": "J235736.58+201949.2",
+      "ra_deg": 359.4024335,
+      "status": "ok"
+    },
+    {
+      "bands": {
+        "W3": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 446.62837379009227,
+          "fwhm_arcsec": 12.980624948087506,
+          "fwhm_ratio": 1.4123191108788498,
+          "fwhm_ref_arcsec": 9.190999999999999,
+          "offset_arcsec": 0.4151719077648006,
+          "sha256": "f64b4c611f7fc286fda78aed142e2bbfb999854da17bf3361d1a08e4d63ac508",
+          "status": "ok"
+        },
+        "W4": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 17.807650885226412,
+          "fwhm_arcsec": 23.76266058188583,
+          "fwhm_ratio": 1.4004396854010979,
+          "fwhm_ref_arcsec": 16.968,
+          "offset_arcsec": 2.001410443718306,
+          "sha256": "e0735b3429ebae827f3689645af613b4d8f2c47d49d2f04765c230457c75817f",
+          "status": "ok"
+        }
+      },
+      "catalogue": {
+        "w3mpro": 7.192,
+        "w3rchi2": 1.079,
+        "w3snr": 63.0,
+        "w4mpro": 7.054,
+        "w4rchi2": 1.066,
+        "w4snr": 11.2
+      },
+      "dec_deg": 20.8345809,
+      "designation": "J235811.93+205004.4",
+      "ra_deg": 359.5497379,
+      "status": "ok"
+    },
+    {
+      "bands": {
+        "W3": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 2398.2654536591235,
+          "fwhm_arcsec": 13.152665070597099,
+          "fwhm_ratio": 1.431037435599728,
+          "fwhm_ref_arcsec": 9.190999999999999,
+          "offset_arcsec": 0.41089257762054077,
+          "sha256": "77764c7cce663537e7dd6bf67e848203174ce9e059c930efbad298f071ecfcb6",
+          "status": "ok"
+        },
+        "W4": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 134.20474917009372,
+          "fwhm_arcsec": 20.918135028675355,
+          "fwhm_ratio": 1.2327990940992075,
+          "fwhm_ref_arcsec": 16.968,
+          "offset_arcsec": 0.36921480367371823,
+          "sha256": "8a1e92078572a595a7e8cdac641f74e2a838b4c858896e2fe73052dfa7d3518a",
+          "status": "ok"
+        }
+      },
+      "catalogue": {
+        "w3mpro": 5.102,
+        "w3rchi2": 1.422,
+        "w3snr": 74.4,
+        "w4mpro": 4.981,
+        "w4rchi2": 1.257,
+        "w4snr": 38.9
+      },
+      "dec_deg": -29.9586731,
+      "designation": "J011641.65-295731.2",
+      "ra_deg": 19.173543,
+      "status": "ok"
+    },
+    {
+      "bands": {
+        "W3": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 2291.012835331642,
+          "fwhm_arcsec": 13.041109054399683,
+          "fwhm_ratio": 1.4188999079969193,
+          "fwhm_ref_arcsec": 9.190999999999999,
+          "offset_arcsec": 0.6137682500941627,
+          "sha256": "fa3af7bda89d8288890de62293ddf4986034ab8bf2a63226e7a1c8dc23206de4",
+          "status": "ok"
+        },
+        "W4": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 88.85706388782411,
+          "fwhm_arcsec": 20.416478053232154,
+          "fwhm_ratio": 1.203234208700622,
+          "fwhm_ref_arcsec": 16.968,
+          "offset_arcsec": 0.3897363898767458,
+          "sha256": "479aded4aecb9a42d8707e4ff82355a68d661077a51a84aef5d8e78dfc7b2e17",
+          "status": "ok"
+        }
+      },
+      "catalogue": {
+        "w3mpro": 5.128,
+        "w3rchi2": 1.432,
+        "w3snr": 71.1,
+        "w4mpro": 5.023,
+        "w4rchi2": 1.061,
+        "w4snr": 39.4
+      },
+      "dec_deg": -30.3606834,
+      "designation": "J012021.22-302138.4",
+      "ra_deg": 20.0884344,
+      "status": "ok"
+    },
+    {
+      "bands": {
+        "W3": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 877.1414257337682,
+          "fwhm_arcsec": 13.239559673331149,
+          "fwhm_ratio": 1.4404917499000272,
+          "fwhm_ref_arcsec": 9.190999999999999,
+          "offset_arcsec": 0.6883277612713041,
+          "sha256": "d4270d1ead56ffa4b404572c3dc55c5dc715fc8191da306842ad743154bb141a",
+          "status": "ok"
+        },
+        "W4": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 31.238743151346558,
+          "fwhm_arcsec": 21.95061397780045,
+          "fwhm_ratio": 1.2936476884606583,
+          "fwhm_ref_arcsec": 16.968,
+          "offset_arcsec": 0.9084687200757553,
+          "sha256": "5fe546802d49755046027f5c8592f1e9e4ace1b8418aa443f691ea5d59bf0710",
+          "status": "ok"
+        }
+      },
+      "catalogue": {
+        "w3mpro": 6.241,
+        "w3rchi2": 1.206,
+        "w3snr": 71.3,
+        "w4mpro": 6.161,
+        "w4rchi2": 1.027,
+        "w4snr": 20.6
+      },
+      "dec_deg": -14.6311995,
+      "designation": "J223700.77-143752.3",
+      "ra_deg": 339.2532377,
+      "status": "ok"
+    },
+    {
+      "bands": {
+        "W3": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 658.312677625258,
+          "fwhm_arcsec": 13.032011145756769,
+          "fwhm_ratio": 1.417910036531038,
+          "fwhm_ref_arcsec": 9.190999999999999,
+          "offset_arcsec": 0.5253464709436697,
+          "sha256": "2d884f853fc9a4903e60efebd137a08b5a8fd3eb6ccbc541c9cc8a3290ba955b",
+          "status": "ok"
+        },
+        "W4": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 31.21707948097734,
+          "fwhm_arcsec": 20.967331951896924,
+          "fwhm_ratio": 1.2356984884427702,
+          "fwhm_ref_arcsec": 16.968,
+          "offset_arcsec": 0.3279633790905358,
+          "sha256": "2c1c3fcbc9b32bf810bac588130ecd7da55671e75e1271626c1e5703e882ec44",
+          "status": "ok"
+        }
+      },
+      "catalogue": {
+        "w3mpro": 6.574,
+        "w3rchi2": 1.123,
+        "w3snr": 72.0,
+        "w4mpro": 6.505,
+        "w4rchi2": 1.039,
+        "w4snr": 15.0
+      },
+      "dec_deg": -14.9733395,
+      "designation": "J223715.84-145824.0",
+      "ra_deg": 339.3160052,
+      "status": "ok"
+    },
+    {
+      "bands": {
+        "W3": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 2352.6905243786505,
+          "fwhm_arcsec": 13.035652520330196,
+          "fwhm_ratio": 1.4183062256914587,
+          "fwhm_ref_arcsec": 9.190999999999999,
+          "offset_arcsec": 0.5962404736103541,
+          "sha256": "feb1f5b4c08eb4f80f4e798aa127c1d635aca2a619a59060507e07adac751b7d",
+          "status": "ok"
+        },
+        "W4": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 98.63188861616068,
+          "fwhm_arcsec": 20.70046814562834,
+          "fwhm_ratio": 1.2199710128258097,
+          "fwhm_ref_arcsec": 16.968,
+          "offset_arcsec": 0.3443319256208882,
+          "sha256": "1aa497f90d9398f5cf2fa3f66d3263ada9d8ac2b5b3135afb0179503f11370bd",
+          "status": "ok"
+        }
+      },
+      "catalogue": {
+        "w3mpro": 5.005,
+        "w3rchi2": 0.9162,
+        "w3snr": 71.7,
+        "w4mpro": 4.866,
+        "w4rchi2": 0.9842,
+        "w4snr": 35.7
+      },
+      "dec_deg": -15.2931557,
+      "designation": "J223835.27-151735.3",
+      "ra_deg": 339.6469992,
+      "status": "ok"
+    },
+    {
+      "bands": {
+        "W3": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 615.8468174897909,
+          "fwhm_arcsec": 12.958456125826565,
+          "fwhm_ratio": 1.4099070967061873,
+          "fwhm_ref_arcsec": 9.190999999999999,
+          "offset_arcsec": 0.5657159917329202,
+          "sha256": "94636e5c2ce97775d8bb4bcbb23134d8ec62ffeba66df462f8b14013bd51a7eb",
+          "status": "ok"
+        },
+        "W4": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 32.4855547378178,
+          "fwhm_arcsec": 20.08247131784243,
+          "fwhm_ratio": 1.1835497004857631,
+          "fwhm_ref_arcsec": 16.968,
+          "offset_arcsec": 0.6591649858750389,
+          "sha256": "9383f4948a470389ffeb88732638a8e5ebf9340c6acf9a68f2ede6afd93a4e8a",
+          "status": "ok"
+        }
+      },
+      "catalogue": {
+        "w3mpro": 6.421,
+        "w3rchi2": 1.063,
+        "w3snr": 68.3,
+        "w4mpro": 6.297,
+        "w4rchi2": 0.9655,
+        "w4snr": 18.6
+      },
+      "dec_deg": -14.5529482,
+      "designation": "J223955.39-143310.6",
+      "ra_deg": 339.9808168,
+      "status": "ok"
+    },
+    {
+      "bands": {
+        "W3": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 1550.435957712628,
+          "fwhm_arcsec": 13.073491883121967,
+          "fwhm_ratio": 1.4224232274096364,
+          "fwhm_ref_arcsec": 9.190999999999999,
+          "offset_arcsec": 0.6266482738063112,
+          "sha256": "d1096d2be17a5a5a94e869d76ab79d96468c9cb6381cd6e4416644003662ad60",
+          "status": "ok"
+        },
+        "W4": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 76.39994582653479,
+          "fwhm_arcsec": 20.89592979538616,
+          "fwhm_ratio": 1.231490440557883,
+          "fwhm_ref_arcsec": 16.968,
+          "offset_arcsec": 0.8392965426132024,
+          "sha256": "3a2c0d5704d3ff9c6aa1074c41bd0327e2183387cc2276f3be33f6cd54d606d4",
+          "status": "ok"
+        }
+      },
+      "catalogue": {
+        "w3mpro": 5.609,
+        "w3rchi2": 1.131,
+        "w3snr": 69.3,
+        "w4mpro": 5.569,
+        "w4rchi2": 1.048,
+        "w4snr": 26.3
+      },
+      "dec_deg": -14.6041234,
+      "designation": "J224020.86-143614.8",
+      "ra_deg": 340.086929,
+      "status": "ok"
+    },
+    {
+      "bands": {
+        "W3": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 1749.9709428818066,
+          "fwhm_arcsec": 13.019743159298754,
+          "fwhm_ratio": 1.416575253976581,
+          "fwhm_ref_arcsec": 9.190999999999999,
+          "offset_arcsec": 0.4940091207619763,
+          "sha256": "cdcbe1b863a950eb95689b97125df66e52f07ca6137d9138cc8f32d0d8db9ad2",
+          "status": "ok"
+        },
+        "W4": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 84.28140574768919,
+          "fwhm_arcsec": 20.831672015614895,
+          "fwhm_ratio": 1.2277034426930042,
+          "fwhm_ref_arcsec": 16.968,
+          "offset_arcsec": 0.24960845717632316,
+          "sha256": "eabcfcaa7a33648f6f7e37ba3a9a40b15631703424ab4c739cdd16d6355c0dac",
+          "status": "ok"
+        }
+      },
+      "catalogue": {
+        "w3mpro": 5.569,
+        "w3rchi2": 1.522,
+        "w3snr": 72.3,
+        "w4mpro": 5.454,
+        "w4rchi2": 1.023,
+        "w4snr": 29.0
+      },
+      "dec_deg": -15.6194498,
+      "designation": "J224139.06-153710.0",
+      "ra_deg": 340.4127519,
+      "status": "ok"
+    },
+    {
+      "bands": {
+        "W3": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 1116.0848152262568,
+          "fwhm_arcsec": 13.000375511590304,
+          "fwhm_ratio": 1.4144680134468834,
+          "fwhm_ref_arcsec": 9.190999999999999,
+          "offset_arcsec": 0.4638379598177468,
+          "sha256": "41eb3e5d034c295c12c4cad6e8bea0da1923bab4ea15256b3600109aecc9379b",
+          "status": "ok"
+        },
+        "W4": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 43.44855166025328,
+          "fwhm_arcsec": 21.288658020625096,
+          "fwhm_ratio": 1.2546356683536715,
+          "fwhm_ref_arcsec": 16.968,
+          "offset_arcsec": 0.8104829337266425,
+          "sha256": "04ed06ccb8f4f14f14c33736a109817135eff14aaae7763ec017f0663e52839b",
+          "status": "ok"
+        }
+      },
+      "catalogue": {
+        "w3mpro": 6.712,
+        "w3rchi2": 1.084,
+        "w3snr": 70.1,
+        "w4mpro": 6.547,
+        "w4rchi2": 0.9044,
+        "w4snr": 21.5
+      },
+      "dec_deg": -39.8105549,
+      "designation": "J035620.17-394837.9",
+      "ra_deg": 59.0840665,
+      "status": "ok"
+    },
+    {
+      "bands": {
+        "W3": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 1524.964767676059,
+          "fwhm_arcsec": 13.001480784069843,
+          "fwhm_ratio": 1.4145882694015717,
+          "fwhm_ref_arcsec": 9.190999999999999,
+          "offset_arcsec": 0.5456044299856965,
+          "sha256": "ce374d6c4290bf7ddf709b50079f52c81b2b1f104476bd70626db9632c05bc91",
+          "status": "ok"
+        },
+        "W4": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 57.53876204508559,
+          "fwhm_arcsec": 20.469950213911428,
+          "fwhm_ratio": 1.2063855618759682,
+          "fwhm_ref_arcsec": 16.968,
+          "offset_arcsec": 0.5331106172547577,
+          "sha256": "29a8a0907091745b7efd67741459ec48d04b36851fc219c16fc6ff4e0cc63448",
+          "status": "ok"
+        }
+      },
+      "catalogue": {
+        "w3mpro": 6.481,
+        "w3rchi2": 1.039,
+        "w3snr": 72.5,
+        "w4mpro": 6.391,
+        "w4rchi2": 0.9715,
+        "w4snr": 24.5
+      },
+      "dec_deg": -40.2645789,
+      "designation": "J035627.71-401552.4",
+      "ra_deg": 59.1154942,
+      "status": "ok"
+    },
+    {
+      "bands": {
+        "W3": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 3681.0345947035694,
+          "fwhm_arcsec": 13.253818008917664,
+          "fwhm_ratio": 1.4420430865975047,
+          "fwhm_ref_arcsec": 9.190999999999999,
+          "offset_arcsec": 0.2768307693944628,
+          "sha256": "20653ea78d72b1b3d0836aa9d69074cde84be8dbc9cbca5dc9f1ac4759dac481",
+          "status": "ok"
+        },
+        "W4": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 306.2817070892189,
+          "fwhm_arcsec": 20.86275276772757,
+          "fwhm_ratio": 1.229535170186679,
+          "fwhm_ref_arcsec": 16.968,
+          "offset_arcsec": 0.11454691521287069,
+          "sha256": "6c16cbd0eacd9bb9086b400f5576fdbefadc6bdba2d9b54aa018ace3408613df",
+          "status": "ok"
+        }
+      },
+      "catalogue": {
+        "w3mpro": 3.928,
+        "w3rchi2": 1.084,
+        "w3snr": 75.1,
+        "w4mpro": 3.831,
+        "w4rchi2": 0.8129,
+        "w4snr": 47.2
+      },
+      "dec_deg": -40.0369454,
+      "designation": "J035701.79-400213.0",
+      "ra_deg": 59.2574823,
+      "status": "ok"
+    },
+    {
+      "bands": {
+        "W3": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 577.3275644291647,
+          "fwhm_arcsec": 12.90463933253438,
+          "fwhm_ratio": 1.4040517171727105,
+          "fwhm_ref_arcsec": 9.190999999999999,
+          "offset_arcsec": 0.3380745938936674,
+          "sha256": "649674bbf2673d0cd160178e26b61a0ce84f6dcd2525a02641695874b3b7d04b",
+          "status": "ok"
+        },
+        "W4": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 13.70074642105959,
+          "fwhm_arcsec": 17.841013701352434,
+          "fwhm_ratio": 1.0514505953178002,
+          "fwhm_ref_arcsec": 16.968,
+          "offset_arcsec": 0.6080763742792128,
+          "sha256": "0dc476c4a0f3a92f54a34cf6f482ea854b6a4f7e517787aadfcc5f997d1bd65f",
+          "status": "ok"
+        }
+      },
+      "catalogue": {
+        "w3mpro": 7.706,
+        "w3rchi2": 1.011,
+        "w3snr": 64.6,
+        "w4mpro": 7.616,
+        "w4rchi2": 0.8281,
+        "w4snr": 10.4
+      },
+      "dec_deg": -39.5228965,
+      "designation": "J035730.88-393122.4",
+      "ra_deg": 59.3787058,
+      "status": "ok"
+    },
+    {
+      "bands": {
+        "W3": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 783.722274340451,
+          "fwhm_arcsec": 13.057343237480774,
+          "fwhm_ratio": 1.4206662210293521,
+          "fwhm_ref_arcsec": 9.190999999999999,
+          "offset_arcsec": 0.38936111512901567,
+          "sha256": "0a0b78d63a46850002f08a8472bdf48be12868533d008199a6843aba068bc53c",
+          "status": "ok"
+        },
+        "W4": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 32.18154311011859,
+          "fwhm_arcsec": 21.732556061931298,
+          "fwhm_ratio": 1.2807965618771393,
+          "fwhm_ref_arcsec": 16.968,
+          "offset_arcsec": 0.5847238708500511,
+          "sha256": "28cd73c025542384d9f11a993ed9a772d16c80f130008e76dfd4be1fa2a8920a",
+          "status": "ok"
+        }
+      },
+      "catalogue": {
+        "w3mpro": 7.382,
+        "w3rchi2": 1.017,
+        "w3snr": 65.1,
+        "w4mpro": 7.291,
+        "w4rchi2": 0.9808,
+        "w4snr": 14.6
+      },
+      "dec_deg": -40.4409666,
+      "designation": "J035832.95-402627.4",
+      "ra_deg": 59.6373253,
+      "status": "ok"
+    },
+    {
+      "bands": {
+        "W3": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 519.4468946028484,
+          "fwhm_arcsec": 12.982332713183684,
+          "fwhm_ratio": 1.4125049192888353,
+          "fwhm_ref_arcsec": 9.190999999999999,
+          "offset_arcsec": 0.4254301188904786,
+          "sha256": "90c2c009f2d8c85568a01c08a1f7439a95b7be175f3a243ca17d2bf56d0186bb",
+          "status": "ok"
+        },
+        "W4": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 15.875826596868965,
+          "fwhm_arcsec": 20.803217404305173,
+          "fwhm_ratio": 1.2260264854022378,
+          "fwhm_ref_arcsec": 16.968,
+          "offset_arcsec": 0.8874308059571201,
+          "sha256": "aede3ab1f600872d6ebe31272b611a2685f61d25419bbc223150d63fbf3b79fc",
+          "status": "ok"
+        }
+      },
+      "catalogue": {
+        "w3mpro": 7.621,
+        "w3rchi2": 1.984,
+        "w3snr": 64.9,
+        "w4mpro": 7.619,
+        "w4rchi2": 1.048,
+        "w4snr": 10.5
+      },
+      "dec_deg": -39.4224518,
+      "designation": "J035849.57-392520.8",
+      "ra_deg": 59.7065483,
+      "status": "ok"
+    },
+    {
+      "bands": {
+        "W3": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 1254.2313318193267,
+          "fwhm_arcsec": 12.894213421529079,
+          "fwhm_ratio": 1.4029173562756045,
+          "fwhm_ref_arcsec": 9.190999999999999,
+          "offset_arcsec": 0.021392216664470016,
+          "sha256": "b484aa8190238ed3ac51881ad386e1ea0000bcb9014d096e500d728b1c6452e6",
+          "status": "ok"
+        },
+        "W4": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 59.94018584197061,
+          "fwhm_arcsec": 20.37467044048886,
+          "fwhm_ratio": 1.2007702994158922,
+          "fwhm_ref_arcsec": 16.968,
+          "offset_arcsec": 0.1708935953376848,
+          "sha256": "0cd56a9bb0796113bc07018f8ad99191dfad71c5bb83837f55f3b27d946604e6",
+          "status": "ok"
+        }
+      },
+      "catalogue": {
+        "w3mpro": 5.871,
+        "w3rchi2": 1.781,
+        "w3snr": 79.8,
+        "w4mpro": 5.796,
+        "w4rchi2": 0.9397,
+        "w4snr": 25.5
+      },
+      "dec_deg": -20.4591798,
+      "designation": "J111630.30-202733.0",
+      "ra_deg": 169.1262864,
+      "status": "ok"
+    },
+    {
+      "bands": {
+        "W3": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 1418.719292830253,
+          "fwhm_arcsec": 12.943130620538323,
+          "fwhm_ratio": 1.4082396497158443,
+          "fwhm_ref_arcsec": 9.190999999999999,
+          "offset_arcsec": 0.11866668794857081,
+          "sha256": "08a058be6dabfd231bee19c6b993399b36b99c2e909704575f90e64ef6951b78",
+          "status": "ok"
+        },
+        "W4": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 52.01077222346529,
+          "fwhm_arcsec": 19.77528457451091,
+          "fwhm_ratio": 1.165445814150808,
+          "fwhm_ref_arcsec": 16.968,
+          "offset_arcsec": 0.7674596148193419,
+          "sha256": "969fa1a71a7654d465ee5d619141ffd15d8950e6312114654ef6a703418d7d2b",
+          "status": "ok"
+        }
+      },
+      "catalogue": {
+        "w3mpro": 6.125,
+        "w3rchi2": 0.8567,
+        "w3snr": 70.9,
+        "w4mpro": 5.983,
+        "w4rchi2": 1.079,
+        "w4snr": 24.0
+      },
+      "dec_deg": -20.6492308,
+      "designation": "J111800.14-203857.2",
+      "ra_deg": 169.5006185,
+      "status": "ok"
+    },
+    {
+      "bands": {
+        "W3": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 1057.2618194880374,
+          "fwhm_arcsec": 12.864130619373016,
+          "fwhm_ratio": 1.399644284558048,
+          "fwhm_ref_arcsec": 9.190999999999999,
+          "offset_arcsec": 0.10029026462123944,
+          "sha256": "a9e08576f995e1fbe20f1c69c84f80e196533c56f52d374b7e278e72a76d2c3c",
+          "status": "ok"
+        },
+        "W4": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 34.41880864930675,
+          "fwhm_arcsec": 20.438298867841752,
+          "fwhm_ratio": 1.2045202067327765,
+          "fwhm_ref_arcsec": 16.968,
+          "offset_arcsec": 0.3441373765968401,
+          "sha256": "609d97737b638685435541db0c36619795cb12914a36dc3e2c01b73252943548",
+          "status": "ok"
+        }
+      },
+      "catalogue": {
+        "w3mpro": 6.085,
+        "w3rchi2": 0.9105,
+        "w3snr": 69.7,
+        "w4mpro": 6.054,
+        "w4rchi2": 0.8808,
+        "w4snr": 19.5
+      },
+      "dec_deg": -19.5781084,
+      "designation": "J112011.64-193441.1",
+      "ra_deg": 170.0485387,
+      "status": "ok"
+    },
+    {
+      "bands": {
+        "W3": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 854.2561794132861,
+          "fwhm_arcsec": 12.942055299240769,
+          "fwhm_ratio": 1.408122652512324,
+          "fwhm_ref_arcsec": 9.190999999999999,
+          "offset_arcsec": 0.14249444000099246,
+          "sha256": "89542e26d67934eec1a027fe17e0150b67ca9db0edc9be75aa6dc654b187f62b",
+          "status": "ok"
+        },
+        "W4": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 22.662383895193013,
+          "fwhm_arcsec": 21.162523772990227,
+          "fwhm_ratio": 1.2472020139668922,
+          "fwhm_ref_arcsec": 16.968,
+          "offset_arcsec": 0.9066454909915962,
+          "sha256": "e0b48f26a6f2a8e49f3b4e06c8461d4d65894271d6ee30f313ff41c3af033e30",
+          "status": "ok"
+        }
+      },
+      "catalogue": {
+        "w3mpro": 6.538,
+        "w3rchi2": 0.9209,
+        "w3snr": 70.4,
+        "w4mpro": 6.554,
+        "w4rchi2": 0.9741,
+        "w4snr": 15.6
+      },
+      "dec_deg": -20.675291,
+      "designation": "J112022.56-204031.0",
+      "ra_deg": 170.094041,
+      "status": "ok"
+    },
+    {
+      "bands": {
+        "W3": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 672.2227855555824,
+          "fwhm_arcsec": 12.894741097556814,
+          "fwhm_ratio": 1.4029747685297373,
+          "fwhm_ref_arcsec": 9.190999999999999,
+          "offset_arcsec": 0.08636965419773848,
+          "sha256": "05edc94c074656cedc13878e078f10c6c49a0b9f4871a99789286330f14cac55",
+          "status": "ok"
+        },
+        "W4": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 15.172996023133532,
+          "fwhm_arcsec": 18.732663673983886,
+          "fwhm_ratio": 1.1039995093106958,
+          "fwhm_ref_arcsec": 16.968,
+          "offset_arcsec": 1.0563747086137683,
+          "sha256": "672a3dd90107a1f9a2df3901bab3e849ec9d61090d96f869c940d8138d88dc44",
+          "status": "ok"
+        }
+      },
+      "catalogue": {
+        "w3mpro": 6.622,
+        "w3rchi2": 1.127,
+        "w3snr": 64.9,
+        "w4mpro": 6.521,
+        "w4rchi2": 0.8799,
+        "w4snr": 15.1
+      },
+      "dec_deg": -20.0191183,
+      "designation": "J112035.81-200108.8",
+      "ra_deg": 170.1492152,
+      "status": "ok"
+    },
+    {
+      "bands": {
+        "W3": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 477.5757080786306,
+          "fwhm_arcsec": 12.895458764543463,
+          "fwhm_ratio": 1.403052852197091,
+          "fwhm_ref_arcsec": 9.190999999999999,
+          "offset_arcsec": 0.031011132901165247,
+          "sha256": "c6b6ed9aa483b1f15497c4532253600c412c791501bece0952d072c81a0d0e8f",
+          "status": "ok"
+        },
+        "W4": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 28.017769512937587,
+          "fwhm_arcsec": 20.67488747668464,
+          "fwhm_ratio": 1.2184634297904666,
+          "fwhm_ref_arcsec": 16.968,
+          "offset_arcsec": 0.574082193131564,
+          "sha256": "a006039c89f41511a7aff91530a9478e76d3013efdf148d88e90a375e6970539",
+          "status": "ok"
+        }
+      },
+      "catalogue": {
+        "w3mpro": 6.859,
+        "w3rchi2": 1.468,
+        "w3snr": 63.5,
+        "w4mpro": 6.789,
+        "w4rchi2": 1.088,
+        "w4snr": 12.5
+      },
+      "dec_deg": -19.8675896,
+      "designation": "J112244.44-195203.3",
+      "ra_deg": 170.6851891,
+      "status": "ok"
+    },
+    {
+      "bands": {
+        "W3": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 735.2333069233995,
+          "fwhm_arcsec": 13.035084621137758,
+          "fwhm_ratio": 1.41824443707298,
+          "fwhm_ref_arcsec": 9.190999999999999,
+          "offset_arcsec": 0.5324263747193166,
+          "sha256": "f1a832423d144283512bfa463095caca08dd2f0a9e78e7facc498a81ee0abc19",
+          "status": "ok"
+        },
+        "W4": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 17.881758385040264,
+          "fwhm_arcsec": 20.023588149875902,
+          "fwhm_ratio": 1.1800794524915077,
+          "fwhm_ref_arcsec": 16.968,
+          "offset_arcsec": 1.1152268108040517,
+          "sha256": "f96c7d6dbbb02d036cee4169e1a9c96e49ff43355bb4675061a4d2d2c2f26cee",
+          "status": "ok"
+        }
+      },
+      "catalogue": {
+        "w3mpro": 7.158,
+        "w3rchi2": 0.9602,
+        "w3snr": 62.2,
+        "w4mpro": 7.099,
+        "w4rchi2": 0.9821,
+        "w4snr": 14.5
+      },
+      "dec_deg": 40.1446507,
+      "designation": "J163542.44+400840.7",
+      "ra_deg": 248.9268573,
+      "status": "ok"
+    },
+    {
+      "bands": {
+        "W3": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 1410.1974072870516,
+          "fwhm_arcsec": 12.970633043639564,
+          "fwhm_ratio": 1.4112319708018242,
+          "fwhm_ref_arcsec": 9.190999999999999,
+          "offset_arcsec": 0.4893113881769862,
+          "sha256": "8d6f0e83eb7470e720c1568f6e8f631a460a8d26fa015174eb6db966648f75af",
+          "status": "ok"
+        },
+        "W4": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 65.39915077301838,
+          "fwhm_arcsec": 21.149775187211702,
+          "fwhm_ratio": 1.246450682886121,
+          "fwhm_ref_arcsec": 16.968,
+          "offset_arcsec": 0.24427185555489916,
+          "sha256": "9527b5d0d0c4c1f86696c51e9803662d0f73895debba1fa163ccea7324df3e18",
+          "status": "ok"
+        }
+      },
+      "catalogue": {
+        "w3mpro": 5.974,
+        "w3rchi2": 1.053,
+        "w3snr": 70.2,
+        "w4mpro": 5.91,
+        "w4rchi2": 0.8239,
+        "w4snr": 24.9
+      },
+      "dec_deg": 39.5431446,
+      "designation": "J163549.85+393235.3",
+      "ra_deg": 248.9577257,
+      "status": "ok"
+    },
+    {
+      "bands": {
+        "W3": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 668.1483048639301,
+          "fwhm_arcsec": 12.93482436946848,
+          "fwhm_ratio": 1.4073359122476858,
+          "fwhm_ref_arcsec": 9.190999999999999,
+          "offset_arcsec": 0.6158727976989251,
+          "sha256": "8766335d51a2a9f6c9865cf21663843939d9945f910cc4bc7bfa6bb2507c7bdf",
+          "status": "ok"
+        },
+        "W4": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 33.31082122750992,
+          "fwhm_arcsec": 20.459779911930532,
+          "fwhm_ratio": 1.2057861805711063,
+          "fwhm_ref_arcsec": 16.968,
+          "offset_arcsec": 0.44052250493331585,
+          "sha256": "9a04e2a210711b53130bb0a65b1ccd278b9bb67783c8365559e2461868c10785",
+          "status": "ok"
+        }
+      },
+      "catalogue": {
+        "w3mpro": 6.909,
+        "w3rchi2": 1.177,
+        "w3snr": 68.9,
+        "w4mpro": 6.805,
+        "w4rchi2": 0.9006,
+        "w4snr": 16.8
+      },
+      "dec_deg": 40.3828014,
+      "designation": "J163617.33+402258.0",
+      "ra_deg": 249.0722412,
+      "status": "ok"
+    },
+    {
+      "bands": {
+        "W3": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 1107.689787530375,
+          "fwhm_arcsec": 12.883899210168478,
+          "fwhm_ratio": 1.4017951485331823,
+          "fwhm_ref_arcsec": 9.190999999999999,
+          "offset_arcsec": 0.5866424176628205,
+          "sha256": "7210839f96446802331f3ad2cadf73a43d432d5de493bbe8e2577e8af7cd41c3",
+          "status": "ok"
+        },
+        "W4": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 37.129875649934526,
+          "fwhm_arcsec": 20.808058100012204,
+          "fwhm_ratio": 1.2263117692133547,
+          "fwhm_ref_arcsec": 16.968,
+          "offset_arcsec": 0.5913541184620904,
+          "sha256": "a28072f12f76e02aab67b0003ee96975bdcbeb5d892452b2302bf8ceba53e624",
+          "status": "ok"
+        }
+      },
+      "catalogue": {
+        "w3mpro": 6.456,
+        "w3rchi2": 1.28,
+        "w3snr": 71.9,
+        "w4mpro": 6.352,
+        "w4rchi2": 1.006,
+        "w4snr": 22.8
+      },
+      "dec_deg": 40.47328,
+      "designation": "J163637.35+402823.8",
+      "ra_deg": 249.1556373,
+      "status": "ok"
+    },
+    {
+      "bands": {
+        "W3": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 633.4815700859216,
+          "fwhm_arcsec": 12.880309163463705,
+          "fwhm_ratio": 1.4014045439520952,
+          "fwhm_ref_arcsec": 9.190999999999999,
+          "offset_arcsec": 0.6420054384826366,
+          "sha256": "6253e458205bcb5fb43fc232604a66f50fda86b27bf1258112f578d66629b654",
+          "status": "ok"
+        },
+        "W4": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 30.763933302717703,
+          "fwhm_arcsec": 20.991818219394148,
+          "fwhm_ratio": 1.2371415735145066,
+          "fwhm_ref_arcsec": 16.968,
+          "offset_arcsec": 0.3469248285459703,
+          "sha256": "a9948ef8c5244fe9e964d312ef3279ace8f20710a6fc1f89da48d5036a49eb43",
+          "status": "ok"
+        }
+      },
+      "catalogue": {
+        "w3mpro": 6.927,
+        "w3rchi2": 1.041,
+        "w3snr": 70.0,
+        "w4mpro": 6.863,
+        "w4rchi2": 0.9208,
+        "w4snr": 16.4
+      },
+      "dec_deg": 40.2289492,
+      "designation": "J163850.43+401344.2",
+      "ra_deg": 249.7101504,
+      "status": "ok"
+    },
+    {
+      "bands": {
+        "W3": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 1105.7348610785502,
+          "fwhm_arcsec": 12.93347554972768,
+          "fwhm_ratio": 1.4071891578422022,
+          "fwhm_ref_arcsec": 9.190999999999999,
+          "offset_arcsec": 0.48209598800998443,
+          "sha256": "afbfba6ed88040c303e45d18ddd1b63f49bb26cf48380660c12c19b4712eefb9",
+          "status": "ok"
+        },
+        "W4": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 37.57196619135456,
+          "fwhm_arcsec": 20.76332224113254,
+          "fwhm_ratio": 1.2236752853095556,
+          "fwhm_ref_arcsec": 16.968,
+          "offset_arcsec": 0.5556064553457204,
+          "sha256": "0d9e2e58082145610fbd4b555f8af131e45c2e1d10e8418fe108f1926ed96b20",
+          "status": "ok"
+        }
+      },
+      "catalogue": {
+        "w3mpro": 6.462,
+        "w3rchi2": 0.9211,
+        "w3snr": 73.5,
+        "w4mpro": 6.368,
+        "w4rchi2": 1.041,
+        "w4snr": 22.1
+      },
+      "dec_deg": 40.1529308,
+      "designation": "J163924.57+400910.5",
+      "ra_deg": 249.8523937,
+      "status": "ok"
+    },
+    {
+      "bands": {
+        "W3": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 1627.1251149192542,
+          "fwhm_arcsec": 13.10957047449784,
+          "fwhm_ratio": 1.4263486535195127,
+          "fwhm_ref_arcsec": 9.190999999999999,
+          "offset_arcsec": 0.1798485161572819,
+          "sha256": "370e7107f8d4ef5244b1b27e1ce2a16c4b68b04de063e479e4d21d959a831232",
+          "status": "ok"
+        },
+        "W4": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 91.7311246561047,
+          "fwhm_arcsec": 21.937841082211566,
+          "fwhm_ratio": 1.2928949246942225,
+          "fwhm_ref_arcsec": 16.968,
+          "offset_arcsec": 1.078974960929979,
+          "sha256": "38bfbbc4ce27e78c3bf56c7dd21906c37ef76cedb448ff5a90d71743056e2e54",
+          "status": "ok"
+        }
+      },
+      "catalogue": {
+        "w3mpro": 5.857,
+        "w3rchi2": 1.095,
+        "w3snr": 72.2,
+        "w4mpro": 5.666,
+        "w4rchi2": 1.406,
+        "w4snr": 30.4
+      },
+      "dec_deg": 59.7363055,
+      "designation": "J123409.20+594410.6",
+      "ra_deg": 188.5383586,
+      "status": "ok"
+    },
+    {
+      "bands": {
+        "W3": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 556.0257860355085,
+          "fwhm_arcsec": 12.91568708754594,
+          "fwhm_ratio": 1.4052537359967296,
+          "fwhm_ref_arcsec": 9.190999999999999,
+          "offset_arcsec": 0.23014497065468825,
+          "sha256": "9aed53194e290f7a06a3fd5fcc297c2ae696b1f9fa84828c6b0eb2470b547908",
+          "status": "ok"
+        },
+        "W4": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 15.674499379533373,
+          "fwhm_arcsec": 18.69541145783792,
+          "fwhm_ratio": 1.1018040698867233,
+          "fwhm_ref_arcsec": 16.968,
+          "offset_arcsec": 0.20054862753829986,
+          "sha256": "f0e4a702c57acebcd4f8b468ebd38c898cfa46afe726c26b22db0f8ed22f0b22",
+          "status": "ok"
+        }
+      },
+      "catalogue": {
+        "w3mpro": 7.281,
+        "w3rchi2": 1.122,
+        "w3snr": 68.6,
+        "w4mpro": 7.315,
+        "w4rchi2": 0.8782,
+        "w4snr": 11.2
+      },
+      "dec_deg": 60.6518979,
+      "designation": "J123817.53+603906.8",
+      "ra_deg": 189.5730465,
+      "status": "ok"
+    },
+    {
+      "bands": {
+        "W3": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 2275.9058246452655,
+          "fwhm_arcsec": 13.039231378002713,
+          "fwhm_ratio": 1.4186956128824626,
+          "fwhm_ref_arcsec": 9.190999999999999,
+          "offset_arcsec": 0.2626005651549085,
+          "sha256": "64fab0e36584dda90e957392fbccc768ba7df54d164ca2c58a2618aaf5db9034",
+          "status": "ok"
+        },
+        "W4": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 88.45797644555304,
+          "fwhm_arcsec": 19.75550017664501,
+          "fwhm_ratio": 1.164279831249706,
+          "fwhm_ref_arcsec": 16.968,
+          "offset_arcsec": 0.5254292222301743,
+          "sha256": "164ba331006c92dcf52f20905277f151e2486622599179e97e46671e9d20c95e",
+          "status": "ok"
+        }
+      },
+      "catalogue": {
+        "w3mpro": 5.419,
+        "w3rchi2": 1.136,
+        "w3snr": 72.9,
+        "w4mpro": 5.355,
+        "w4rchi2": 0.9307,
+        "w4snr": 34.9
+      },
+      "dec_deg": 59.7503287,
+      "designation": "J123915.27+594501.1",
+      "ra_deg": 189.813651,
+      "status": "ok"
+    },
+    {
+      "bands": {
+        "W3": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 2710.701953820346,
+          "fwhm_arcsec": 13.139321129012485,
+          "fwhm_ratio": 1.4295855868798266,
+          "fwhm_ref_arcsec": 9.190999999999999,
+          "offset_arcsec": 0.12678729750105353,
+          "sha256": "86756fb33f581293c67a9eaf02860282a74c46b9603a35e7664ad2b151562b98",
+          "status": "ok"
+        },
+        "W4": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 168.86681685042979,
+          "fwhm_arcsec": 20.5688137734315,
+          "fwhm_ratio": 1.2122120328519272,
+          "fwhm_ref_arcsec": 16.968,
+          "offset_arcsec": 0.635215201563335,
+          "sha256": "174c983721b4f47301d4b9f0ce121b22c1a6497e18dfb62c2800342dba5b4ea2",
+          "status": "ok"
+        }
+      },
+      "catalogue": {
+        "w3mpro": 4.486,
+        "w3rchi2": 1.289,
+        "w3snr": 76.1,
+        "w4mpro": 4.436,
+        "w4rchi2": 0.8662,
+        "w4snr": 48.7
+      },
+      "dec_deg": 60.8846301,
+      "designation": "J123934.56+605304.6",
+      "ra_deg": 189.8940053,
+      "status": "ok"
+    },
+    {
+      "bands": {
+        "W3": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 1370.006406089349,
+          "fwhm_arcsec": 13.052245617545442,
+          "fwhm_ratio": 1.4201115893314593,
+          "fwhm_ref_arcsec": 9.190999999999999,
+          "offset_arcsec": 0.27621834119566274,
+          "sha256": "616e6c5d7a456374ce261812542f9622957fb42a37ee3b15955ebb275e0afea0",
+          "status": "ok"
+        },
+        "W4": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 51.22210029679225,
+          "fwhm_arcsec": 20.864429738898462,
+          "fwhm_ratio": 1.2296340015852465,
+          "fwhm_ref_arcsec": 16.968,
+          "offset_arcsec": 0.6695894767101149,
+          "sha256": "ffa84118ac3a3e48931f1e8210d16503fce22cfda884ccb6ee33ee0de580f329",
+          "status": "ok"
+        }
+      },
+      "catalogue": {
+        "w3mpro": 6.111,
+        "w3rchi2": 1.28,
+        "w3snr": 69.9,
+        "w4mpro": 6.075,
+        "w4rchi2": 0.8006,
+        "w4snr": 22.7
+      },
+      "dec_deg": 59.668651,
+      "designation": "J124020.36+594007.1",
+      "ra_deg": 190.0848694,
+      "status": "ok"
+    },
+    {
+      "bands": {
+        "W3": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 643.1124973474398,
+          "fwhm_arcsec": 13.030978126295057,
+          "fwhm_ratio": 1.417797641855626,
+          "fwhm_ref_arcsec": 9.190999999999999,
+          "offset_arcsec": 0.2818975812866984,
+          "sha256": "3f6baa20635b7cc644f83c8b32fd431f37faf6d6390713fe62ab414e97cd3b13",
+          "status": "ok"
+        },
+        "W4": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 20.557801732078318,
+          "fwhm_arcsec": 20.85064597354589,
+          "fwhm_ratio": 1.2288216627502293,
+          "fwhm_ref_arcsec": 16.968,
+          "offset_arcsec": 0.7165910428875457,
+          "sha256": "184de8264d8d2033893fbd5e495deb4b8196243c2a3c44047685d43992daca22",
+          "status": "ok"
+        }
+      },
+      "catalogue": {
+        "w3mpro": 7.232,
+        "w3rchi2": 1.384,
+        "w3snr": 67.3,
+        "w4mpro": 7.189,
+        "w4rchi2": 1.009,
+        "w4snr": 13.7
+      },
+      "dec_deg": 59.5256312,
+      "designation": "J124023.87+593132.2",
+      "ra_deg": 190.0994741,
+      "status": "ok"
+    },
+    {
+      "bands": {
+        "W3": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 1497.0734134718004,
+          "fwhm_arcsec": 13.141778317464254,
+          "fwhm_ratio": 1.429852934116446,
+          "fwhm_ref_arcsec": 9.190999999999999,
+          "offset_arcsec": 0.6084845315162912,
+          "sha256": "006eb66dcf6d198da7a33c4392ec917f06370c719f55e02bff1fe735ab8c88ad",
+          "status": "ok"
+        },
+        "W4": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 76.69395748412661,
+          "fwhm_arcsec": 21.825570654417962,
+          "fwhm_ratio": 1.2862783271109124,
+          "fwhm_ref_arcsec": 16.968,
+          "offset_arcsec": 0.582609504517059,
+          "sha256": "f7b235403f2e3338d0f9d45cd4af78f41c17a2b55b877cf868dd36ad859cc944",
+          "status": "ok"
+        }
+      },
+      "catalogue": {
+        "w3mpro": 5.933,
+        "w3rchi2": 1.698,
+        "w3snr": 73.0,
+        "w4mpro": 5.852,
+        "w4rchi2": 0.8117,
+        "w4snr": 20.7
+      },
+      "dec_deg": -50.0150166,
+      "designation": "J203405.43-500054.0",
+      "ra_deg": 308.5226665,
+      "status": "ok"
+    },
+    {
+      "bands": {
+        "W3": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 476.40474755694936,
+          "fwhm_arcsec": 13.037162775495903,
+          "fwhm_ratio": 1.418470544608411,
+          "fwhm_ref_arcsec": 9.190999999999999,
+          "offset_arcsec": 0.8489372851815699,
+          "sha256": "5a2f2c088d448b7920ab13100cb1a23bee9233cce47b580bf6fddfae6752b25a",
+          "status": "ok"
+        },
+        "W4": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 19.101537022617542,
+          "fwhm_arcsec": 20.076171379519486,
+          "fwhm_ratio": 1.1831784169919546,
+          "fwhm_ref_arcsec": 16.968,
+          "offset_arcsec": 1.3328282218235241,
+          "sha256": "5691ef641ae60872444d4dd9e1f2bfa4fd8160d684547b4a337e39e1812e3a06",
+          "status": "ok"
+        }
+      },
+      "catalogue": {
+        "w3mpro": 6.956,
+        "w3rchi2": 1.497,
+        "w3snr": 63.3,
+        "w4mpro": 7.028,
+        "w4rchi2": 0.8591,
+        "w4snr": 11.3
+      },
+      "dec_deg": -49.4913019,
+      "designation": "J203603.27-492928.6",
+      "ra_deg": 309.0136279,
+      "status": "ok"
+    },
+    {
+      "bands": {
+        "W3": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 867.2983690596786,
+          "fwhm_arcsec": 13.045032318794648,
+          "fwhm_ratio": 1.4193267673587913,
+          "fwhm_ref_arcsec": 9.190999999999999,
+          "offset_arcsec": 0.5500300397083067,
+          "sha256": "97afc2c6776448f36605e29bf2a92024b9f0e5610604b740b71251ae47fc0696",
+          "status": "ok"
+        },
+        "W4": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 25.911956081502307,
+          "fwhm_arcsec": 20.287450332775748,
+          "fwhm_ratio": 1.195630029041475,
+          "fwhm_ref_arcsec": 16.968,
+          "offset_arcsec": 0.5722622237624473,
+          "sha256": "576489a46a45191f42a09142b4945494c80d4a1f024f76aa2fcd79c7905292f9",
+          "status": "ok"
+        }
+      },
+      "catalogue": {
+        "w3mpro": 6.715,
+        "w3rchi2": 0.9893,
+        "w3snr": 66.4,
+        "w4mpro": 6.551,
+        "w4rchi2": 1.211,
+        "w4snr": 17.6
+      },
+      "dec_deg": -50.5531629,
+      "designation": "J203608.90-503311.3",
+      "ra_deg": 309.0371215,
+      "status": "ok"
+    },
+    {
+      "bands": {
+        "W3": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 581.0333154194454,
+          "fwhm_arcsec": 12.954971455696928,
+          "fwhm_ratio": 1.4095279573166064,
+          "fwhm_ref_arcsec": 9.190999999999999,
+          "offset_arcsec": 0.6261891494817248,
+          "sha256": "0351c70931f2eddadeb9ec836fc0524f5f265e167aeecf075e49bf77346f91db",
+          "status": "ok"
+        },
+        "W4": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 21.066848251509168,
+          "fwhm_arcsec": 20.58696561940465,
+          "fwhm_ratio": 1.2132818021808494,
+          "fwhm_ref_arcsec": 16.968,
+          "offset_arcsec": 1.5580266089977273,
+          "sha256": "2cff459aa914f79935c6ecc4b40af568e40965cb19933280ec942afd16d20d1e",
+          "status": "ok"
+        }
+      },
+      "catalogue": {
+        "w3mpro": 7.074,
+        "w3rchi2": 0.9717,
+        "w3snr": 62.5,
+        "w4mpro": 7.015,
+        "w4rchi2": 0.9712,
+        "w4snr": 11.7
+      },
+      "dec_deg": -50.0853049,
+      "designation": "J203628.64-500507.0",
+      "ra_deg": 309.119371,
+      "status": "ok"
+    },
+    {
+      "bands": {
+        "W3": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 379.6440623260645,
+          "fwhm_arcsec": 13.149944009296338,
+          "fwhm_ratio": 1.4307413784459078,
+          "fwhm_ref_arcsec": 9.190999999999999,
+          "offset_arcsec": 0.755528786672054,
+          "sha256": "fb6846c00211362ba45f9f02dca90dafd189479384baab615f68a80efd75dc66",
+          "status": "ok"
+        },
+        "W4": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 15.034003759512759,
+          "fwhm_arcsec": 20.533182221490904,
+          "fwhm_ratio": 1.2101121064056402,
+          "fwhm_ref_arcsec": 16.968,
+          "offset_arcsec": 1.4338864584431024,
+          "sha256": "4d52a630cc6a88f8437731fdff438e98ece27e9a046c99df4f8c38c72c80e041",
+          "status": "ok"
+        }
+      },
+      "catalogue": {
+        "w3mpro": 7.536,
+        "w3rchi2": 1.408,
+        "w3snr": 58.1,
+        "w4mpro": 7.251,
+        "w4rchi2": 0.9595,
+        "w4snr": 10.7
+      },
+      "dec_deg": -49.4342882,
+      "designation": "J203656.35-492603.4",
+      "ra_deg": 309.2348241,
+      "status": "ok"
+    },
+    {
+      "bands": {
+        "W3": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 620.8120280956884,
+          "fwhm_arcsec": 13.001336999924309,
+          "fwhm_ratio": 1.4145726253861723,
+          "fwhm_ref_arcsec": 9.190999999999999,
+          "offset_arcsec": 0.4170326356254454,
+          "sha256": "509bb07cd43a97a3c1579569f53e4923248deedb51dc9c0385efae9590c6830e",
+          "status": "ok"
+        },
+        "W4": {
+          "brighter_secondary_peak": false,
+          "flux_snr": 30.646322915846383,
+          "fwhm_arcsec": 20.557103997067948,
+          "fwhm_ratio": 1.2115219234481347,
+          "fwhm_ref_arcsec": 16.968,
+          "offset_arcsec": 0.34894023455506756,
+          "sha256": "5190cd490475139ca85aeea711f8b27be855e73210950be4450ca95306275d82",
+          "status": "ok"
+        }
+      },
+      "catalogue": {
+        "w3mpro": 6.85,
+        "w3rchi2": 1.514,
+        "w3snr": 64.2,
+        "w4mpro": 6.618,
+        "w4rchi2": 0.9663,
+        "w4snr": 15.7
+      },
+      "dec_deg": -50.8643444,
+      "designation": "J203752.14-505151.6",
+      "ra_deg": 309.4672842,
+      "status": "ok"
+    }
+  ],
+  "stats": {
+    "W3": {
+      "max_arcsec": 13.317450929950041,
+      "median_arcsec": 12.970633043639564,
+      "median_over_theoretical_reference": 1.4112319708018242,
+      "min_arcsec": 12.848592263220295,
+      "n": 63,
+      "p16_arcsec": 12.894698883474595,
+      "p84_arcsec": 13.05863512913207,
+      "robust_sigma_arcsec": 0.09863698045020709,
+      "theoretical_reference_arcsec": 9.190999999999999
+    },
+    "W4": {
+      "max_arcsec": 23.76266058188583,
+      "median_arcsec": 20.597249225513416,
+      "median_over_theoretical_reference": 1.2138878610038553,
+      "min_arcsec": 17.841013701352434,
+      "n": 63,
+      "p16_arcsec": 20.002498188680857,
+      "p84_arcsec": 21.004251221929113,
+      "robust_sigma_arcsec": 0.4871593114686457,
+      "theoretical_reference_arcsec": 16.968
+    }
+  },
+  "timestamp_utc": "2026-11-18T00:58:37.791048+00:00"
+}

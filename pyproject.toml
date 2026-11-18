@@ -26,7 +26,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0"]
+dev = ["pytest>=8.0", "h5py>=3.14", "hdf5plugin>=5.0"]
+# Readers for Breakthrough Listen HDF5 scans (radio_narrowband --live); filterbank (.fil) scans need neither
+radio = ["h5py>=3.14", "hdf5plugin>=5.0"]
 # ASAS-SN Sky Patrol v2 client used by second_survey vetting (import name: pyasassn)
 surveys = ["skypatrol>=0.6.21"]
 
