@@ -166,6 +166,8 @@ def test_plate_units_statuses_matches_and_resume(cfg: Any, tmp_path: Path, monke
         "A": "searched", "B": "searched", "C": "searched", "G": "searched", "F": "too_faint", "S1": "no_coverage", "S2": "no_coverage", "T1": "failed"}
     assert summary["n_fields_ok"] == 2 and summary["n_fields_no_coverage"] == 1 and summary["n_fields_failed_modern"] == 1
     assert summary["n_fields_failed_usno"] == 1 and summary["failed_field_ids"] == ["3", "4"] and summary["n_units_searched"] == 4
+    errs = summary["failed_field_errors"]
+    assert sorted(errs) == ["3", "4"] and sum(e.startswith("usno_b1: ") for e in errs.values()) == 1, "each failed field keeps its error text"
     assert summary["n_usno_sources"] == 10 and summary["n_on_spike"] == 1 and summary["n_one_first_epoch_plate"] == 1
     assert seen == [("1", "ok"), ("2", "no_coverage"), ("3", "failed"), ("4", "failed"), ("5", "ok")]
 

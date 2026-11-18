@@ -80,7 +80,8 @@ def test_index_answers_are_cached_and_a_bad_answer_is_never_an_empty_result(tmp_
     empty, _, _ = bl.query_bl_files(100.0, -40.0, cache)
     assert empty == [] and bl.query_bl_files(100.0, -40.0, cache)[2] is True, "a real empty answer is cached"
 
-    for body in ({"result": "error", "data": []}, {"result": "success"}, b"<html>busy</html>"):
+    crowded = {"result": "success", "data": [_file("HIP1", 10.0, 20.0, 1400.0)] * bl.BL_TRUSTED_ROWS}
+    for body in ({"result": "error", "data": []}, {"result": "success"}, b"<html>busy</html>", crowded):
         monkeypatch.setattr(ot, "_get_with_retries", lambda url, params, _b=body, **kw: _Resp(_b))
         for _ in range(2):  # not stored: asked again each time
             with pytest.raises(ArchiveAccessError):
@@ -156,7 +157,7 @@ def test_scan_plan_pairs_each_on_scan_with_the_off_scans_around_it(tmp_path: Pat
     assert len(p["on_files"]) == 1 and p["bytes_on"] == 15_000_000_000, "only the fine-resolution product is planned"
     assert p["off_before"]["target"] == "HIPB1" and p["off_before"]["minutes_from_on"] == pytest.approx(-5.5, abs=0.1)
     assert p["off_after"]["target"] == "HIPA1" and p["off_after"]["minutes_from_on"] == pytest.approx(5.5, abs=0.1)
-    assert p["bytes_on_plus_offs"] == 45_000_000_000
+    assert p["bytes_on_plus_offs"] == 45_000_000_000 and p["comparison"] == "before_after" and p["off_simultaneous"] == []
     n = len(idx.calls)
     assert bl.plan_star_scans(ra, dec, rows, cache)[0] == p and len(idx.calls) == n, "the time-window answer is cached"
 
@@ -166,6 +167,54 @@ def test_scan_plan_pairs_each_on_scan_with_the_off_scans_around_it(tmp_path: Pat
     cache2 = RawCache(tmp_path / "raw2")
     rows2, _, _ = bl.query_bl_files(ra, dec, cache2)
     p2 = bl.plan_star_scans(ra, dec, rows2, cache2)[0]
-    assert not p2["complete"] and p2["off_after"] is None and p2["off_before"]["target"] == "HIPB1"
+    assert not p2["complete"] and p2["comparison"] == "incomplete" and p2["off_after"] is None and p2["off_before"]["target"] == "HIPB1"
     assert p2["bytes_on_plus_offs"] == 30_000_000_000
     assert bl.plan_star_scans(200.0, 45.0, [], cache2) == []
+
+
+def test_fine_resolution_files_are_recognised_for_each_recorder() -> None:
+    fine = [
+        "http://x/blc00_guppi_57585_43906_HIP3026_0022.gpuspec.0000.h5", "http://x/blc00_guppi_57585_43906_HIP3026_0022.gpuspec.0000.fil",
+        "http://x/collate_mb_2/PKS_0295/blc23/blc23_guppi_58233_09671_008272_G239.52-51.04_0001.0000.hires.hdf",
+        "http://x/collate_mb/PKS_0338/blc04/guppi_58336_70277_045474_G306.02-45.34_0001.0000.h5",
+        "http://x/PKSUWL/blc01/PKSUWL/blc01_HIP1837_S_2019-05-19T19:11:11.000.fil",
+    ]
+    coarse = [
+        "http://x/blc00_guppi_57585_43906_HIP3026_0022.gpuspec.0002.h5", "http://x/a_0001.0000.midres.hdf", "http://x/a_0001.0000.midres.stokes.hdf",
+        "http://x/a_0001.0001.fil", "http://x/other/blc01_HIP1837_S_2019-05-19T19:11:11.000.fil",
+    ]
+    assert all(bl.FINE_RESOLUTION_URL.search(u) for u in fine)
+    assert not any(bl.FINE_RESOLUTION_URL.search(u) for u in coarse)
+
+
+def test_scan_plan_uses_beams_of_the_same_instant_and_one_file_per_frequency(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    ra, dec, t = 57.56, -36.46, 58233.1038
+    sec = 1.0 / 86400.0
+
+    def beam(name: str, d_ra: float, d_dec: float, mjd: float = t) -> list[dict[str, Any]]:
+        out = []
+        for i, freq in enumerate((1282.75, 1436.75)):
+            f = _scan(name, ra + d_ra, dec + d_dec, mjd + i * sec, freq=freq, tel="Parkes", size=2_768_000_000)  # bands start 1 s apart
+            f["url"] = f"http://x/collate_mb_2/blc{i}/{name}_0001.0000.hires.hdf"
+            out.append(f)
+        dup = dict(out[0], url=out[0]["url"].replace(".0000.hires.hdf", ".0000.fil"), size=3_000_000_000)   # same product as filterbank
+        mid = dict(out[0], url=out[0]["url"].replace(".hires.", ".midres."), size=90_000_000)
+        return out + [dup, mid]
+
+    files = (beam("G239.40-51.24", 0.0, -0.05) + beam("G238.90-50.90", 1.0, 0.3) + beam("G239.90-51.60", -1.1, -0.2)
+             + beam("G240.50-52.00", 2.5, 1.0) + beam("G239.00-51.30", 0.3, 0.0)                  # 14 arcmin away: too near to be an OFF
+             + beam("G250.00-50.00", 3.0, 0.0, mjd=t + 6.0 / 1440.0))
+    idx = _TimeIndex(files)
+    monkeypatch.setattr(ot, "_get_with_retries", idx.get)
+    cache = RawCache(tmp_path / "raw")
+    rows, _, _ = bl.query_bl_files(ra, dec, cache)
+    plans = bl.plan_star_scans(ra, dec, rows, cache)
+    assert len(plans) == 1, "two bands that start a second apart are one scan"
+    p = plans[0]
+    assert p["target"] == "G239.40-51.24" and p["center_freqs_mhz"] == pytest.approx([1282.75, 1436.75], abs=0.06)
+    assert len(p["on_files"]) == 2 and all(f["url"].endswith(".0000.hires.hdf") for f in p["on_files"]) and p["bytes_on"] == 2 * 2_768_000_000
+    assert p["comparison"] == "simultaneous_beams" and p["complete"]
+    assert [e["target"] for e in p["off_simultaneous"]] == ["G238.90-50.90", "G239.90-51.60"], "the two nearest beams beyond the exclusion radius"
+    assert all(e["minutes_from_on"] == 0.0 and len(e["files"]) == 2 for e in p["off_simultaneous"])
+    assert p["off_before"] is None and p["off_after"]["target"] == "G250.00-50.00"
+    assert p["bytes_on_plus_offs"] == 6 * 2_768_000_000

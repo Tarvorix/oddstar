@@ -334,6 +334,7 @@ def fetch_plate_units(
     totals = {"n_usno_sources": 0, "n_on_spike": 0, "n_one_first_epoch_plate": 0, "n_no_first_epoch_plate": 0}
     fields = {"ok": 0, "no_coverage": 0, "failed_modern": 0, "failed_usno": 0}
     failed_fields: list[str] = []
+    failed_errors: dict[str, str] = {}
     seen: set[str] = set()
     n_duplicates = 0
 
@@ -366,6 +367,7 @@ def fetch_plate_units(
         except ArchiveAccessError as exc:
             fields["failed_usno"] += 1
             failed_fields.append(sid)
+            failed_errors[sid] = f"usno_b1: {str(exc)[:300]}"
             if progress is not None:
                 progress(i + 1, n_limit, sid, f"failed: usno_b1: {str(exc)[:120]}")
             continue
@@ -387,6 +389,7 @@ def fetch_plate_units(
         if modern.startswith("failed"):
             fields["failed_modern"] += 1
             failed_fields.append(sid)
+            failed_errors[sid] = modern[len("failed: "):]
         elif "no_coverage" in statuses or modern == "no_coverage":
             fields["no_coverage"] += 1
         else:
@@ -403,7 +406,7 @@ def fetch_plate_units(
     summary = {
         "n_fields_input": len(stars), "n_fields_requested": n_limit, "n_fields_ok": fields["ok"], "n_fields_no_coverage": fields["no_coverage"],
         "n_fields_failed_modern": fields["failed_modern"], "n_fields_failed_usno": fields["failed_usno"],
-        "n_fields_not_fetched": len(stars) - n_limit, "failed_field_ids": failed_fields, **totals,
+        "n_fields_not_fetched": len(stars) - n_limit, "failed_field_ids": failed_fields, "failed_field_errors": failed_errors, **totals,
         "n_units": len(units), "n_units_searched": cov["n_searched"], "n_duplicate_units_dropped": n_duplicates,
         "field_radius_arcsec": st["radius"], "elapsed_s": round(time.monotonic() - t_start, 1),
     }

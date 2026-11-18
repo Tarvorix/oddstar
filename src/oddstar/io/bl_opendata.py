@@ -13,9 +13,10 @@ Statuses of one star (`radio_coverage.status`):
 A star is covered only when "in_beam". Everything else must be reported as not searched by the radio channel.
 
 `plan_star_scans` goes one step further for a covered star, still from the index alone: which fine-resolution scans
-contain it (ON), and which scans the telescope took just before and after on other targets with the same receiver
-(OFF). A narrowband signal from the star's direction must be in the ON scan and in neither OFF scan. The plan gives
-the files and their sizes, so the download can be decided before any of it is made.
+contain it (ON), and which scans can serve as OFF: scans the telescope took just before and after on other targets
+with the same receiver, or other beams of the Parkes multibeam recorded at the same instant. A narrowband signal
+from the star's direction must be in the ON scan and in no OFF scan. The plan gives the files and their sizes, so
+the download can be decided before any of it is made.
 """
 
 from __future__ import annotations
@@ -40,22 +41,31 @@ from oddstar.schemas import ManifestRecord
 BL_QUERY_URL = "http://seti.berkeley.edu/opendata/api/query-files"  # the API is HTTP only (https redirects to http)
 # Larger than the half-power radius of the widest beam in the archive (Parkes at 1.2 GHz: 8 arcmin)
 BL_QUERY_RADIUS_DEG = 0.25
-# The index returns at most this many rows per request; an answer of this size may be cut short
-BL_ROW_LIMIT = 500
+# Row limit sent with every request. The index sorts its candidate rows by right ascension, applies the limit, and
+# only then cuts to the requested circle (measured 2026-11-18: at a position with files inside 0.25 deg, limit=3
+# answered zero rows and limit=500 answered the files). A short answer therefore does not prove that nothing was
+# dropped, so the limit is set far above any real answer and an answer anywhere near it is refused.
+BL_ROW_LIMIT = 20000
+BL_TRUSTED_ROWS = BL_ROW_LIMIT // 4
 # Single-dish diameters (m). A file from any other telescope (e.g. the optical APF) is not a radio pointing.
 DISH_DIAMETER_M = {"GBT": 100.0, "PARKES": 64.0}
 # Half-power beam width of a tapered single dish: about 1.2 wavelength / diameter (GBT 1.4 GHz: 8.8', Parkes: 13.8')
 BEAM_FACTOR = 1.2
 SPEED_OF_LIGHT_M_S = 299_792_458.0
 MIN_REQUEST_INTERVAL_S = 0.5
-# Finest spectral product of a scan (about 3 Hz channels): the only one a narrowband drift search can use
-FINE_RESOLUTION_URL = re.compile(r"\.0000\.(h5|fil)$")
+# Finest spectral product of a scan (about 3 Hz channels): the only one a narrowband drift search can use.
+# GBT and the Parkes multibeam name it product 0000 (.0000.h5, .0000.fil, .0000.hires.hdf). The Parkes ultra-wideband
+# receiver writes one .fil per 128 MHz sub-band named by start time; its size (18 or 19 spectra of 2**25 channels of
+# 4 bytes plus a header) shows 3.8 Hz channels.
+FINE_RESOLUTION_URL = re.compile(r"\.0000\.(h5|fil)$|\.0000\.hires\.hdf$|/PKSUWL/.*T\d\d:\d\d:\d\d\.\d{3}\.fil$")
 # Scans of one observing block follow each other within minutes; an OFF scan must start within this of the ON scan
 OFF_SCAN_WINDOW_DAYS = 0.02
 # An OFF pointing must be at least this many half-power radii from the star, so the star is far outside its beam
 OFF_MIN_SEPARATION_BEAM_RADII = 6.0
-# Files of one scan (one per recorder node or product) share a start time to within this
-SAME_SCAN_MJD_TOL = 2.0 / 86400.0
+# Files of one scan (one per recorder node, band or beam) share a start time to within this
+SAME_SCAN_MJD_TOL = 5.0 / 86400.0
+# The Parkes multibeam records 13 beams at once; this many other beams of the same instant make a comparison
+MIN_SIMULTANEOUS_OFF_BEAMS = 2
 
 ProgressCallback = Callable[[int, int, str, str], None]
 
@@ -94,6 +104,9 @@ def query_bl_files(
     if not isinstance(body, dict) or body.get("result") != "success" or not isinstance(body.get("data"), list):
         raise ArchiveAccessError(f"Breakthrough Listen index did not answer 'success': {str(body)[:160]}", retryable=True)
     rows = body["data"]
+    if len(rows) >= BL_TRUSTED_ROWS:
+        raise ArchiveAccessError(f"{len(rows)} rows are too close to the index row limit {BL_ROW_LIMIT}; the answer may be cut short",
+                                 retryable=False)
     man = cache.put(archive="breakthrough_listen", release="opendata_api", request_signature=sig, query_text=desc,
                     payload=json.dumps(rows, sort_keys=True).encode("utf-8"), row_count=len(rows), offline_fixture=False)
     return rows, man, False
@@ -121,8 +134,9 @@ def query_bl_time_window(
     if not isinstance(body, dict) or body.get("result") != "success" or not isinstance(body.get("data"), list):
         raise ArchiveAccessError(f"Breakthrough Listen index did not answer 'success': {str(body)[:160]}", retryable=True)
     rows = body["data"]
-    if len(rows) >= BL_ROW_LIMIT:
-        raise ArchiveAccessError(f"{len(rows)} rows reach the index row limit; the time window answer may be cut short", retryable=False)
+    if len(rows) >= BL_TRUSTED_ROWS:
+        raise ArchiveAccessError(f"{len(rows)} rows are too close to the index row limit {BL_ROW_LIMIT}; the time window answer may be cut short",
+                                 retryable=False)
     man = cache.put(archive="breakthrough_listen", release="opendata_api", request_signature=sig, query_text=desc,
                     payload=json.dumps(rows, sort_keys=True).encode("utf-8"), row_count=len(rows), offline_fixture=False)
     return rows, man, False
@@ -147,55 +161,90 @@ def _file_entry(r: dict[str, Any]) -> dict[str, Any]:
     return {"url": r["url"], "size_bytes": r["size_bytes"], "md5sum": r["md5sum"], "center_freq_mhz": r["center_freq_mhz"]}
 
 
+def _one_file_per_frequency(files: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The archive often holds a scan's fine product twice (HDF5 and filterbank); keep one per centre frequency, HDF5 first."""
+    best: dict[float, dict[str, Any]] = {}
+    for f in sorted(files, key=lambda x: (0 if x["url"].endswith((".h5", ".hdf")) else 1, x["url"])):
+        best.setdefault(round(f["center_freq_mhz"], 1), f)
+    return [best[k] for k in sorted(best)]
+
+
+def _group_scans(files: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
+    """Files of one target that start together (within `SAME_SCAN_MJD_TOL` of the first) are one scan."""
+    groups: list[list[dict[str, Any]]] = []
+    for f in sorted(files, key=lambda x: (x["target"], x["mjd"])):
+        if groups and groups[-1][0]["target"] == f["target"] and f["mjd"] - groups[-1][0]["mjd"] <= SAME_SCAN_MJD_TOL:
+            groups[-1].append(f)
+        else:
+            groups.append([f])
+    return groups
+
+
+def _off_entry(target: str, files: list[dict[str, Any]], mjd_on: float, sep_arcsec: float) -> dict[str, Any]:
+    o_mjd = min(f["mjd"] for f in files)
+    return {"target": target, "mjd": o_mjd, "minutes_from_on": round((o_mjd - mjd_on) * 1440.0, 1), "sep_arcsec": round(sep_arcsec, 1),
+            "files": [_file_entry(f) for f in files], "bytes": sum(f["size_bytes"] for f in files)}
+
+
 def plan_star_scans(
     ra: float, dec: float, rows: list[dict[str, Any]], cache: RawCache, *, sleep: ot.Sleeper = time.sleep,
 ) -> list[dict[str, Any]]:
-    """ON scans that contain the position, each with the nearest earlier and later OFF scan of the same receiver.
+    """ON scans that contain the position, each with the OFF scans a comparison needs.
 
     `rows` is the index answer around the position (`query_bl_files`). A scan is the set of fine-resolution files of
     one target that start together; only files whose half-power beam contains the position are ON files. An OFF
-    scan is another target observed by the same telescope within `OFF_SCAN_WINDOW_DAYS`, at least
-    `OFF_MIN_SEPARATION_BEAM_RADII` half-power radii from the position, holding a file at the frequency of every ON
-    file (to 1 MHz). `complete` says both OFF scans exist; `bytes_on_plus_offs` is what a full comparison downloads.
+    scan is another target observed by the same telescope, at least `OFF_MIN_SEPARATION_BEAM_RADII` half-power radii
+    from the position, holding a file at the frequency of every ON file (to 1 MHz). Two kinds are listed: the nearest
+    scan before and after within `OFF_SCAN_WINDOW_DAYS`, and beams recorded at the same instant (Parkes multibeam).
+    `comparison` names the set a search should use: "simultaneous_beams" when at least
+    `MIN_SIMULTANEOUS_OFF_BEAMS` exist, else "before_after" when both exist, else "incomplete".
+    `bytes_on_plus_offs` is what that comparison downloads.
     """
-    scans: dict[tuple[str, str, int], list[dict[str, Any]]] = {}
+    in_beam: list[dict[str, Any]] = []
     for r in _fine_rows(rows):
         radius = half_power_radius_arcsec(r["telescope"], r["center_freq_mhz"])
         sep = angular_separation_arcsec(ra, dec, r["ra_deg"], r["dec_deg"])
         if radius is not None and sep <= radius:
-            scans.setdefault((r["target"], r["telescope"], int(round(r["mjd"] / SAME_SCAN_MJD_TOL))), []).append(dict(r, sep_arcsec=sep))
+            in_beam.append(dict(r, sep_arcsec=sep))
     plans: list[dict[str, Any]] = []
-    for (target, tel, _), on_files in sorted(scans.items(), key=lambda kv: min(f["mjd"] for f in kv[1])):
-        mjd = min(f["mjd"] for f in on_files)
-        freqs = sorted({round(f["center_freq_mhz"], 1) for f in on_files})
+    for group in sorted(_group_scans(in_beam), key=lambda g: g[0]["mjd"]):
+        target, tel, mjd = group[0]["target"], group[0]["telescope"], group[0]["mjd"]
+        on_files = _one_file_per_frequency([f for f in group if f["telescope"] == tel])
+        freqs = [round(f["center_freq_mhz"], 1) for f in on_files]
         max_radius = max(half_power_radius_arcsec(tel, f["center_freq_mhz"]) or 0.0 for f in on_files)
         window, _, _ = query_bl_time_window(tel, mjd - OFF_SCAN_WINDOW_DAYS, mjd + OFF_SCAN_WINDOW_DAYS, cache, sleep=sleep)
-        others: dict[tuple[str, int], list[dict[str, Any]]] = {}
-        for r in _fine_rows(window):
-            if r["telescope"] != tel or r["target"] == target or abs(r["mjd"] - mjd) <= SAME_SCAN_MJD_TOL:
-                continue
-            if angular_separation_arcsec(ra, dec, r["ra_deg"], r["dec_deg"]) < OFF_MIN_SEPARATION_BEAM_RADII * max_radius:
-                continue
-            others.setdefault((r["target"], int(round(r["mjd"] / SAME_SCAN_MJD_TOL))), []).append(r)
-        offs = {"before": None, "after": None}
-        for (o_target, _), o_files in others.items():
-            matched = [next((o for o in o_files if abs(o["center_freq_mhz"] - f) <= 1.0), None) for f in freqs]
+        far = [r for r in _fine_rows(window) if r["telescope"] == tel and r["target"] != target
+               and angular_separation_arcsec(ra, dec, r["ra_deg"], r["dec_deg"]) >= OFF_MIN_SEPARATION_BEAM_RADII * max_radius]
+        before: dict[str, Any] | None = None
+        after: dict[str, Any] | None = None
+        simultaneous: list[dict[str, Any]] = []
+        for o_group in _group_scans(far):
+            per_freq = {round(o["center_freq_mhz"], 1): o for o in _one_file_per_frequency(o_group)}
+            matched = [next((o for k, o in per_freq.items() if abs(k - f) <= 1.0), None) for f in freqs]
             if any(m is None for m in matched):
                 continue  # this scan does not cover every ON frequency
-            o_mjd = min(o["mjd"] for o in o_files)
-            side = "before" if o_mjd < mjd else "after"
-            best = offs[side]
-            if best is None or abs(o_mjd - mjd) < abs(best["mjd"] - mjd):
-                offs[side] = {"target": o_target, "mjd": o_mjd, "minutes_from_on": round((o_mjd - mjd) * 1440.0, 1),
-                              "files": [_file_entry(m) for m in matched if m is not None],
-                              "bytes": sum(m["size_bytes"] for m in matched if m is not None)}
+            sep = angular_separation_arcsec(ra, dec, o_group[0]["ra_deg"], o_group[0]["dec_deg"])
+            entry = _off_entry(o_group[0]["target"], [m for m in matched if m is not None], mjd, sep)
+            if abs(entry["mjd"] - mjd) <= SAME_SCAN_MJD_TOL:
+                simultaneous.append(entry)
+            elif entry["mjd"] < mjd:
+                before = entry if before is None or entry["mjd"] > before["mjd"] else before
+            else:
+                after = entry if after is None or entry["mjd"] < after["mjd"] else after
+        simultaneous = sorted(simultaneous, key=lambda e: (e["sep_arcsec"], e["target"]))[:MIN_SIMULTANEOUS_OFF_BEAMS]
+        if len(simultaneous) >= MIN_SIMULTANEOUS_OFF_BEAMS:
+            comparison, used = "simultaneous_beams", simultaneous
+        elif before is not None and after is not None:
+            comparison, used = "before_after", [before, after]
+        else:
+            comparison, used = "incomplete", [e for e in (before, after) if e is not None] + simultaneous
         bytes_on = sum(f["size_bytes"] for f in on_files)
-        complete = offs["before"] is not None and offs["after"] is not None
         plans.append({
             "target": target, "telescope": tel, "mjd": mjd, "sep_arcsec": round(min(f["sep_arcsec"] for f in on_files), 1),
-            "center_freqs_mhz": freqs, "on_files": [_file_entry(f) for f in sorted(on_files, key=lambda x: x["center_freq_mhz"])],
-            "bytes_on": bytes_on, "off_before": offs["before"], "off_after": offs["after"], "complete": complete,
-            "bytes_on_plus_offs": bytes_on + sum(o["bytes"] for o in offs.values() if o is not None),
+            "center_freqs_mhz": freqs, "on_files": [_file_entry(f) for f in on_files], "bytes_on": bytes_on,
+            "off_before": before, "off_after": after, "off_simultaneous": simultaneous,
+            "comparison": comparison, "complete": comparison != "incomplete",
+            "bytes_on_plus_offs": bytes_on + sum(e["bytes"] for e in used),
         })
     return plans
 
@@ -244,7 +293,7 @@ def beam_coverage(ra: float, dec: float, rows: list[dict[str, Any]]) -> dict[str
         out.append(p)
     in_beam = [p for p in out if p["in_beam"]]
     status = "in_beam" if in_beam else ("near_pointing" if out else "no_coverage")
-    return {"status": status, "n_index_rows": len(rows), "n_radio_files": n_radio, "index_answer_full": len(rows) >= BL_ROW_LIMIT,
+    return {"status": status, "n_index_rows": len(rows), "n_radio_files": n_radio, "index_answer_full": len(rows) >= BL_TRUSTED_ROWS,
             "n_pointings": len(out), "n_pointings_in_beam": len(in_beam), "pointings": out}
 
 
@@ -326,7 +375,7 @@ def main(argv: list[str] | None = None) -> int:
                           "n_complete_scans": len(complete),
                           "smallest_complete_bytes": min((s["bytes_on_plus_offs"] for s in complete), default=None)})
             stars_out.append(entry)
-            print(f"  plan {rec['source_id']}: {entry['n_on_scans']} ON scan(s), {entry['n_complete_scans']} with both OFF scans", file=sys.stderr)
+            print(f"  plan {rec['source_id']}: {entry['n_on_scans']} ON scan(s), {entry['n_complete_scans']} with a full comparison", file=sys.stderr)
         plan_path = census_path.with_name("bl_scan_plan.json")
         plan_path.write_text(json.dumps({"census": str(census_path), "stars": stars_out}, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         print(json.dumps({"out": str(plan_path), "stars": [{k: e[k] for k in ("source_id", "status", "n_on_scans", "n_complete_scans",
