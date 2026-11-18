@@ -77,3 +77,8 @@ oddstar spherex photometry --from-run <run> [--ids a,b] [--min-tier C] [--detect
 
 Writes `runs/spherex-<run>/spherex/<source_id>.json` (every measurement) and `spherex_photometry.json` (the
 summaries). About 370 cutouts and 1.5 GB of transfer per star, two at a time.
+
+A star's position comes from the run: from `sample_stars` of its search output, or from `live_stars.json` for a
+flagged star. Search outputs written before 2026-11-18 hold a position for flagged stars only; for any other star
+named with `--ids` the position, proper motion and G magnitude are looked up in Gaia by source id (each star's
+record says which, in `position_from`). `oddstar radio followup` finds positions the same way.
