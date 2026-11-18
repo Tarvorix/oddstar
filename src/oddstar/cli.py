@@ -60,10 +60,9 @@ from oddstar.validate import load_certificate, require_valid_certificate, run_va
 from oddstar.vet import vet_target
 
 # Channels whose inputs no live ingestion provides yet, with the data each one still needs. `search --live` refuses
-# them: measuring empty inputs for every star would report a search that did not happen.
-CHANNELS_WITHOUT_LIVE_SOURCE: dict[str, str] = {
-    "radio_narrowband": "needs observed radio cadences at the sample positions; only the built-in cadences exist",
-}
+# them: measuring empty inputs for every star would report a search that did not happen. Empty since config 1.5.0:
+# every channel has a real-data source, and each reports the stars it could not search.
+CHANNELS_WITHOUT_LIVE_SOURCE: dict[str, str] = {}
 
 
 def _emit(resp: CLIResponse, as_json: bool) -> None:
@@ -268,7 +267,8 @@ def _cmd_search(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, 
     tess_fetch: dict[str, Any] | None = None
     spectra_fetch: dict[str, Any] | None = None
     plate_fetch: dict[str, Any] | None = None
-    if args.channel == "radio_narrowband":
+    radio_fetch: dict[str, Any] | None = None
+    if args.channel == "radio_narrowband" and not is_live:
         stars = [dict(v) for v in RADIO_CADENCES.values()]
         cuts = []
         healpix_cells = []
@@ -296,6 +296,23 @@ def _cmd_search(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, 
 
             stars, tess_fetch = enrich_sample_tess(stars, cfg, cache, max_stars=args.tess_max_stars, progress=_tess_progress)
         n_fields = len(stars)
+        if args.channel == "radio_narrowband":
+            # Breakthrough Listen fine-resolution scans for every sample star inside a telescope beam whose ON and
+            # OFF files are in the data directory (index answers cached; radio files are never downloaded here).
+            # Every other star stays in the sample as not searched, with the reason.
+            from oddstar.io.bl_radio import default_data_dir, enrich_sample_radio
+
+            def _radio_progress(done: int, total: int, sid: str, status: str) -> None:
+                if not args.json and (done == total or done % 100 == 0 or status == "ok"):
+                    print(f"  radio {done}/{total} (last {sid}: {status.split(':')[0]})", file=sys.stderr)
+
+            def _radio_blocks(sid: str, done: int, total: int) -> None:
+                if not args.json and (done == total or done % 16 == 0):
+                    print(f"  radio {sid}: block {done}/{total}", file=sys.stderr)
+
+            radio_dir = Path(args.radio_data_dir) if args.radio_data_dir else default_data_dir(root, cfg)
+            stars, radio_fetch = enrich_sample_radio(stars, cfg, cache, ch, radio_dir, max_stars=args.radio_max_stars,
+                                                     progress=_radio_progress, block_progress=_radio_blocks)
         if args.channel == "vanishing":
             # The unit of this search is a plate source, not a sample star (a sample star is in Gaia by
             # construction): every USNO-B1.0 source with two first-epoch plates around each sample position,
@@ -383,6 +400,12 @@ def _cmd_search(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, 
             if plate_status != "searched":
                 # No modern comparison was made for this plate source, so it can be neither flagged nor cleared
                 sc = sc.model_copy(update={"flagged": False, "summary": f"NOT SEARCHED ({plate_status}): plate source not compared with modern catalogues"})
+        if radio_fetch is not None:
+            from oddstar.io.bl_radio import radio_search_status
+
+            radio_status = radio_search_status(star)
+            if radio_status != "searched":
+                sc = sc.model_copy(update={"flagged": False, "summary": f"NOT SEARCHED ({radio_status}): no ON/OFF radio scans were compared"})
         # Calibrate FAP immediately against the active certificate
         from oddstar.fuse.engine import calibrate_fap
 
@@ -409,14 +432,15 @@ def _cmd_search(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, 
         if sc.flagged:
             flagged_ids.append(sc.source_id)
 
-    keep_as_searched = args.channel == "vanishing" or (args.channel == "spectral_lines" and args.defer_enrichment)
+    keep_as_searched = args.channel in ("vanishing", "radio_narrowband") or (args.channel == "spectral_lines" and args.defer_enrichment)
     if is_live and flagged_ids and keep_as_searched:
-        # The spectral checks read only the spectra the survey fetch attached, and the vanishing checks only the
-        # plate record and its modern comparison; `vet --live` cannot fetch either again for a single object. A
-        # plate source is not a Gaia star, so the per-star archive enrichment does not apply to it at all.
+        # The spectral checks read only the spectra the survey fetch attached, the vanishing checks only the plate
+        # record and its modern comparison, and the radio checks only the cadence cut from the scans; `vet --live`
+        # cannot fetch any of them again for a single object. A plate source is not a Gaia star, so the per-star
+        # archive enrichment does not apply to it at all.
         (run_dir / "live_stars.json").write_text(
             json.dumps({fsid: stars_by_id[fsid] for fsid in flagged_ids}, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    if is_live and flagged_ids and not args.defer_enrichment and args.channel != "vanishing":
+    if is_live and flagged_ids and not args.defer_enrichment and args.channel not in ("vanishing", "radio_narrowband"):
         live_flagged: dict[str, Any] = {}
         for fsid in flagged_ids:
             enriched, _ = enrich_star_live_for_vetting(stars_by_id[fsid], cfg, cache)
@@ -440,6 +464,10 @@ def _cmd_search(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, 
         from oddstar.io.plate_survey import search_coverage_summary as plate_coverage_summary
 
         coverage = plate_coverage_summary(stars, cfg)
+    elif radio_fetch is not None:
+        from oddstar.io.bl_radio import search_coverage_summary as radio_coverage_summary
+
+        coverage = radio_coverage_summary(stars, cfg)
     n_searched = coverage["n_searched"] if coverage is not None else len(stars)
 
     payload = {
@@ -469,6 +497,10 @@ def _cmd_search(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, 
             payload["spectra_fetch"] = spectra_fetch
         if plate_fetch is not None:
             payload["plate_fetch"] = plate_fetch
+        if radio_fetch is not None:
+            payload["radio_fetch"] = radio_fetch
+            # Counts and evaluated windows of every searched star, flagged or not
+            payload["radio_search"] = {str(s["source_id"]): s["radio_search"] for s in stars if s.get("radio_search")}
     if is_live or coverage is not None:
         # The real searched sample, so the null report is built from these stars and not from regenerated fixtures
         payload["sample_stars"] = [
@@ -498,7 +530,8 @@ def _cmd_search(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, 
             f"(no_coverage={coverage.get('n_no_coverage', 0)}, failed={coverage.get('n_failed', 0)}, not_fetched={coverage.get('n_not_fetched', 0)}, "
             f"insufficient_visits={coverage.get('n_insufficient_visits', 0)}, no_light_curve={coverage.get('n_no_light_curve', 0)}, "
             f"single_epoch={coverage.get('n_single_epoch', 0)}, no_spectrum={coverage.get('n_no_spectrum', 0)}, "
-            f"too_faint={coverage.get('n_too_faint', 0)}); "
+            f"too_faint={coverage.get('n_too_faint', 0)}, not_downloaded={coverage.get('n_not_downloaded', 0)}, "
+            f"no_comparison={coverage.get('n_no_comparison', 0)}); "
             "they are excluded from the null result"
         )
     if plate_fetch is not None and plate_fetch["n_fields_failed_usno"]:
@@ -516,7 +549,7 @@ def _cmd_search(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, 
             "flagged_ids": flagged_ids,
             **(
                 {"coverage": {k: v for k, v in coverage.items() if k != "not_searched_ids"}, "neowise_fetch": neowise_fetch,
-                 "tess_fetch": tess_fetch, "spectra_fetch": spectra_fetch, "plate_fetch": plate_fetch}
+                 "tess_fetch": tess_fetch, "spectra_fetch": spectra_fetch, "plate_fetch": plate_fetch, "radio_fetch": radio_fetch}
                 if coverage is not None
                 else {}
             ),
@@ -1371,6 +1404,17 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=None,
         help="vanishing --live: read plate sources around at most N sample positions (default: all)",
+    )
+    p_search.add_argument(
+        "--radio-data-dir",
+        default=None,
+        help="radio_narrowband --live: folder holding downloaded Breakthrough Listen scans (default: data/breakthrough_listen_scans)",
+    )
+    p_search.add_argument(
+        "--radio-max-stars",
+        type=int,
+        default=None,
+        help="radio_narrowband --live: look up radio scans for at most N sample stars (default: all); the rest are reported as not searched",
     )
     p_search.add_argument(
         "--spectra-max-stars",

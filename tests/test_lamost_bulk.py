@@ -314,7 +314,7 @@ def test_channel_flags_a_line_seen_in_both_epochs_and_counts_only_loaded_stars(c
 
 
 def test_live_search_refuses_only_channels_without_a_real_data_source() -> None:
-    assert set(CHANNELS_WITHOUT_LIVE_SOURCE) == {"radio_narrowband"}
+    assert set(CHANNELS_WITHOUT_LIVE_SOURCE) == set()
 
 
 def test_live_spectral_search_records_coverage_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

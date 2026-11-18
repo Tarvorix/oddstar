@@ -1,4 +1,4 @@
-version: "1.4.0"
+version: "1.5.0"
 
 storage:
   max_cache_gb: 10.0
@@ -144,6 +144,13 @@ channels:
     require_all_on_scans: true
     require_zero_off_scans: true
     design_point_snr: 20.0
+    # Live search of fine-resolution scans (io/bl_radio.py): the scan is read in blocks; every window of
+    # live_window_channels whose drift-summed excess reaches live_prefilter_snr is cut from the ON and OFF scans
+    # and measured by the channel. The window must hold the largest drift over a scan set (2048 x 2.8 Hz = 5.7 kHz).
+    live_block_channels: 1048576
+    live_window_channels: 2048
+    live_prefilter_snr: 8.0
+    live_max_listed_windows: 200
 
   underluminous:
     delta_m_sigma_threshold: 4.5

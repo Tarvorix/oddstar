@@ -261,7 +261,11 @@ def test_radio_checks_need_explicit_inputs(fn: Callable[..., Any], key: str, cfg
     unmeasured.pop(key)
     _is_ne(fn(unmeasured, cfg, tmp_path / "c"), "Missing input", key)
     live = dict(_live({"source_id": "1"}, breakthrough_listen=FAILED), **{key: good[key]})
-    _is_ne(fn(live, cfg, tmp_path / "d"), "breakthrough_listen=failed", "no live ingestion")
+    _is_ne(fn(live, cfg, tmp_path / "d"), "breakthrough_listen=failed", "no ON/OFF radio scans were compared")
+    # A live star whose scans were compared: its inputs count, and a missing one is named as not produced by the search
+    searched = dict(_live({"source_id": "1"}, breakthrough_listen="ok"), **{key: good[key]})
+    _is_pass(fn(searched, cfg, tmp_path / "e"))
+    _is_ne(fn(_live({"source_id": "1"}, breakthrough_listen="ok"), cfg, tmp_path / "f"), "breakthrough_listen=ok", "does not produce this input")
 
 
 def test_radio_cadence_without_measurement_is_not_evaluated(cfg: Any, tmp_path: Path) -> None:

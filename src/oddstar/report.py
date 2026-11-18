@@ -208,6 +208,7 @@ def _not_searched(s: dict[str, Any]) -> str:
              ("n_insufficient_visits", "too few visits"), ("n_no_light_curve", "no light curve"),
              ("n_single_epoch", "one spectrum epoch"), ("n_no_spectrum", "no spectrum"),
              ("n_too_faint", "too faint for the modern depth"), ("n_no_plate_record", "no plate record"),
+             ("n_not_downloaded", "radio scans not downloaded"), ("n_no_comparison", "no off-target radio scan"),
              ("n_not_fetched", "not fetched")) if cov.get(k)]
     return f"{_num(cov.get('n_not_searched'))}" + (f" ({', '.join(parts)})" if parts else "")
 

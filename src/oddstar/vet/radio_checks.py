@@ -2,11 +2,12 @@
 
 Input rule (R9, lessons L007/L008): a check returns `pass` or `fail` only from inputs that were actually obtained.
 
-- The radio_narrowband channel has NO live ingestion: its only cadences are the Breakthrough Listen fixtures in
-  `oddstar.io.fixtures_data.RADIO_CADENCES`. A live star (`live_enriched` key) has no ON/OFF filterbank cadence,
-  RFI-allocation lookup, session target list or second-epoch record. It counts an input only when
-  `vetting_archive.query_status["breakthrough_listen"] == "ok"`, which nothing writes today, so every check returns
-  `not_evaluated` for it and names the missing data product.
+- A live star (`live_enriched` key) counts an input only when `vetting_archive.query_status["breakthrough_listen"]
+  == "ok"`. The live radio search (`oddstar.io.bl_radio`, config 1.5.0) writes that for a star whose ON and OFF
+  fine-resolution scans were on disk and compared; it attaches the cadence of one window and `in_rfi_band` for its
+  frequency. It does not produce a session cross-check or a second-epoch record, so those two checks stay
+  `not_evaluated` for a live star. For every other live star (no beam contains it, the scans were not downloaded,
+  no OFF scan exists, the search failed) every check returns `not_evaluated` and names the status.
 - For a cadence or hand-built dict an input counts only when its key is explicitly present and not None.
   `off_scan_hits` and `drift_hz_s` are written by `RadioNarrowbandChannel.measure` (or copied from the stored
   channel measurement by `oddstar vet`); if the measurement has not run they are absent and the check reports it.
@@ -31,7 +32,8 @@ _PRODUCTS = {
     "reobserved_confirmed": "independent second-epoch reobservation record",
 }
 RADIO_QUERY = "breakthrough_listen"
-NO_LIVE_INGESTION = "the radio_narrowband channel has no live ingestion (Breakthrough Listen cadences are fixtures only)"
+NO_LIVE_DATA = "no ON/OFF radio scans were compared for this star"
+NOT_FROM_LIVE_SEARCH = "the live radio search does not produce this input"
 
 
 def _is_live(target: dict[str, Any]) -> bool:
@@ -43,7 +45,7 @@ def _live_status(target: dict[str, Any]) -> str:
 
 
 def _input(target: dict[str, Any], key: str) -> Any:
-    """Explicit `target[key]`; for a live star only when `query_status[RADIO_QUERY]` is "ok" (nothing writes it today)."""
+    """Explicit `target[key]`; for a live star only when `query_status[RADIO_QUERY]` is "ok" (its scans were compared)."""
     if _is_live(target) and _live_status(target) != "ok":
         return None
     return target.get(key)
@@ -52,7 +54,8 @@ def _input(target: dict[str, Any], key: str) -> Any:
 def _not_evaluated(out_dir: Path, check: str, target: dict[str, Any], key: str, extra: str = "") -> VettingResult:
     note = f"Missing input: {_PRODUCTS[key]} [{key}]"
     if _is_live(target):
-        note += f" (query_status {RADIO_QUERY}={_live_status(target)}; {NO_LIVE_INGESTION})"
+        status = _live_status(target)
+        note += f" (query_status {RADIO_QUERY}={status}; {NOT_FROM_LIVE_SEARCH if status == 'ok' else NO_LIVE_DATA})"
     elif "scans" not in target:
         note += " (no ON/OFF filterbank cadence for this target)"
     return make_vet_result(

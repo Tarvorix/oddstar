@@ -227,7 +227,7 @@ def test_an_empty_field_is_believed_only_from_a_mirror_that_holds_the_catalogue(
 
 
 def test_live_search_refuses_only_the_radio_channel() -> None:
-    assert set(CHANNELS_WITHOUT_LIVE_SOURCE) == {"radio_narrowband"}
+    assert set(CHANNELS_WITHOUT_LIVE_SOURCE) == set()
 
 
 def test_live_vanishing_search_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

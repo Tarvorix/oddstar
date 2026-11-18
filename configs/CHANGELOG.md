@@ -2,6 +2,36 @@
 
 All threshold, sample-cut, and prompt changes must be logged here under Ground Rule R4 before running validation or search.
 
+## [1.5.0] - 2026-11-18
+
+### The radio search reads real Breakthrough Listen scans
+Until now `search radio_narrowband --live` was refused: the channel had only its built-in cadences. A fine-resolution
+archive scan is one block of 16 spectra by hundreds of millions of channels, which the channel cannot take whole.
+
+- New search of scans on local disk (`oddstar/io/bl_radio.py`, used by `search radio_narrowband --live`). It walks the
+  ON scan in blocks, cuts every window that stands out from the ON and OFF scans, and hands each to the channel as an
+  ordinary cadence. See `docs/channels/radio_narrowband.md` for the steps, the not-searched reasons
+  (`n_no_coverage`, `n_not_downloaded`, `n_no_comparison`, `n_failed`) and the known limits.
+- New keys under `channels.radio_narrowband`, all chosen before any archive scan was searched:
+  - `live_block_channels: 1048576`. One coarse channel of the Green Bank fine-resolution product; memory only.
+  - `live_window_channels: 2048`. 5.7 kHz at 2.8 Hz per channel: wider than the largest drift (4 Hz/s) carries a
+    line over one scan plus the gap to the neighbouring scan, so the OFF window holds where the line would be.
+  - `live_prefilter_snr: 8.0`. Below the channel's `min_snr: 10.0`, so a window is never lost because the block
+    search and the channel estimate the noise from slightly different stretches. Noise alone reached 6.6 in a
+    1,048,576-channel test block.
+  - `live_max_listed_windows: 200` limits the list kept per scan; the counts are of all windows.
+- The channel code did not change, and no threshold changed. `vet/radio_checks.py` changed in wording only: a live
+  star counts its inputs when `query_status["breakthrough_listen"]` is "ok", which the live search now writes; the
+  note of a missing input says whether no scans were compared or the search does not produce that input.
+  `multi_target` and `reobservation` stay `not_evaluated` for a live star.
+- `search --live` no longer refuses any channel.
+- The archive index applies its row limit before cutting to the requested circle, so the earlier limit of 500 could
+  drop files silently. Requests now use 20000 and an answer of 5000 rows or more is refused.
+
+Known limits: the certificates are measured on the built-in cadences; the false-alarm rate of the live search on
+archive scans is not measured; a scan set with a single ON scan cannot test persistence, so interference present
+only during that scan is flagged and stays a lead until a second epoch exists.
+
 ## [1.4.0] - 2026-11-18
 
 ### The vanishing search reads real plate sources

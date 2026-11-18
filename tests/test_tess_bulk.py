@@ -275,8 +275,10 @@ def test_segments_are_searched_alone_and_edges_are_not_searched(tmp_path: Path, 
 
 
 def test_live_search_refuses_channels_without_a_real_data_source(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    assert set(CHANNELS_WITHOUT_LIVE_SOURCE) == {"radio_narrowband"}
-    for channel in CHANNELS_WITHOUT_LIVE_SOURCE:
+    assert set(CHANNELS_WITHOUT_LIVE_SOURCE) == set(), "every channel has a real-data source since config 1.5.0"
+    # The refusal itself still works for a channel listed there
+    monkeypatch.setitem(CHANNELS_WITHOUT_LIVE_SOURCE, "radio_narrowband", "listed for this test")
+    for channel in list(CHANNELS_WITHOUT_LIVE_SOURCE):
         code, payload = dispatch(["search", channel, "--live", "--limit", "5", "--run-id", f"t-{channel}", "--json"])
         assert code != 0 and payload["ok"] is False and "no real-data source" in json.dumps(payload), channel
         assert not (repo_root() / "runs" / f"t-{channel}").exists(), "a refused search leaves no run directory"

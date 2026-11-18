@@ -32,7 +32,7 @@ MAX_NOTE_CHARS = 400
 RUN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,120}$")
 COVERAGE_KEYS = ("n_input", "n_searched", "n_not_searched", "n_no_coverage", "n_failed", "n_not_fetched", "n_insufficient_visits",
                  "n_no_light_curve", "n_single_epoch", "n_no_spectrum", "n_too_faint",
-                 "n_no_plate_record")
+                 "n_no_plate_record", "n_not_downloaded", "n_no_comparison")
 NULL_REPORT_KEYS = ("n_searched", "n_flagged", "expected_false_alarms", "tier_breakdown", "upper_limits", "contour_50", "contour_90")
 FLAGGED_KEYS = ("source_id", "raw_statistic", "false_alarm_prob", "rank_score", "summary")
 FUSION_ROW_KEYS = ("source_id", "tier", "rank_score", "combined_fap", "flagged_channels", "patterns", "open_holes", "explained_reason")
@@ -86,7 +86,7 @@ def _search_entry(search_file: Path, run_dir: Path) -> tuple[dict[str, Any], dic
         nsi = sdata.get("not_searched_ids", [])
         flat = [x for ids_ in nsi.values() for x in ids_] if isinstance(nsi, dict) else list(nsi)
         entry["not_searched_ids"] = sorted(str(s) for s in flat)
-        for key in ("neowise_fetch", "tess_fetch", "spectra_fetch", "plate_fetch"):
+        for key in ("neowise_fetch", "tess_fetch", "spectra_fetch", "plate_fetch", "radio_fetch"):
             nf = sdata.get(key)
             if isinstance(nf, dict):
                 entry[key] = nf
