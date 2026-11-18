@@ -1,10 +1,10 @@
 {
   "channel": "optical_dips",
-  "gaia_release": "dr4",
+  "gaia_release": "dr3",
   "split": "all",
-  "config_hash": "f77ef9ce2736",
-  "git_commit": "2fc1f264682e0dc7d72718f0da6ae629f8e91c3a",
-  "timestamp_utc": "2026-11-18T17:26:41.414583+00:00",
+  "config_hash": "7238e523dfed",
+  "git_commit": "6deeaeb06cc9df7f64d5fd7b3f41ce74d3d20d6c",
+  "timestamp_utc": "2026-11-18T18:08:05.936243+00:00",
   "passed": true,
   "blind_recovery_rate": 1.0,
   "blind_total": 3,
@@ -197,8 +197,8 @@
       "oddstar/vet/radio_checks.py": "4cb0f9a2a482f96245a4950ff64ff4d82071c6a4cbd9de55d49f56c14a659246",
       "oddstar/vet/spectral_checks.py": "f9d6171de7e05d89db987dedb1bd0521ebce4fe1cce2989aba078ea1a7a69c15",
       "oddstar/vet/underluminous_checks.py": "50f9093f9d224f15068f8b456ca535032df7e3f835bd2e5a6ab5d680f6ed74a0",
-      "oddstar/vet/vanishing_checks.py": "8598286d73f47f7a8c2b69b0a08bb92e5f926783e69c59e074f1304eb0802072"
+      "oddstar/vet/vanishing_checks.py": "1ad95fbc05f1e38f5f704e9422daf76b0ecb8f890ae0dbbd4ac84e5be71d6104"
     }
   },
-  "code_fingerprint": "26a031828cfafb3891d888128e49492ba61fb78915d812b4cbb265dde782a583"
+  "code_fingerprint": "9ef7c40cca320a80f800ba9d0c8260464931a182d0a2d979e3acbb1725d7cc06"
 }

@@ -222,11 +222,14 @@ def test_enrich_unit_registers_on_gaia_stars_when_given_a_config(monkeypatch, tm
 
     cones: list[float] = []
 
+    down: list[bool] = []
+
     def fake_cone(ra, dec, radius_arcsec, cfg, cache, *, sleep=None):
         cones.append(radius_arcsec)
-        if len(cones) > 1:
+        if down:
             raise ArchiveAccessError("Gaia TAP failed on every mirror", retryable=True)
-        rows = [{"ra_deg": r[0], "dec_deg": r[1], "pmra_mas_yr": 0.0, "pmdec_mas_yr": 0.0, "g_mag": 16.0} for r in (_ref(e, n) for e, n in FIELD)]
+        rows = [{"source_id": str(i), "ra_deg": r[0], "dec_deg": r[1], "pmra_mas_yr": 0.0, "pmdec_mas_yr": 0.0, "g_mag": 16.0}
+                for i, r in enumerate(_ref(e, n) for e, n in FIELD)]
         return rows, "manifest", False
 
     from oddstar.config import load_config
@@ -240,9 +243,14 @@ def test_enrich_unit_registers_on_gaia_stars_when_given_a_config(monkeypatch, tm
     out = pi.enrich_unit(json_copy(unit), cache, cfg=cfg, min_interval_s=0.0, sleep=lambda s: None)
     assert out["vanishing_data"]["plate_neighbours"]["n_objects_in_radius"] == 0
     res = out["vanishing_data"]["plate_images"]
-    assert cones == [120.0] and res["n_reference_stars"] == 5 and out["vetting_archive"]["query_status"]["plate_images"] == "ok"
+    assert cones == [120.0, 120.0] and res["n_reference_stars"] == 5 and out["vetting_archive"]["query_status"]["plate_images"] == "ok"
     assert all(r["registered"] and r["peak"]["offset_arcsec"] < 1.2 for r in res["rows"])
+    # The catalogues at the place the first-epoch plates were measured at (no reference star is within 10 arcsec of it)
+    assert out["vetting_archive"]["query_status"]["plate_first_place"] == "ok"
+    assert out["vanishing_data"]["plate_first_place"] == {"position": [RA0, DEC0], "epoch": res["rows"][0]["plate_epoch"],
+                                                          "radius_arcsec": pi.FIRST_PLACE_CONE_ARCSEC, "gaia": [], "ps1": []}
     # Without the reference stars nothing is measured, and the status says why
+    down.append(True)
     failed = pi.enrich_unit(json_copy(unit), cache, cfg=cfg, min_interval_s=0.0, sleep=lambda s: None)
     assert failed["vetting_archive"]["query_status"]["plate_images"].startswith("failed: reference stars: Gaia TAP failed")
     assert "plate_images" not in failed.get("vanishing_data", {})
@@ -298,3 +306,70 @@ def json_copy(obj):
     import json
 
     return json.loads(json.dumps(obj))
+
+
+def test_first_place_reads_gaia_moved_back_and_panstarrs_around_the_measured_position(monkeypatch, tmp_path) -> None:
+    from oddstar.config import load_config
+    from oddstar.io import plate_survey
+
+    cfg = load_config()[0]
+    # The catalogue position (epoch 2000) is 12 arcsec north of where the 1953 plates were measured: a catalogue motion of 255 mas/yr
+    pos_1953 = _ref(0.0, -12.0)[:2]
+    rows = [{"survey": "poss1_red", "plate_epoch": 1953.0, "ra_measured_deg": pos_1953[0], "dec_measured_deg": pos_1953[1]},
+            {"survey": "poss1_blue", "plate_epoch": 1953.0, "ra_measured_deg": pos_1953[0], "dec_measured_deg": pos_1953[1]},
+            {"survey": "poss2ukstu_red", "plate_epoch": 1990.0, "ra_measured_deg": RA0, "dec_measured_deg": DEC0}]
+    asked: dict[str, tuple] = {}
+
+    def fake_gaia(ra, dec, radius_arcsec, cfg, cache, *, sleep=None):
+        asked["gaia"] = (ra, dec, radius_arcsec)
+
+        def star(sid, east, north, pmra, pmdec):
+            r = _ref(east, north)
+            return {"source_id": sid, "ra_deg": r[0], "dec_deg": r[1], "pmra_mas_yr": pmra, "pmdec_mas_yr": pmdec, "g_mag": 17.5}
+
+        # "1" is 2.5 arcsec east of the place now and was 0.02 arcsec from it in 1953 (40 mas/yr east for 63 years);
+        # "2" is at the place now but was 31 arcsec away in 1953; "3" does not move and is 30 arcsec off
+        return [star("1", 2.5, -12.0, 40.0, 0.0), star("2", 0.0, -12.0, 500.0, 0.0), star("3", 30.0, 0.0, 0.0, 0.0)], "m", False
+
+    def fake_ps1(ra, dec, radius_arcsec, min_detections, cache, **kw):
+        asked["ps1"] = (ra, dec, radius_arcsec, min_detections)
+
+        def obj(objid, east, north, r_mag):
+            r = _ref(east, north)
+            return {"objID": objid, "raMean": r[0], "decMean": r[1], "nDetections": 20, "rMeanPSFMag": r_mag}
+
+        return [obj(21, 0.5, -12.5, 19.1), obj(22, 4.0, -12.0, -999.0), obj(23, 0.0, 0.0, 18.0)], "m", False
+
+    monkeypatch.setattr(plate_survey, "gaia_cone", fake_gaia)
+    monkeypatch.setattr(plate_survey, "ps1_cone", fake_ps1)
+    cache = RawCache(tmp_path / "raw")
+
+    def unit(rows=rows, dec=DEC0):
+        return {"source_id": "USNO-B1.0 W", "plate_source": True, "usno": {"ra_deg": RA0, "dec_deg": dec},
+                "vanishing_data": {"plate_images": {"rows": rows}}}
+
+    out = pi.attach_first_place(unit(), cfg, cache)
+    place = out["vanishing_data"]["plate_first_place"]
+    assert out["vetting_archive"]["query_status"]["plate_first_place"] == "ok"
+    assert place["position"] == [round(pos_1953[0], 7), round(pos_1953[1], 7)] and place["epoch"] == 1953.0
+    # Gaia is read from the cone the cutouts were registered on, the Pan-STARRS objects around the 1953 position
+    assert asked["gaia"] == (RA0, DEC0, 120.0) and asked["ps1"][:2] == pos_1953 and asked["ps1"][2:] == (pi.FIRST_PLACE_CONE_ARCSEC, 2)
+    assert [(g["source_id"], g["sep_then_arcsec"]) for g in place["gaia"]] == [("1", 0.02)]
+    assert [(p["objID"], p["sep_arcsec"], p["r_mag"]) for p in place["ps1"]] == [("21", 0.71, 19.1), ("22", 4.0, None)]
+    # No first-epoch row, the southern sky, and an archive that is down
+    none = pi.attach_first_place(unit(rows=rows[2:]), cfg, cache)
+    assert none["vetting_archive"]["query_status"]["plate_first_place"] == "no_first_epoch_image" and "plate_first_place" not in none["vanishing_data"]
+    south_rows = [dict(rows[0], dec_measured_deg=-45.0)]
+    assert pi.attach_first_place(unit(rows=south_rows, dec=-45.0), cfg, cache)["vetting_archive"]["query_status"]["plate_first_place"] == "no_coverage"
+
+    def down(*a, **kw):
+        raise ArchiveAccessError("HTTP 503", retryable=True)
+
+    monkeypatch.setattr(plate_survey, "ps1_cone", down)
+    failed = pi.attach_first_place(unit(), cfg, cache)
+    assert failed["vetting_archive"]["query_status"]["plate_first_place"] == "failed: HTTP 503" and "plate_first_place" not in failed["vanishing_data"]
+    # A measured position far from the catalogue position gets its own Gaia cone
+    far = _ref(0.0, -90.0)[:2]
+    monkeypatch.setattr(plate_survey, "ps1_cone", fake_ps1)
+    pi.attach_first_place(unit(rows=[dict(rows[0], ra_measured_deg=far[0], dec_measured_deg=far[1])]), cfg, cache)
+    assert asked["gaia"] == (far[0], far[1], 120.0)
