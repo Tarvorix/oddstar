@@ -1,4 +1,4 @@
-version: "1.9.0"
+version: "1.10.0"
 
 storage:
   max_cache_gb: 10.0
@@ -301,6 +301,19 @@ vetting:
   # --- 1.8.0: a star moving at thick-disc or halo speed is old (see configs/CHANGELOG.md) ---
   youth_old_vtan_min_kms: 85.0
   youth_old_vtan_min_parallax_snr: 10.0
+  # --- 1.10.0: SPHEREx colours against comparison stars (rule of docs/spherex.md; see configs/CHANGELOG.md) ---
+  # Verdict limits: |z| of the star's colour difference against the comparison stars, the largest robust scatter of
+  # the comparison stars that still allows a verdict, how many of them must be usable, and the star's own
+  # measurements per window
+  spherex_z_limit: 3.0
+  spherex_max_scatter_mag: 0.10
+  spherex_min_comparison_stars: 8
+  spherex_min_points_per_window: 5
+  # Choice of comparison stars: the nearest on the sky within this radius whose BP - RP and W1 are this close to the star's
+  spherex_n_comparison_stars: 12
+  spherex_comparison_radius_deg: 3.0
+  spherex_comparison_bp_rp_halfwidth_mag: 0.2
+  spherex_comparison_w1_halfwidth_mag: 0.6
   evolved_teff_max_k: 8000.0
   binary_rv_scatter_max_kms: 5.0
   lc_detrend_low_mask_sigma: 2.5

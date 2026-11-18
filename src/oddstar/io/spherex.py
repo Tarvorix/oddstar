@@ -41,7 +41,7 @@ import numpy as np
 from oddstar.errors import ArchiveAccessError
 from oddstar.io import optical_timeseries as ot
 from oddstar.io.cache import RawCache
-from oddstar.io.physics import propagate_position
+from oddstar.io.physics import angular_separation_arcsec, propagate_position
 
 ARCHIVE = "spherex"
 PHOTOMETRY_VERSION = "spherex_forced_v2"
@@ -519,6 +519,133 @@ def summarize(points: list[dict[str, Any]]) -> dict[str, Any]:
     return {"all": block(points), "visits": [block(v) for v in _visits(points)], "n_misfit": len(misfit)}
 
 
-__all__ = ["ARCHIVE", "BAD_FLAG_NAMES", "CUTOUT_SIZE_DEG", "PHOTOMETRY_VERSION", "SED_WINDOWS_UM", "band_average", "cutout_url",
+# ------------------------------------------------------------------- colours against comparison stars (vetting)
+
+# The record vetting reads (`vetting_archive.spherex_colours`): a star's SPHEREx colours and those of its comparison stars
+COLOUR_INPUTS_VERSION = "spherex_colour_inputs_v1"
+# The detectors that hold the three windows (K on 3, the W1 part on 4, the W2 part on 5 and 6). Extraction geometry.
+COLOUR_DETECTORS = (3, 4, 5, 6)
+
+
+def colour_record(star: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
+    """What the comparison needs of one star: catalogue Ks, W1, W2 and the SPHEREx window means over all visits.
+
+    `star` is a star record with `mags` (Gaia, 2MASS, AllWISE); `result` is what `forced_photometry` returned.
+    A colour's error is the two window errors in quadrature.
+    """
+    mags = star.get("mags") or {}
+    block = (result.get("summary") or {}).get("all") or {}
+    windows: dict[str, Any] = {}
+    for name in SED_WINDOWS_UM:
+        avg = block.get(name)
+        windows[name] = None if not isinstance(avg, dict) or avg.get("mag") is None else {
+            "n": int(avg["n"]), "mag": round(float(avg["mag"]), 4), "mag_err": round(float(avg["mag_err"]), 4),
+            "flux_mjy": round(float(avg["flux_mjy"]), 4)}
+    def colour(a: str, b: str) -> tuple[float | None, float | None]:
+        if windows[a] is None or windows[b] is None:
+            return None, None
+        return round(windows[a]["mag"] - windows[b]["mag"], 4), round(math.hypot(windows[a]["mag_err"], windows[b]["mag_err"]), 4)
+
+    k_w2, k_w2_err = colour("k", "w2")
+    w1_w2, w1_w2_err = colour("w1", "w2")
+    bp, rp = mags.get("BP"), mags.get("RP")
+    return {"source_id": str(star["source_id"]), "ra_deg": star.get("ra_deg"), "dec_deg": star.get("dec_deg"),
+            "bp_rp": None if bp is None or rp is None else round(float(bp) - float(rp), 4),
+            "catalogue": {k: (None if mags.get(k) is None else float(mags[k])) for k in ("Ks", "W1", "W2")},
+            "windows": windows, "k_w2": k_w2, "k_w2_err": k_w2_err, "w1_w2": w1_w2, "w1_w2_err": w1_w2_err,
+            "n_images": result.get("n_images"), "n_measured": result.get("n_measured"), "n_failed": result.get("n_failed"),
+            "complete": bool(result.get("complete")), "n_misfit": (result.get("summary") or {}).get("n_misfit"),
+            "mjd_min": block.get("mjd_min"), "mjd_max": block.get("mjd_max")}
+
+
+def catalogue_stars(where_sql: str, cfg: Any, cache: RawCache, *, release: str, sleep: Any = None) -> list[dict[str, Any]]:
+    """Star records (Gaia with its AllWISE and 2MASS counterparts) for a Gaia WHERE clause; one stored query."""
+    from oddstar.io import live_survey as ls
+
+    query = " ".join(f"SELECT {ls._select_columns_sql()} {ls._join_and_phot_cuts_sql()} WHERE {where_sql} "
+                     f"{ls._phot_quality_where_sql(cfg)}".split())
+    rows, _, _ = ls._tap_query_cached(urls=ls.GAIA_TAP_URLS, query=query, archive="gaia", release=release, cache=cache,
+                                      timeout_s=90, sleep=sleep)
+    return [ls._row_to_star_dict(r, gaia_release=cfg.gaia.release) for r in rows]
+
+
+def target_star(source_id: str, cfg: Any, cache: RawCache, *, sleep: Any = None) -> dict[str, Any] | None:
+    """The catalogue record of one Gaia source, or None when it has no unique AllWISE and 2MASS counterpart."""
+    stars = catalogue_stars(f"g.source_id = {int(source_id)}", cfg, cache, release=f"{cfg.gaia.release}_spherex_target", sleep=sleep)
+    return stars[0] if stars else None
+
+
+def comparison_stars(target: dict[str, Any], cfg: Any, cache: RawCache, *, sleep: Any = None) -> dict[str, Any]:
+    """The comparison stars of a target: the nearest on the sky of about its colour and brightness.
+
+    Stars within `spherex_comparison_radius_deg` whose BP - RP is within `spherex_comparison_bp_rp_halfwidth_mag`
+    and whose W1 is within `spherex_comparison_w1_halfwidth_mag` of the target's, with AllWISE W1 and W2 measured
+    cleanly (quality A, no contamination flag, not extended) and 2MASS photometry of quality A to D. The nearest
+    `spherex_n_comparison_stars` are taken, in order of distance (ties by source id). Nothing about the stars'
+    infrared colours enters the choice. Returns the chosen records and the counts.
+    """
+    v = cfg.vetting
+    mags = target.get("mags") or {}
+    if any(mags.get(k) is None for k in ("BP", "RP", "W1")):
+        raise ArchiveAccessError(f"Star {target.get('source_id')} lacks BP, RP or W1: no comparison stars can be chosen", retryable=False)
+    bp_rp, w1 = float(mags["BP"]) - float(mags["RP"]), float(mags["W1"])
+    d_c, d_w, radius, n_want = (float(v["spherex_comparison_bp_rp_halfwidth_mag"]), float(v["spherex_comparison_w1_halfwidth_mag"]),
+                                float(v["spherex_comparison_radius_deg"]), int(v["spherex_n_comparison_stars"]))
+    ra, dec = float(target["ra_deg"]), float(target["dec_deg"])
+    where = (f"1=CONTAINS(POINT('ICRS', g.ra, g.dec), CIRCLE('ICRS', {ra:.6f}, {dec:.6f}, {radius:.4f})) "
+             f"AND g.phot_bp_mean_mag - g.phot_rp_mean_mag BETWEEN {bp_rp - d_c:.4f} AND {bp_rp + d_c:.4f} "
+             f"AND aw.w1mpro BETWEEN {w1 - d_w:.4f} AND {w1 + d_w:.4f}")
+    found = catalogue_stars(where, cfg, cache, release=f"{cfg.gaia.release}_spherex_comparison", sleep=sleep)
+    clean: list[tuple[float, str, dict[str, Any]]] = []
+    for st in found:
+        if str(st["source_id"]) == str(target["source_id"]):
+            continue
+        aw = st.get("allwise") or {}
+        if str(aw.get("ph_qual") or "")[:2] != "AA" or str(aw.get("cc_flags") or "")[:2] != "00" or str(aw.get("ext_flg", aw.get("ext_flag", "0"))) not in ("0", "0.0"):
+            continue
+        if st.get("2mass_clean") is False:
+            continue
+        clean.append((angular_separation_arcsec(ra, dec, float(st["ra_deg"]), float(st["dec_deg"])), str(st["source_id"]), st))
+    clean.sort(key=lambda t: (t[0], t[1]))
+    chosen = [dict(st, comparison_sep_arcsec=round(sep, 1)) for sep, _, st in clean[:n_want]]
+    return {"stars": chosen, "n_in_cone": len(found), "n_clean": len(clean), "radius_deg": radius,
+            "bp_rp_range": [round(bp_rp - d_c, 4), round(bp_rp + d_c, 4)], "w1_range": [round(w1 - d_w, 4), round(w1 + d_w, 4)]}
+
+
+def store_colour_inputs(cache: RawCache, source_id: str, payload: dict[str, Any]) -> str:
+    """Keep a star's comparison record so that `vet --live` and `inspect --live` find it. Returns the manifest id."""
+    body = json.dumps(payload, sort_keys=True).encode("utf-8")
+    man = cache.put(archive=ARCHIVE, release=COLOUR_INPUTS_VERSION, request_signature=str(source_id),
+                    query_text=f"SPHEREx colours of Gaia {source_id} and its comparison stars", payload=body,
+                    row_count=1 + len(payload.get("comparison") or []), offline_fixture=False)
+    return man.manifest_id
+
+
+def stored_colour_inputs(cache: RawCache, source_id: str) -> dict[str, Any] | None:
+    cached = cache.lookup(ARCHIVE, COLOUR_INPUTS_VERSION, str(source_id))
+    if cached is None or cached.offline_fixture:
+        return None
+    try:
+        return json.loads(cache.read_bytes(cached).decode("utf-8"))
+    except (FileNotFoundError, OSError, ValueError):
+        return None
+
+
+def attach_colours(star: dict[str, Any], cache: RawCache) -> dict[str, Any]:
+    """Give a star its stored comparison record (`vetting_archive.spherex_colours`), for vetting.
+
+    Vetting does not measure SPHEREx itself: a star and its comparison stars are several thousand cutouts, measured
+    by `oddstar spherex verdict`. `query_status.spherex_colours` is "ok" or "not_measured".
+    """
+    va = star.setdefault("vetting_archive", {})
+    rec = stored_colour_inputs(cache, str(star.get("source_id")))
+    va.setdefault("query_status", {})["spherex_colours"] = "ok" if rec is not None else "not_measured"
+    if rec is not None:
+        va["spherex_colours"] = rec
+    return star
+
+
+__all__ = ["ARCHIVE", "BAD_FLAG_NAMES", "COLOUR_DETECTORS", "COLOUR_INPUTS_VERSION", "CUTOUT_SIZE_DEG", "PHOTOMETRY_VERSION", "SED_WINDOWS_UM",
+           "attach_colours", "band_average", "catalogue_stars", "colour_record", "comparison_stars", "cutout_url",
            "fit_point_source", "flag_bits", "forced_photometry", "gaia_neighbours", "image_query", "list_images", "measure_cutout", "measure_image",
-           "misfit_points", "render_epsf", "summarize"]
+           "misfit_points", "render_epsf", "store_colour_inputs", "stored_colour_inputs", "summarize", "target_star"]

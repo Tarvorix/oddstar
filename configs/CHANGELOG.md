@@ -2,6 +2,34 @@
 
 All threshold, sample-cut, and prompt changes must be logged here under Ground Rule R4 before running validation or search.
 
+## [1.10.0] - 2026-11-18
+
+### Infrared vetting: SPHEREx colours against comparison stars become a check
+`docs/spherex.md` holds a rule written on 2026-11-18 before any SPHEREx measurement of a flagged star was reported,
+and its first verdict (Gaia DR3 5628404318169472: redder now). That text said the rule's limits go into the config
+when the rule becomes a check. This version does that.
+
+- **New keys** under `vetting`: `spherex_z_limit: 3.0`, `spherex_max_scatter_mag: 0.10`,
+  `spherex_min_comparison_stars: 8`, `spherex_min_points_per_window: 5` (the limits of the rule as written), and
+  `spherex_n_comparison_stars: 12`, `spherex_comparison_radius_deg: 3.0`,
+  `spherex_comparison_bp_rp_halfwidth_mag: 0.2`, `spherex_comparison_w1_halfwidth_mag: 0.6` (the choice of
+  comparison stars).
+- **New check `spherex_colours`** in the infrared checks. pass: "reproduced" or "redder now" (the note reports the
+  latter as a change, not a confirmation). fail: "not reproduced". `not_evaluated`: no stored measurement, or no
+  verdict. It answers whether the catalogue's 2 to 5 micron colour is a fault of one instrument, and nothing about
+  12 or 22 micron.
+- **Two changes to the rule as written**, made after the first verdict and not altering it. Comparison stars are
+  the nearest on the sky of like colour (BP - RP within 0.2) and brightness (W1 within 0.6), with clean AllWISE and
+  2MASS photometry, in place of the first twelve of one run's sample: the first rule could only serve stars of that
+  sample. The widths are about those of the first rule's windows (BP - RP 1.15 to 1.55 for a star of 1.354; W1 10.0 to
+  11.2 for a star of 10.665). And only comparison stars with a complete run count; the first verdict was the same
+  with all twelve (z +19.6, +1.0) and with the eight complete ones (+18.2, +0.8).
+- **Where the measurement comes from.** `oddstar spherex verdict --ids <id>` measures the star and its comparison
+  stars and stores the colours; vetting reads the stored record and fetches no SPHEREx image itself.
+- **`second_instrument` note.** It no longer names SPHEREx among the instruments near 22 micron: SPHEREx ends at 5.
+- **Not changed.** Every other check and every threshold. A star without a stored SPHEREx measurement has one more
+  `not_evaluated` check, which leaves its tier where the other open checks already put it.
+
 ## [1.9.0] - 2026-11-18
 
 ### Vanishing vetting: the survey's comparison is repeated at the place where the first plates show the source

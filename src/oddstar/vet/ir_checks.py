@@ -632,7 +632,8 @@ def check_second_instrument(star: dict[str, Any], cfg: PipelineConfig, out_dir: 
     if sec is None:
         return _not_evaluated(
             out_dir, "second_instrument",
-            "No archival Spitzer, AKARI, IRAS, Herschel, or SPHEREx 22um-overlapping photometry at this position",
+            "No archival Spitzer, AKARI, IRAS or Herschel photometry near 22 micron at this position "
+            "(SPHEREx ends at 5 micron: see spherex_colours)",
             star, ["second_instrument"] if _is_live(star) else [], {"second_instrument": None},
         )
     interp = sec.get("interpretation")
@@ -800,6 +801,114 @@ def _youth_kinematics(star: dict[str, Any], cfg: PipelineConfig) -> dict[str, An
     if vtan >= lim:
         out["verdict"] = "not_young"
     return out
+
+
+SPHEREX_COLOURS = ("k_w2", "w1_w2")
+_SPHEREX_CATALOGUE = {"k_w2": ("Ks", "W2"), "w1_w2": ("W1", "W2")}
+
+
+def _spherex_difference(rec: dict[str, Any], colour: str) -> float | None:
+    """D = SPHEREx colour over all visits minus the same colour from the catalogue magnitudes (2MASS Ks, AllWISE W1, W2)."""
+    a, b = _SPHEREX_CATALOGUE[colour]
+    cat = rec.get("catalogue") or {}
+    if rec.get(colour) is None or cat.get(a) is None or cat.get(b) is None:
+        return None
+    return float(rec[colour]) - (float(cat[a]) - float(cat[b]))
+
+
+def spherex_colour_verdict(target: dict[str, Any], comparison: list[dict[str, Any]], cfg: PipelineConfig) -> dict[str, Any]:
+    """Does SPHEREx, in 2025 and later, measure the 2 to 5 micron colours the catalogues give a star?
+
+    The rule of `docs/spherex.md`, written before the first star was measured. A SPHEREx window mean is not a
+    catalogue magnitude, so the star is not compared with the catalogue directly: for each colour c of (K - W2,
+    W1 - W2), D_c is the SPHEREx colour minus the catalogue colour, and the star's D_c is set against the median
+    m_c and the robust scatter s_c (1.4826 x the median absolute deviation) of D_c over comparison stars measured
+    the same way: z_c = (D_c - m_c) / sqrt(s_c^2 + e_c^2), e_c the error of the star's SPHEREx colour.
+    Comparison stars count when their run is complete and all three windows are measured. There is a verdict only
+    with at least `spherex_min_comparison_stars` of them, s_c no larger than `spherex_max_scatter_mag` for both
+    colours, and at least `spherex_min_points_per_window` measurements of the star in each window.
+    `verdict`: "reproduced" (both |z_c| <= `spherex_z_limit`), "not_reproduced" (a z_c below minus the limit: the
+    star is bluer in SPHEREx than the catalogues say), "redder_now" (a z_c above the limit and none below: a
+    change, not a confirmation), or None with `reason`.
+    """
+    v = cfg.vetting
+    z_lim, max_s = float(v["spherex_z_limit"]), float(v["spherex_max_scatter_mag"])
+    need_stars, need_points = int(v["spherex_min_comparison_stars"]), int(v["spherex_min_points_per_window"])
+    usable = [c for c in comparison if isinstance(c, dict) and c.get("complete") is True
+              and all(_spherex_difference(c, col) is not None for col in SPHEREX_COLOURS)
+              and all(isinstance((c.get("windows") or {}).get(w), dict) for w in ("k", "w1", "w2"))]
+    out: dict[str, Any] = {"verdict": None, "reason": None, "z_limit": z_lim, "max_scatter_mag": max_s, "n_comparison": len(comparison),
+                           "n_comparison_usable": len(usable), "min_comparison_stars": need_stars, "min_points_per_window": need_points,
+                           "comparison_ids": [str(c.get("source_id")) for c in usable], "colours": {}}
+    windows = target.get("windows") or {}
+    out["target_points"] = {w: (windows.get(w) or {}).get("n") for w in ("k", "w1", "w2")}
+    if len(usable) < need_stars:
+        return dict(out, reason=f"{len(usable)} of {len(comparison)} comparison star(s) have a complete run and all three windows; "
+                                f"{need_stars} are needed")
+    short = [w for w in ("k", "w1", "w2") if not isinstance(windows.get(w), dict) or int(windows[w].get("n") or 0) < need_points]
+    if short:
+        return dict(out, reason=f"the star has fewer than {need_points} SPHEREx measurements in window(s) {', '.join(short)}")
+    zs: dict[str, float] = {}
+    for col in SPHEREX_COLOURS:
+        d_t = _spherex_difference(target, col)
+        if d_t is None:
+            return dict(out, reason=f"the star has no catalogue or SPHEREx value for {col}")
+        d = sorted(float(_spherex_difference(c, col)) for c in usable)
+        mid = len(d) // 2
+        m = d[mid] if len(d) % 2 else 0.5 * (d[mid - 1] + d[mid])
+        dev = sorted(abs(x - m) for x in d)
+        s = 1.4826 * (dev[mid] if len(dev) % 2 else 0.5 * (dev[mid - 1] + dev[mid]))
+        e = float(target.get(f"{col}_err") or 0.0)
+        denom = math.hypot(s, e)
+        z = (d_t - m) / denom if denom > 0.0 else math.copysign(math.inf, d_t - m) if d_t != m else 0.0
+        zs[col] = z
+        out["colours"][col] = {"d_star": round(d_t, 4), "median": round(m, 4), "scatter": round(s, 4), "star_err": round(e, 4),
+                               "z": round(z, 2) if math.isfinite(z) else None, "spherex": target.get(col),
+                               "catalogue": round(float(target[col]) - d_t, 4)}
+    wide = [col for col in SPHEREX_COLOURS if out["colours"][col]["scatter"] > max_s]
+    if wide:
+        return dict(out, reason=f"the comparison stars scatter by more than {max_s:.2f} mag in {', '.join(wide)}")
+    if any(z < -z_lim for z in zs.values()):
+        return dict(out, verdict="not_reproduced")
+    if any(z > z_lim for z in zs.values()):
+        return dict(out, verdict="redder_now")
+    return dict(out, verdict="reproduced")
+
+
+def check_spherex_colours(star: dict[str, Any], cfg: PipelineConfig, out_dir: Path) -> VettingResult:
+    """Is the 2 to 5 micron colour of the catalogues a fault of one instrument? SPHEREx against 2MASS and AllWISE.
+
+    Pass: SPHEREx measures colours as red as the catalogue ones ("reproduced") or redder ("redder now", which the
+    note reports as a change since the catalogue epochs, not as a confirmation). Fail: SPHEREx measures the star
+    bluer than the catalogues by more than the comparison stars allow ("not reproduced"); the catalogue colour then
+    needs an explanation before it counts as an excess. Not evaluated: no stored comparison for the star, or the
+    rule gives no verdict. The check speaks for wavelengths up to 5 micron and for the blended light within one
+    6 arcsec pixel; it does not test a 12 or 22 micron excess.
+    """
+    rec = _flat_input(star, "spherex_colours", "spherex_colours")
+    if not isinstance(rec, dict) or not isinstance(rec.get("target"), dict):
+        return _not_evaluated(
+            out_dir, "spherex_colours",
+            "No SPHEREx comparison is stored for this star (`oddstar spherex verdict` measures it and its comparison stars)",
+            star, ["spherex_colours"] if _is_live(star) else [], {"spherex_colours": None})
+    res = spherex_colour_verdict(rec["target"], list(rec.get("comparison") or []), cfg)
+    metrics = {"rule": res, "photometry_version": rec.get("photometry_version"), "as_of": rec.get("as_of"),
+               "selection": rec.get("selection"), "target": rec["target"]}
+    if res["verdict"] is None:
+        return _not_evaluated(out_dir, "spherex_colours", f"SPHEREx rule gives no verdict: {res['reason']}", star, [], metrics)
+    c = res["colours"]
+    numbers = "; ".join(f"{name} z = {c[col]['z']:+.1f} (SPHEREx minus catalogue {c[col]['d_star']:+.3f}, comparison "
+                        f"{c[col]['median']:+.3f} +/- {c[col]['scatter']:.3f})" for col, name in (("k_w2", "K - W2"), ("w1_w2", "W1 - W2")))
+    base = f"{numbers}; {res['n_comparison_usable']} comparison stars, limit {res['z_limit']:g}"
+    if res["verdict"] == "not_reproduced":
+        return make_vet_result(out_dir, check="spherex_colours", status="fail", metrics=metrics,
+                               note=f"Not reproduced: SPHEREx measures the star bluer at 2 to 5 micron than 2MASS and AllWISE give. {base}")
+    if res["verdict"] == "redder_now":
+        return make_vet_result(out_dir, check="spherex_colours", status="pass", metrics=metrics,
+                               note=("Redder now: SPHEREx measures the star redder at 2 to 5 micron than 2MASS and AllWISE give, so the "
+                                     f"catalogue colour is not a fault of one instrument; this is a change, not a confirmation. {base}"))
+    return make_vet_result(out_dir, check="spherex_colours", status="pass", metrics=metrics,
+                           note=f"Reproduced: SPHEREx measures the 2 to 5 micron colours 2MASS and AllWISE give. {base}")
 
 
 def check_youth(star: dict[str, Any], cfg: PipelineConfig, out_dir: Path) -> VettingResult:
@@ -995,7 +1104,7 @@ def check_vision_rubric(star: dict[str, Any], cfg: PipelineConfig, out_dir: Path
 
 
 def run_ir_vetting(star: dict[str, Any], cfg: PipelineConfig, out_dir: Path) -> list[VettingResult]:
-    """Run all 15 infrared checks + vision rubric on a target star."""
+    """Run all 16 infrared checks + vision rubric on a target star."""
     checks = [
         check_xmatch_integrity,
         check_wise_quality,
@@ -1009,6 +1118,7 @@ def run_ir_vetting(star: dict[str, Any], cfg: PipelineConfig, out_dir: Path) -> 
         check_single_frames,
         check_moving_object,
         check_second_instrument,
+        check_spherex_colours,
         check_youth,
         check_evolved,
         check_binary,

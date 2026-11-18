@@ -1,39 +1,39 @@
 {
-  "channel": "generic_outlier",
+  "channel": "vanishing",
   "gaia_release": "dr4",
   "split": "all",
-  "config_hash": "4b4d6ddac2cb",
-  "git_commit": "6deeaeb06cc9df7f64d5fd7b3f41ce74d3d20d6c",
-  "timestamp_utc": "2026-11-18T18:07:58.735629+00:00",
+  "config_hash": "d70e74340b82",
+  "git_commit": "a00a3d9207009fd86ae5263a7b1b8721340a779b",
+  "timestamp_utc": "2026-11-18T18:53:00.536781+00:00",
   "passed": true,
   "blind_recovery_rate": 1.0,
-  "blind_total": 6,
-  "blind_recovered": 6,
+  "blind_total": 4,
+  "blind_recovered": 4,
   "impostor_pass": true,
   "impostor_max_tier": "Explained",
-  "impostors_evaluated": 4,
+  "impostors_evaluated": 3,
   "injection_completeness_design_point": 1.0,
   "completeness_grid": [
     {
-      "injected_z": 2.5,
+      "depth_margin_mag": 1.5,
+      "completeness": 0.0,
+      "n_trials": 20
+    },
+    {
+      "depth_margin_mag": 3.0,
       "completeness": 1.0,
       "n_trials": 20
     },
     {
-      "injected_z": 4.5,
-      "completeness": 1.0,
-      "n_trials": 20
-    },
-    {
-      "injected_z": 7.0,
+      "depth_margin_mag": 5.0,
       "completeness": 1.0,
       "n_trials": 20
     }
   ],
-  "false_alarm_rate": 0.006666666666666667,
-  "false_alarm_ci_low": 0.00183011003297108,
-  "false_alarm_ci_high": 0.02397807423146144,
-  "expected_false_positives": 66.66666666666667,
+  "false_alarm_rate": 0.0,
+  "false_alarm_ci_low": 0.0,
+  "false_alarm_ci_high": 0.012643429997735661,
+  "expected_false_positives": 3.333333333333333,
   "calibration_curve": [
     {
       "stat": 0.0,
@@ -48,81 +48,68 @@
       "fap": 0.09999999999999998
     },
     {
-      "stat": 2.3600735078920136,
+      "stat": 0.00030000000000000003,
       "fap": 0.050000000000000044
     },
     {
-      "stat": 3.4072975320157006,
+      "stat": 0.0004,
       "fap": 0.010000000000000009
     },
     {
-      "stat": 5.723227568727625,
+      "stat": 1.5,
       "fap": 0.0001
     },
     {
-      "stat": 7.223227568727625,
+      "stat": 3.0,
       "fap": 1e-6
     },
     {
-      "stat": 10.223227568727625,
+      "stat": 6.0,
       "fap": 1e-9
     },
     {
-      "stat": 16.223227568727623,
+      "stat": 12.0,
       "fap": 1e-12
     }
   ],
   "details": {
     "blind_recovery": [
       {
-        "source_id": "2081900940499099136",
+        "source_id": "755500000000000001",
         "flagged": true,
-        "raw_stat": 124.95867669869229
+        "raw_stat": 21.029218595875776
+      },
+      {
+        "source_id": "755500000000000002",
+        "flagged": true,
+        "raw_stat": 20.20102324280213
+      },
+      {
+        "source_id": "755500000000000004",
+        "flagged": true,
+        "raw_stat": 5.260280004649342
       },
       {
         "source_id": "755500000000000003",
         "flagged": true,
-        "raw_stat": 18.4540374325954
-      },
-      {
-        "source_id": "5548511859528971520",
-        "flagged": true,
-        "raw_stat": 171.8069445430717
-      },
-      {
-        "source_id": "1638028353993041792",
-        "flagged": true,
-        "raw_stat": 17.09432652225645
-      },
-      {
-        "source_id": "6049824505359595776",
-        "flagged": true,
-        "raw_stat": 352.7530321646011
-      },
-      {
-        "source_id": "115725517896200320",
-        "flagged": true,
-        "raw_stat": 17.71743106494686
+        "raw_stat": 5.960280004649341
       }
     ],
     "impostor_rejection": [
       {
-        "source_id": "4418120359123456128",
-        "tier": "Rejected",
+        "source_id": "755500000000000001",
+        "tier": "Explained",
         "failed_checks": [
-          "centroid_offset",
-          "deep_imaging",
-          "radio_counterpart",
-          "vision_rubric"
+          "proper_motion"
         ],
         "expected_failed": [
-          "radio_counterpart"
+          "proper_motion"
         ],
-        "reason": "Failed integrity/artifact check 'centroid_offset': WISE W4 centroid offset=4.90 arcsec (0.408 of 12.0\" beam) [synthetic fixture value]",
+        "reason": "Not flagged above channel thresholds",
         "passed": true
       },
       {
-        "source_id": "722200000000000001",
+        "source_id": "755500000000000005",
         "tier": "Explained",
         "failed_checks": [
           "known_variable"
@@ -130,41 +117,27 @@
         "expected_failed": [
           "known_variable"
         ],
-        "reason": "Explained by 'known_variable': SIMBAD type=EB*, periodic_EB_detected=True",
-        "passed": true
-      },
-      {
-        "source_id": "744400000000000003",
-        "tier": "Rejected",
-        "failed_checks": [
-          "cosmic_ray",
-          "repeat"
-        ],
-        "expected_failed": [
-          "cosmic_ray"
-        ],
-        "reason": "Failed integrity/artifact check 'cosmic_ray': Single-exposure spike: |exp1 - exp2| reaches 67.8 x MAD (> 8.0)",
+        "reason": "Explained by 'known_variable': Explained by large-amplitude variable: variable-star catalogue lists an LPV/Mira; SIMBAD type Mira",
         "passed": true
       },
       {
         "source_id": "755500000000000006",
-        "tier": "Rejected",
+        "tier": "Explained",
         "failed_checks": [
           "plate_defect"
         ],
         "expected_failed": [
           "plate_defect"
         ],
-        "reason": "Failed integrity/artifact check 'plate_defect': Early-epoch detections on 1 independent plates/bands (min 2)",
+        "reason": "Not flagged above channel thresholds",
         "passed": true
       }
     ],
     "code_fingerprint_files": {
       "oddstar/__init__.py": "2af7d8f7316e5196abd067dcdd82791314113df68b496c3611136877b193be1e",
       "oddstar/channels/__init__.py": "af613ea2e399e30d14d7eca150d9a3f4fa5e409e0976b773c95c9f752789212e",
-      "oddstar/channels/generic_outlier/__init__.py": "e249ba22b84b5bcc0745003c64d012ed7201bcb9e372b539c23e6ec485655fba",
-      "oddstar/channels/generic_outlier/channel.py": "ad4fdf8f4e3bf43bc1eb68777098c247be8fdac9d22e1d0b882a3bb7589264ba",
-      "oddstar/channels/underluminous/channel.py": "c461f30402ccb2a3a59fbd58ef31111c9bebcfb190a7bb23ffab3acbbe28d1d6",
+      "oddstar/channels/vanishing/__init__.py": "968c8a67e142c8dee6ddfec0938c46a22a51f013eff0d857c3198f87e94a8024",
+      "oddstar/channels/vanishing/channel.py": "2b5b8101c2113c9160e15dce5f5dd6c592b072e6c3c77b0ceff9680073c2676b",
       "oddstar/config.py": "46af545c91b0db22ac5d71dcec4529e1d1cebfe3b62cb3be2b5268481ef3df0c",
       "oddstar/dossier/plots.py": "d304dad52af137199576932c3562f600003172fbff1f4712ef4bdc8a2b472e4d",
       "oddstar/errors.py": "6e2757f307284892a5d69bf8967ee111d49bcd4c4100bf82316d02d7fb09ed30",
@@ -183,7 +156,7 @@
       "oddstar/validate/harness.py": "d63ed92087688d45acb51f58b4b68bd7f81a3ca298b9c8cf540bf1d656a46388",
       "oddstar/vet/common.py": "0107f4da0f5b310f759688785f0c9347c5785db6ca6129452441ced3cb96622e",
       "oddstar/vet/engine.py": "aeb74a5b12a2a16bff0a33aeeb6890fd758709200c40f49a3bdad131efc3d945",
-      "oddstar/vet/ir_checks.py": "e6dc7ac512512b0e93144dd238540cd100073b6ea62fc2cdfe33bbe4d3f81f5c",
+      "oddstar/vet/ir_checks.py": "298ccaf4a17aa5e58f088577681773aa90e9ba5bfdbdbf77a9e9c61772bcf1f6",
       "oddstar/vet/lc_checks.py": "f8c925d6553298f2cc2d28bf8d1976b8aaa450723702374ae0e40af2a8681138",
       "oddstar/vet/radio_checks.py": "4cb0f9a2a482f96245a4950ff64ff4d82071c6a4cbd9de55d49f56c14a659246",
       "oddstar/vet/spectral_checks.py": "f9d6171de7e05d89db987dedb1bd0521ebce4fe1cce2989aba078ea1a7a69c15",
@@ -191,5 +164,5 @@
       "oddstar/vet/vanishing_checks.py": "1ad95fbc05f1e38f5f704e9422daf76b0ecb8f890ae0dbbd4ac84e5be71d6104"
     }
   },
-  "code_fingerprint": "5e3379114d28c8bcc8cefe0af4b8877dcb845f00e57f57b72ba0fc361c592269"
+  "code_fingerprint": "23620517f6003b5e0ce753a7427c6bfe9243ea27e244cdf30a758534dd4bb2fd"
 }

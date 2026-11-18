@@ -596,6 +596,11 @@ def _cmd_vet(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, roo
                 star = dict(RADIO_CADENCES[sid])
             else:
                 star = resolve_star_record(sid, cfg)
+            if args.live and cache is not None and not star.get("plate_source") and sid not in RADIO_CADENCES:
+                from oddstar.io.spherex import attach_colours
+
+                # the stored SPHEREx comparison, when `oddstar spherex verdict` made one for this star
+                star = attach_colours(json.loads(json.dumps(star)), cache)
             mvals = meas_by_id.get(sid, {})
             if "drift_hz_s" in mvals:
                 star["drift_hz_s"] = mvals["drift_hz_s"]
@@ -754,6 +759,9 @@ def _inspect_single_target(
 
     if live:
         star, live_mans = fetch_single_star_live(clean_id, cfg, cache)
+        from oddstar.io.spherex import attach_colours
+
+        star = attach_colours(star, cache)  # the stored SPHEREx comparison, when `oddstar spherex verdict` made one
         sample_stars, bg_mans = fetch_live_halo_bulge_sample(cfg, cache, limit=1000)
         manifests = [m.manifest_id for m in (*live_mans, *bg_mans)]
     else:
@@ -1451,6 +1459,81 @@ def _cmd_spherex_photometry(args: argparse.Namespace, cfg: PipelineConfig, short
     )
 
 
+def _cmd_spherex_verdict(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, root: Path) -> CLIResponse:
+    """Measure stars and their comparison stars on the SPHEREx images and apply the colour rule of `docs/spherex.md`.
+
+    For each id: its catalogue record (Gaia with AllWISE and 2MASS), the nearest comparison stars of about its colour
+    and brightness (`vetting.spherex_comparison_*`), forced photometry of all of them on detectors 3 to 6 (a few
+    hundred cutouts per star; stored rows are not fetched again), and the verdict. The measured colours are stored,
+    and `vet --live` and `inspect --live` read them for the `spherex_colours` check.
+    """
+    from oddstar.io import spherex as sx
+    from oddstar.vet.ir_checks import spherex_colour_verdict
+
+    ids = [i.strip().replace("Gaia DR3 ", "") for i in (args.ids or "").split(",") if i.strip()]
+    if not ids or any(not i.isdigit() for i in ids):
+        raise OddstarError(f"--ids takes Gaia source ids, got {args.ids!r}", code="USAGE_ERROR", hint="Example: --ids 5628404318169472")
+    as_of = args.as_of or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    run_name = args.run_id or f"spherex-verdict-{ids[0]}"
+    n_comp = int(cfg.vetting["spherex_n_comparison_stars"])
+    if args.dry_run:
+        return CLIResponse(ok=True, summary=f"[dry-run] Would measure {len(ids)} star(s) and up to {n_comp} comparison stars each on SPHEREx "
+                                            f"images as of {as_of}", data={"run_id": run_name, "source_ids": ids, "as_of": as_of})
+    cache = RawCache(root / cfg.storage.raw_dir, max_cache_gb=cfg.storage.max_cache_gb)
+
+    def measure(star: dict[str, Any]) -> dict[str, Any]:
+        sid, ra, dec = str(star["source_id"]), float(star["ra_deg"]), float(star["dec_deg"])
+        neighbours = sx.gaia_neighbours(sid, ra, dec, (star.get("mags") or {}).get("G"), cache, release=cfg.gaia.release)
+        res = sx.forced_photometry(
+            sid, ra, dec, cache, as_of=as_of, pmra_mas_yr=float(star.get("pmra_mas_yr") or 0.0),
+            pmdec_mas_yr=float(star.get("pmdec_mas_yr") or 0.0), neighbours=neighbours, detectors=sx.COLOUR_DETECTORS, workers=args.workers,
+            log=lambda msg: print(f"  {msg}", file=sys.stderr, flush=True))
+        return sx.colour_record(star, res)
+
+    records: list[dict[str, Any]] = []
+    for n, sid in enumerate(ids, 1):
+        rec: dict[str, Any] = {"source_id": sid}
+        try:
+            target = sx.target_star(sid, cfg, cache)
+            if target is None:
+                rec["status"] = "no_catalogue_record"
+            else:
+                sel = sx.comparison_stars(target, cfg, cache)
+                print(f"  SPHEREx verdict {n}/{len(ids)}: {sid}: {len(sel['stars'])} comparison star(s) of {sel['n_clean']} clean in "
+                      f"{sel['radius_deg']:g} deg", file=sys.stderr, flush=True)
+                t_rec = measure(target)
+                comparison: list[dict[str, Any]] = []
+                for k, st in enumerate(sel["stars"], 1):
+                    try:
+                        c_rec = measure(st)
+                    except Exception as exc:  # one comparison star's archive failure is recorded; it then does not count
+                        c_rec = {"source_id": str(st["source_id"]), "complete": False, "error": f"{type(exc).__name__}: {exc}"[:300]}
+                    c_rec["comparison_sep_arcsec"] = st.get("comparison_sep_arcsec")
+                    comparison.append(c_rec)
+                    print(f"    comparison {k}/{len(sel['stars'])}: {c_rec['source_id']}: "
+                          f"{'complete' if c_rec.get('complete') else 'incomplete'}", file=sys.stderr, flush=True)
+                payload = {"target": t_rec, "comparison": comparison, "selection": {k: v for k, v in sel.items() if k != "stars"},
+                           "as_of": as_of, "photometry_version": sx.PHOTOMETRY_VERSION, "detectors": list(sx.COLOUR_DETECTORS),
+                           "config_hash": short_hash, "git_commit": current_git_commit(root)}
+                rec["manifest_id"] = sx.store_colour_inputs(cache, sid, payload)
+                rule = spherex_colour_verdict(t_rec, comparison, cfg)
+                rec.update(payload)
+                rec.update({"status": "no_coverage" if not t_rec.get("n_images") else "measured", "verdict": rule["verdict"],
+                            "reason": rule["reason"], "rule": rule})
+        except Exception as exc:  # one star's archive failure must not stop the others; it is recorded with its cause
+            rec["status"] = f"failed: {type(exc).__name__}: {exc}"[:400]
+        records.append(rec)
+        print(f"  SPHEREx verdict {n}/{len(ids)}: {sid}: {rec['status'].split(':')[0]}, verdict {rec.get('verdict')}", file=sys.stderr, flush=True)
+    out_dir = root / cfg.storage.runs_dir / run_name
+    out_dir.mkdir(parents=True, exist_ok=True)
+    payload_out = {"run_id": run_name, "as_of": as_of, "photometry_version": sx.PHOTOMETRY_VERSION, "config_hash": short_hash,
+                   "git_commit": current_git_commit(root), "stars": records}
+    out = out_dir / "spherex_verdict.json"
+    out.write_text(json.dumps(payload_out, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    words = ", ".join(f"{r['source_id']}: {r.get('verdict') or r.get('reason') or r['status']}" for r in records)
+    return CLIResponse(ok=True, summary=f"SPHEREx colour rule for {len(ids)} star(s): {words}", artifacts=[str(out)], data=payload_out)
+
+
 def _cmd_status(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, root: Path) -> CLIResponse:
     # A channel counts as certified only when its certificate passed for the current config hash and the code it
     # validated is the code that would run a search now (the same condition `search` enforces).
@@ -1746,6 +1829,14 @@ def build_parser() -> argparse.ArgumentParser:
     p_sxp.add_argument("--no-neighbours", action="store_true", help="do not fit Gaia neighbours in the stamp with the star")
     p_sxp.add_argument("--run-id", type=str, default=None, help="name of the output folder under runs/ (default spherex-<first run>)")
 
+    p_sxv = sx_sub.add_parser("verdict", parents=[common],
+                              help="Measure stars and their comparison stars and apply the colour rule (feeds the spherex_colours check)")
+    p_sxv.add_argument("--ids", type=str, required=True, help="comma-separated Gaia source ids")
+    p_sxv.add_argument("--as-of", type=str, default=None,
+                       help="label of the image list (default: today's date, UTC); the same label reads the stored list again")
+    p_sxv.add_argument("--workers", type=int, default=2, help="cutouts fetched at a time (default 2; the archive answers 503 when pushed)")
+    p_sxv.add_argument("--run-id", type=str, default=None, help="name of the output folder under runs/ (default spherex-verdict-<first id>)")
+
     p_null = sub.add_parser("null-report", parents=[common], help="Emit sensitivity and null-result report")
     p_null.add_argument("run_id")
     p_null.add_argument("--channel", default=None)
@@ -1822,6 +1913,8 @@ def dispatch(argv: list[str] | None = None, *, root: Path | None = None) -> tupl
             resp = _cmd_radio_followup(args, cfg, short_hash, base)
         elif cmd == "spherex" and args.spherex_cmd == "photometry":
             resp = _cmd_spherex_photometry(args, cfg, short_hash, base)
+        elif cmd == "spherex" and args.spherex_cmd == "verdict":
+            resp = _cmd_spherex_verdict(args, cfg, short_hash, base)
         elif cmd == "null-report":
             resp = _cmd_null_report(args, cfg, short_hash, base)
         elif cmd == "status":

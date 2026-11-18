@@ -103,7 +103,57 @@ type explains. Does a second instrument, in 2025 and 2026, measure the same colo
 The limit of 3 and the scatter ceiling of 0.10 mag are conventions chosen here, not fitted to anything. When this
 rule becomes a vetting check, both go into the config with a version entry.
 
-## Command
+## The verdict for the first flagged star (2026-11-18)
+
+Run `spherex-validation-local` measured the twelve comparison stars (8,061 s; 8 with a complete run, 4 short of one or
+two cutouts the archive refused). Over all twelve: D(k_w2) has median +0.073 and scatter 0.017, D(w1_w2) has median
++0.110 and scatter 0.026. The flagged star has D(k_w2) = +0.409 and D(w1_w2) = +0.136, so z(k_w2) = +19.6 and
+z(w1_w2) = +1.0 (over the 8 complete stars only: +18.2 and +0.8). The conditions of step 5 hold. Verdict:
+**redder now**. Against the comparison stars the star is 0.38 mag brighter in the W1 part and 0.41 mag brighter in the
+W2 part than AllWISE measured in 2010, and 0.07 mag brighter in K than 2MASS. The numbers per star are in
+`reports/5628404318169472_report.md`.
+
+## The vetting check `spherex_colours` (since config 1.10.0)
+
+The rule above is now a check of the infrared channels (`oddstar.vet.ir_checks.check_spherex_colours`), with two
+changes that make it usable for any star. Both were made after the first verdict and do not change it.
+
+- **Comparison stars** are no longer taken from a run's sample. They are the nearest stars on the sky, within
+  `spherex_comparison_radius_deg` (3.0), whose BP - RP is within `spherex_comparison_bp_rp_halfwidth_mag` (0.2) and
+  whose W1 is within `spherex_comparison_w1_halfwidth_mag` (0.6) of the star's, with clean AllWISE W1 and W2 (quality
+  A, no contamination flag, not extended) and clean 2MASS photometry: the nearest `spherex_n_comparison_stars` (12).
+  Nearby stars were observed by SPHEREx in the same weeks through the same zodiacal light. Nothing about a star's
+  infrared colour enters the choice.
+- **Which comparison stars count.** Only those with a complete run and all three windows enter the median and the
+  scatter, and at least `spherex_min_comparison_stars` (8) of them are needed.
+
+The limits are `spherex_z_limit` (3.0), `spherex_max_scatter_mag` (0.10) and `spherex_min_points_per_window` (5).
+
+| Verdict | Check status | Meaning |
+| --- | --- | --- |
+| reproduced | pass | SPHEREx measures the 2 to 5 micron colours the catalogues give |
+| redder now | pass | SPHEREx measures the star redder: the catalogue colour is not a fault of one instrument, and the note says this is a change, not a confirmation |
+| not reproduced | fail | SPHEREx measures the star bluer than the catalogues by more than the comparison stars allow |
+| none | not_evaluated | no stored measurement, too few usable comparison stars, too much scatter, or too few measurements of the star |
+
+The check answers one question: is the catalogue's 2 to 5 micron colour a fault of one instrument's photometry of
+this star? It does not test a 12 or 22 micron excess (`second_instrument` still asks for that), and it speaks for
+the blended light within one 6 arcsec pixel.
+
+Vetting does not fetch SPHEREx images itself: a star and twelve comparison stars are about 3,000 cutouts and two
+hours. `oddstar spherex verdict` measures them and stores the colours; `vet --live` and `inspect --live` read the
+stored record (`vetting_archive.spherex_colours`, query status `spherex_colours`: "ok" or "not_measured").
+
+## Commands
+
+```
+oddstar spherex verdict --ids <gaia_id>[,<gaia_id>] [--as-of 2026-11-18] [--run-id <name>]
+```
+
+Measures each star and its comparison stars on detectors 3 to 6, applies the rule, stores the colours for vetting
+and writes `runs/<run-id>/spherex_verdict.json` (default run id `spherex-verdict-<first id>`). Stored rows are not
+fetched again, so a repeat after a refused cutout fetches only what is missing.
+
 
 ```
 oddstar spherex photometry --from-run <run> [--ids a,b] [--min-tier C] [--detectors 3,4,5,6] [--as-of 2026-11-18]
