@@ -234,6 +234,37 @@ def fetch_ztf_lightcurve(
 # ------------------------------------------------------------------------------------------ ASAS-SN
 
 
+# The pyasassn client sets no socket timeout. On 2026-11-17 a connection the server had already closed kept a live
+# search waiting for 27 minutes, until it was stopped by hand. This is an operational limit, not a science threshold.
+ASASSN_CLIENT_TIMEOUT_S = 180.0
+
+
+def _call_with_deadline(fn: Callable[[], Any], timeout_s: float, label: str) -> Any:
+    """Run `fn` and return its result, or raise TimeoutError when it has not finished after `timeout_s` seconds.
+
+    For third-party clients that offer no timeout. The call runs in a daemon thread: a call that never returns is
+    abandoned (it cannot be interrupted) and does not keep the process alive at exit.
+    """
+    import threading
+
+    box: dict[str, Any] = {}
+
+    def _run() -> None:
+        try:
+            box["value"] = fn()
+        except BaseException as exc:  # handed to the caller, which decides what a failure means
+            box["error"] = exc
+
+    worker = threading.Thread(target=_run, name=f"deadline:{label}", daemon=True)
+    worker.start()
+    worker.join(timeout_s)
+    if worker.is_alive():
+        raise TimeoutError(f"{label} gave no answer within {timeout_s:.0f} s")
+    if "error" in box:
+        raise box["error"]
+    return box["value"]
+
+
 def fetch_asassn_lightcurve(
     *,
     ra: float,
@@ -242,8 +273,12 @@ def fetch_asassn_lightcurve(
     pmdec: float,
     cache: RawCache,
     client_factory: Callable[[], Any] | None = None,
+    timeout_s: float | None = None,
 ) -> tuple[dict[str, Any] | None, list[ManifestRecord]]:
     """Fetch the ASAS-SN Sky Patrol v2 light curve of the nearest `stellar_main` source.
+
+    The client has no timeout of its own, so the call runs under `_call_with_deadline`; no answer within
+    `timeout_s` (default `ASASSN_CLIENT_TIMEOUT_S`) is a recorded `query_failed`, not a stalled run.
 
     Uses the public `pyasassn` client (package `skypatrol`). Returns None when the client is not installed.
     Keeps `quality == 'G'` with 0 < mag_err < 0.05, matching the adversarial review's selection.
@@ -267,13 +302,16 @@ def fetch_asassn_lightcurve(
             except ImportError:
                 return None, manifests
             client_factory = SkyPatrolClient
-        try:
+        def _query() -> Any:
             client = client_factory()
-            res = client.cone_search(
+            return client.cone_search(
                 ra_deg=c_ra, dec_deg=c_dec, radius=ASASSN_CONE_ARCSEC / 3600.0, units="deg",
                 catalog="stellar_main", download=True, threads=1,
             )
-        except Exception as exc:  # network/client failure
+
+        try:
+            res = _call_with_deadline(_query, timeout_s if timeout_s is not None else ASASSN_CLIENT_TIMEOUT_S, "ASAS-SN Sky Patrol")
+        except Exception as exc:  # network/client failure, or no answer within the deadline
             return {"survey": "ASAS-SN", "n_epochs": 0, "status": "query_failed", "query_log": [f"{type(exc).__name__}: {exc}"]}, manifests
         cat = getattr(res, "catalog_info", None)
         data = getattr(res, "data", None)

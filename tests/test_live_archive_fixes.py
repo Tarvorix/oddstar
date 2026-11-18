@@ -385,3 +385,99 @@ def test_unfinished_mast_job_is_not_an_empty_result(tmp_path: Path, monkeypatch:
     monkeypatch.setattr(requests, "get", lambda url, params=None, timeout=0: _Resp(200, json_data={"status": "EXECUTING", "data": []}))
     with pytest.raises(ArchiveAccessError):
         fetch_subarcsec_imaging(ra_deg=RA, dec_deg=DEC, radius_arcsec=10.0, cache=RawCache(tmp_path / "raw", max_cache_gb=1.0), sleep=NO_SLEEP)
+
+
+# ------------------------------------------------------------------------------- TAP JSON layouts
+
+def _irsa_votable_json(rows: list[list[str]], status: str = "OK") -> dict[str, Any]:
+    """The layout IRSA TAP returns for FORMAT=json (copied from a live answer on 2026-11-17): every value a string."""
+    fields = [("designation", "char", "*"), ("ra", "double", None), ("w3mpro", "float", None), ("nb", "long", None), ("cc_flags", "char", "*")]
+    return {"VOTABLE": {"<xmlattr>": {"version": "1.3"}, "RESOURCE_ARRAY": [{
+        "<xmlattr>": {"type": "results"},
+        "INFO_ARRAY": [{"<xmlattr>": {"name": "QUERY_STATUS", "value": status}}],
+        "TABLE": {"FIELD_ARRAY": [{"<xmlattr>": {"name": n, "datatype": d, **({"arraysize": a} if a else {})}, "DESCRIPTION": n}
+                                  for n, d, a in fields],
+                  "DATA": {"TABLEDATA": rows}}}]}}
+
+
+def test_irsa_votable_json_is_read_with_types_and_nulls() -> None:
+    rows = ls._rows_from_tap_json(_irsa_votable_json([["J025411.56+055258.2", "43.5481993", "8.701", "1", "0000"],
+                                                      ["J025410.03+055309.9", "43.5418064", "", "2", "Dd00"]]))
+    assert rows == [{"designation": "J025411.56+055258.2", "ra": 43.5481993, "w3mpro": 8.701, "nb": 1, "cc_flags": "0000"},
+                    {"designation": "J025410.03+055309.9", "ra": 43.5418064, "w3mpro": None, "nb": 2, "cc_flags": "Dd00"}]
+    assert ls._rows_from_tap_json(_irsa_votable_json([])) == []  # a real empty answer stays an empty answer
+    assert ls._rows_from_tap_json({"metadata": [{"name": "a"}], "data": [[1], [2]]}) == [{"a": 1}, {"a": 2}]
+
+
+@pytest.mark.parametrize("payload", [
+    {"VOTABLE": {"RESOURCE_ARRAY": [{"INFO_ARRAY": []}]}},           # no result table
+    {"something": "else"},                                           # neither layout
+    {"metadata": [{"name": "a"}]},                                   # half of the Gaia layout
+    _irsa_votable_json([["only", "three", "values"]]),              # row does not match its fields
+    _irsa_votable_json([], status="ERROR"),
+])
+def test_an_unreadable_tap_answer_is_an_error_not_an_empty_answer(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, payload: dict[str, Any]) -> None:
+    with pytest.raises(ValueError):
+        ls._rows_from_tap_json(payload)
+
+    class R:
+        status_code = 200
+        headers: dict[str, str] = {}
+
+        def json(self) -> Any:
+            return payload
+
+    monkeypatch.setattr(requests, "post", lambda url, data=None, timeout=15: R())
+    cache = RawCache(tmp_path / "raw", max_cache_gb=1.0)
+    with pytest.raises(ArchiveAccessError):
+        ls._tap_query_cached(url=ls.IRSA_TAP_URL, query="SELECT 1", archive="allwise", release="t", cache=cache, sleep=lambda s: None)
+    assert cache.lookup("allwise", "t", ls._tap_signature([ls.IRSA_TAP_URL], "SELECT 1")) is None  # nothing stored
+
+
+def test_irsa_answers_stored_before_the_layout_was_read_are_not_served(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import hashlib
+
+    cache = RawCache(tmp_path / "raw", max_cache_gb=1.0)
+    query = "SELECT designation FROM allwise_p3as_psd"
+    old_sig = hashlib.sha256(f"{ls.IRSA_TAP_URL}|{query}".encode("utf-8")).hexdigest()[:24]
+    cache.put(archive="allwise", release="t", request_signature=old_sig, query_text=query, payload=b"[]", row_count=0, offline_fixture=False)
+
+    class R:
+        status_code = 200
+        headers: dict[str, str] = {}
+
+        def json(self) -> Any:
+            return _irsa_votable_json([["J1", "1.5", "7.0", "1", "0000"]])
+
+    monkeypatch.setattr(requests, "post", lambda url, data=None, timeout=15: R())
+    rows, _, hit = ls._tap_query_cached(url=ls.IRSA_TAP_URL, query=query, archive="allwise", release="t", cache=cache)
+    assert hit is False and rows[0]["designation"] == "J1"
+    # Gaia keys are unchanged, so the samples and indexes already stored still answer
+    gaia_sig = hashlib.sha256(f"{'|'.join(ls.GAIA_TAP_URLS)}|{query}".encode("utf-8")).hexdigest()[:24]
+    assert ls._tap_signature(ls.GAIA_TAP_URLS, query) == gaia_sig
+
+
+def test_asassn_client_that_never_answers_is_a_recorded_failure(tmp_path: Path) -> None:
+    import threading
+    import time
+
+    from oddstar.io import optical_timeseries as ot
+
+    release = threading.Event()
+
+    class Hung:
+        def cone_search(self, **kw: Any) -> Any:
+            release.wait(30.0)  # stands in for a read on a connection the server already closed
+            raise RuntimeError("released")
+
+    cache = RawCache(tmp_path / "raw", max_cache_gb=1.0)
+    t0 = time.monotonic()
+    summary, mans = ot.fetch_asassn_lightcurve(ra=RA, dec=DEC, pmra=PMRA, pmdec=PMDEC, cache=cache, client_factory=Hung, timeout_s=0.3)
+    release.set()
+    assert time.monotonic() - t0 < 5.0
+    assert summary is not None and summary["status"] == "query_failed" and "no answer within" in summary["query_log"][0]
+    assert mans == []  # a timeout is not stored as an answer
+    assert ot._call_with_deadline(lambda: 7, 1.0, "x") == 7
+    with pytest.raises(KeyError):
+        ot._call_with_deadline(lambda: {}["missing"], 1.0, "x")
+    assert ot.ASASSN_CLIENT_TIMEOUT_S >= 60.0

@@ -128,6 +128,75 @@ def _parse_vizier_tsv(text: str) -> list[dict[str, Any]]:
     return rows
 
 
+_VOTABLE_JSON_INT_TYPES = {"short", "int", "long", "unsignedByte"}
+_VOTABLE_JSON_FLOAT_TYPES = {"float", "double"}
+
+
+def _rows_from_tap_json(data: Any) -> list[dict[str, Any]]:
+    """Rows of a TAP `FORMAT=json` answer, in either layout the archives use; any other layout is an error.
+
+    - ESA Gaia, SIMBAD and GAVO services answer `{"metadata": [{"name": ...}], "data": [[...], ...]}` with typed
+      values.
+    - IRSA answers a VOTable written out as JSON: `{"VOTABLE": {"RESOURCE_ARRAY": [{"INFO_ARRAY": [...],
+      "TABLE": {"FIELD_ARRAY": [{"<xmlattr>": {"name", "datatype"}}], "DATA": {"TABLEDATA": [[...]]}}}]}}`, every
+      value a string. Until 2026-11-17 this layout was read as "no rows" without an error, so every IRSA TAP query
+      looked like an empty answer. Values are converted by the field's datatype; an empty string is a null.
+
+    A layout that is neither raises ValueError: an unreadable answer must never be recorded as an empty one.
+    """
+    if isinstance(data, dict) and isinstance(data.get("metadata"), list) and isinstance(data.get("data"), list):
+        cols = [m["name"] for m in data["metadata"]]
+        return [dict(zip(cols, r)) for r in data["data"]]
+    if isinstance(data, dict) and isinstance(data.get("VOTABLE"), dict):
+        resources = data["VOTABLE"].get("RESOURCE_ARRAY")
+        if resources is None and "RESOURCE" in data["VOTABLE"]:
+            resources = [data["VOTABLE"]["RESOURCE"]]
+        for res in resources or []:
+            infos = res.get("INFO_ARRAY") or ([res["INFO"]] if "INFO" in res else [])
+            status = {str((i.get("<xmlattr>") or {}).get("name")): str((i.get("<xmlattr>") or {}).get("value")) for i in infos}
+            if status.get("QUERY_STATUS", "OK") != "OK":
+                raise ValueError(f"TAP QUERY_STATUS={status.get('QUERY_STATUS')}")
+            table = res.get("TABLE")
+            if not isinstance(table, dict):
+                continue
+            fields = table.get("FIELD_ARRAY")
+            if fields is None and "FIELD" in table:
+                fields = [table["FIELD"]]
+            tabledata = (table.get("DATA") or {}).get("TABLEDATA")
+            if not isinstance(fields, list) or not isinstance(tabledata, list):
+                raise ValueError("VOTable-JSON answer without FIELD_ARRAY or DATA.TABLEDATA")
+            attrs = [f.get("<xmlattr>") or {} for f in fields]
+            names = [str(a["name"]) for a in attrs]
+            kinds = [(str(a.get("datatype")), a.get("arraysize")) for a in attrs]
+            rows: list[dict[str, Any]] = []
+            for raw in tabledata:
+                if not isinstance(raw, list) or len(raw) != len(names):
+                    raise ValueError("VOTable-JSON row does not match its FIELD list")
+                row: dict[str, Any] = {}
+                for name, (dtype, arraysize), val in zip(names, kinds, raw):
+                    if val is None or (isinstance(val, str) and val.strip() == ""):
+                        row[name] = None
+                    elif arraysize is None and dtype in _VOTABLE_JSON_INT_TYPES:
+                        row[name] = int(val)
+                    elif arraysize is None and dtype in _VOTABLE_JSON_FLOAT_TYPES:
+                        f = float(val)
+                        row[name] = f if math.isfinite(f) else None
+                    else:
+                        row[name] = val
+                rows.append(row)
+            return rows
+        raise ValueError("VOTable-JSON answer without a result TABLE")
+    keys = sorted(data)[:6] if isinstance(data, dict) else type(data).__name__
+    raise ValueError(f"unrecognised TAP JSON layout (top-level {keys})")
+
+
+def _tap_signature(candidates: list[str], query: str) -> str:
+    """Cache key of a TAP query. IRSA answers stored before its layout was understood are all `[]`, whatever the
+    archive really said, so queries that can reach IRSA carry a marker that keeps those stored answers out."""
+    marker = "|votable-json-v1" if any("irsa.ipac.caltech.edu" in c for c in candidates) else ""
+    return hashlib.sha256(f"{'|'.join(candidates)}|{query}{marker}".encode("utf-8")).hexdigest()[:24]
+
+
 def _tap_query_cached(
     *,
     url: str | None = None,
@@ -151,7 +220,7 @@ def _tap_query_cached(
     if not candidates:
         raise ArchiveAccessError(f"No TAP URLs configured for {archive}", retryable=False)
 
-    sig = hashlib.sha256(f"{'|'.join(candidates)}|{query}".encode("utf-8")).hexdigest()[:24]
+    sig = _tap_signature(candidates, query)
     cached = cache.lookup(archive, release, sig)
     if cached is not None and not cached.offline_fixture:
         rows = json.loads(cache.read_bytes(cached).decode("utf-8"))
@@ -176,10 +245,8 @@ def _tap_query_cached(
                         busy = True
                     errors.append(f"{endpoint}: HTTP {resp.status_code}")
                     continue
-                data = resp.json()
-                cols = [m["name"] for m in data.get("metadata", [])]
-                raw_rows = data.get("data", [])
-                rows = [dict(zip(cols, r)) for r in raw_rows]
+                rows = _rows_from_tap_json(resp.json())
+                cols = list(rows[0]) if rows else []
                 # Some GAVO DaCHS mirrors echo header row when FORMAT=json isn't honored
                 if rows and cols and str(rows[0].get(cols[0])) == cols[0]:
                     errors.append(f"{endpoint}: non-JSON TAP echo")
@@ -846,7 +913,7 @@ def fetch_live_halo_bulge_sample(
         idx_query = " ".join(
             f"SELECT g.source_id, g.random_index FROM gaiadr3.gaia_source AS g WHERE {base_where_gaia}".split()
         )
-        idx_sig = hashlib.sha256(f"{'|'.join(GAIA_TAP_URLS)}|{idx_query}".encode("utf-8")).hexdigest()[:24]
+        idx_sig = _tap_signature(GAIA_TAP_URLS, idx_query)
         cached_idx = cache.lookup("gaia", f"{cfg.gaia.release}_{reg}_index", idx_sig)
         if cached_idx is not None and not cached_idx.offline_fixture:
             rows, mans = _fetch_live_two_stage(
@@ -873,7 +940,7 @@ def fetch_live_halo_bulge_sample(
         # live attempt on 2026-11-17, and a failure is never cached, so each run paid for it again. A stored
         # single-shot answer from an earlier run is still used; otherwise go straight to the index + batch-join
         # route, which returns the same stars (first `n_lim` by random_index that pass the same cuts).
-        one_sig = hashlib.sha256(f"{'|'.join(GAIA_TAP_URLS)}|{' '.join(query.split())}".encode("utf-8")).hexdigest()[:24]
+        one_sig = _tap_signature(GAIA_TAP_URLS, " ".join(query.split()))
         cached_one = cache.lookup("gaia", f"{cfg.gaia.release}_{reg}", one_sig)
         if cached_one is None or cached_one.offline_fixture:
             rows, mans = _fetch_live_two_stage(
@@ -890,7 +957,7 @@ def fetch_live_halo_bulge_sample(
         # single-shot form of that also timed out live (HTTP 408 after about a minute, 2026-11-17), and no mirror
         # holds the AllWISE/2MASS original tables. A stored single-shot answer is still used; otherwise the same
         # stars are read in source_id slices.
-        one_sig = hashlib.sha256(f"{'|'.join(GAIA_TAP_URLS)}|{' '.join(query.split())}".encode("utf-8")).hexdigest()[:24]
+        one_sig = _tap_signature(GAIA_TAP_URLS, " ".join(query.split()))
         cached_one = cache.lookup("gaia", f"{cfg.gaia.release}_{reg}", one_sig)
         if cached_one is None or cached_one.offline_fixture:
             rows, mans = _fetch_live_sliced(
@@ -1389,7 +1456,8 @@ def enrich_star_live_for_vetting(
                     f"SELECT ra, dec, w4rchi2, w4m, w4nm, w4snr, cc_flags, ext_flg, ph_qual "
                     f"FROM allwise.source WHERE 't' = q3c_radial_query(ra, dec, {ra:.6f}, {dec:.6f}, 0.0015)"
                 )
-                aw_rows, m_aw, _ = _tap_query_cached(url=NOIRLAB_TAP_URL, query=q_aw_dl, archive="allwise", release="datalab", cache=cache, timeout_s=20)
+                # Data Lab is read as CSV (the layout its Legacy Survey query is known to return); values are strings, as from Gator
+                aw_rows, m_aw, _ = _tap_csv_query_cached(url=NOIRLAB_TAP_URL, query=q_aw_dl, archive="allwise", release="datalab", cache=cache, timeout_s=20)
                 manifests.append(m_aw)
                 aw_ok = True
             except Exception as exc3:
