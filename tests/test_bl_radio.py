@@ -194,6 +194,11 @@ def test_a_quiet_scan_still_gets_a_measured_window_and_offs_are_matched_by_frequ
 def test_allocations_and_beam_edge() -> None:
     assert "GPS L1" in (br.rfi_allocation(1575.42) or "") and "Iridium" in (br.rfi_allocation(1621.0) or "")
     assert br.rfi_allocation(1420.4) is None and br.rfi_allocation(1700.0) is not None and br.rfi_allocation(6000.0) is None
+    # search version 2: radar, GPS L3, air telemetry, satellite and telephone uplinks; the protected bands stay clear
+    for freq, word in ((1340.0, "radar"), (1381.05, "GPS L3"), (1440.0, "telemetry"), (1627.5, "Inmarsat"), (1750.0, "AWS"), (1906.0, "PCS")):
+        assert word in (br.rfi_allocation(freq) or ""), freq
+    assert br.rfi_allocation(1410.0) is None and br.rfi_allocation(1665.0) is None and br.rfi_allocation(1800.0) is None
+    assert br.SEARCH_VERSION == "bl_local_search_v2"
     f_edge = br.max_in_beam_freq_mhz("GBT", 209.3)
     assert f_edge == pytest.approx(1773.0, abs=3.0)
     assert bl.half_power_radius_arcsec("GBT", f_edge) == pytest.approx(209.3, rel=1e-6)
@@ -393,6 +398,16 @@ def test_download_resumes_and_checks_the_file(tmp_path: Path, monkeypatch: pytes
     monkeypatch.setattr(requests, "get", lambda url, headers, stream, timeout: _Resp(b"", 404))
     with pytest.raises(ArchiveAccessError, match="HTTP 404"):
         br.download_file("http://x/scan5.fil", tmp_path / "d" / "scan5.fil", len(body), md5)
+
+    # The index writes "-" (or zeros) where it has no MD5: the size is then the only check
+    assert not br.has_md5("-") and not br.has_md5("0" * 32) and not br.has_md5("") and br.has_md5(md5.upper())
+    seen: list[str] = []
+    monkeypatch.setattr(requests, "get", lambda url, headers, stream, timeout: (seen.append(url), _Resp(body, 200))[1])
+    assert br.download_file("http://bldata.berkeley.edu/a/scan7.h5", tmp_path / "d" / "scan7.h5", len(body), "-") == "downloaded"
+    assert br.download_file("http://blpd0.ssl.berkeley.edu/a/scan8.h5", tmp_path / "d" / "scan8.h5", len(body), md5) == "downloaded"
+    # a host known to serve https is asked over https; the stored result does not depend on the scheme the index listed
+    assert seen == ["https://bldata.berkeley.edu/a/scan7.h5", "http://blpd0.ssl.berkeley.edu/a/scan8.h5"]
+    assert br._file_key("http://bldata.berkeley.edu/a/scan7.h5") == br._file_key("https://bldata.berkeley.edu/a/scan7.h5")
 
 
 def test_live_radio_search_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

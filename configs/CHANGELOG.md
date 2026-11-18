@@ -2,6 +2,37 @@
 
 All threshold, sample-cut, and prompt changes must be logged here under Ground Rule R4 before running validation or search.
 
+## Radio search version 2 (`bl_local_search_v2`) - 2026-11-18, configuration unchanged (1.6.0)
+
+### Radio: six transmitter bands added to the allocation table
+The table `oddstar.io.bl_radio.RFI_ALLOCATIONS_MHZ` sets `in_rfi_band`, which decides the vetting check `rfi_band`.
+It is code, not a configuration key, so the configuration version does not change; the stored search results are
+keyed by `SEARCH_VERSION`, which goes from `bl_local_search_v1` to `bl_local_search_v2`, so no version 1 result is
+read again.
+
+Basis: the first search of real data (Gaia DR3 2427069874188580480 = HIP 3026, Green Bank L band, one ON scan of
+5 minutes with the scans of HIP 3909 before and after; 322,961,408 channels, 12,333 windows evaluated) flagged 614
+windows, 525 inside the version 1 table and 89 outside it. All 89 lie in bands where transmitters work that the
+version 1 table did not list (it held satellite downlinks and navigation bands only):
+
+| band (MHz) | service (47 CFR 2.106) | flags of the 89 |
+|---|---|---|
+| 1300 to 1350 | aeronautical radionavigation (air route surveillance radar) | 7 |
+| 1350 to 1390 | radiolocation; GPS L3 at 1381.05 | 34 |
+| 1435 to 1525 | aeronautical mobile telemetry | 5 |
+| 1626.5 to 1660.5 | mobile satellite uplinks (Inmarsat) | 27 |
+| 1710 to 1780 | mobile telephone uplinks (AWS) | 3 |
+| 1850 to 1915 | mobile telephone uplinks (PCS) | 13 |
+
+The bands were chosen after looking at that one star's flags, so that star is not a test of the table; the next
+stars searched are. The protected radio astronomy bands (1400 to 1427 and 1660.5 to 1670 MHz) and everything else
+outside the table still pass `rfi_band`. Cost: a real narrowband signal inside one of these bands is marked as
+interference, as it already was in the satellite bands.
+
+Also in this search version (no effect on any number): the stored result no longer depends on whether the index
+lists a file as http or https; files on `bldata.berkeley.edu` are fetched over https; an index MD5 of "-" is treated
+as no MD5 (the size is still checked); the scoring phase reports progress.
+
 ## [1.6.0] - 2026-11-18
 
 ### Vanishing: moving stars and bright-star halos in the plate-source search
