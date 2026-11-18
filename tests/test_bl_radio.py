@@ -269,10 +269,11 @@ def test_allocations_and_beam_edge() -> None:
     assert br.rfi_allocation(1420.4) is None and br.rfi_allocation(1700.0) is not None and br.rfi_allocation(6000.0) is None
     for freq, word in ((1340.0, "radar"), (1381.05, "GPS L3"), (1440.0, "telemetry"), (1627.5, "Inmarsat"), (1750.0, "AWS"), (1906.0, "PCS"),
                        (751.5, "700 MHz"), (868.9, "800 MHz"), (915.0, "industrial"), (953.6, "paging"),
-                       (1922.9, "cordless"), (1960.0, "PCS"), (2250.0, "telemetry"), (2440.0, "wireless networks"), (2800.0, "radar")):
+                       (1922.9, "cordless"), (1960.0, "PCS"), (2250.0, "telemetry"), (2440.0, "wireless networks"), (2800.0, "radar"),
+                       (3000.0, "ship radar"), (3200.0, "radiolocation"), (3500.0, "mobile broadband"), (3600.0, "citizens broadband")):
         assert word in (br.rfi_allocation(freq) or ""), freq
-    assert br.SEARCH_VERSION == "bl_local_search_v3"
-    # From 698 to 2900 MHz the table is complete: a frequency is in a listed band or in one of the three passive bands
+    assert br.SEARCH_VERSION == "bl_local_search_v4"
+    # From 698 to 4200 MHz the table is complete: a frequency is in a listed band or in one of the three passive bands
     rows = sorted(br.RFI_ALLOCATIONS_MHZ)
     assert list(br.RFI_ALLOCATIONS_MHZ) == rows and all(lo < hi for lo, hi, _ in rows)
     assert all(a[1] <= b[0] for a, b in zip(rows, rows[1:], strict=False)), "bands do not overlap"
@@ -282,7 +283,7 @@ def test_allocations_and_beam_edge() -> None:
     for lo, hi in br.PASSIVE_BANDS_MHZ:
         assert br.rfi_allocation((lo + hi) / 2.0) is None
     assert br.rfi_allocation(1420.4057) is None and br.rfi_allocation(1665.4) is None and br.rfi_allocation(2695.0) is None
-    assert br.rfi_allocation(611.0) is None and br.rfi_allocation(680.0) is None and br.rfi_allocation(3000.0) is None
+    assert br.rfi_allocation(611.0) is None and br.rfi_allocation(680.0) is None and br.rfi_allocation(5000.0) is None
     f_edge = br.max_in_beam_freq_mhz("GBT", 209.3)
     assert f_edge == pytest.approx(1773.0, abs=3.0)
     assert bl.half_power_radius_arcsec("GBT", f_edge) == pytest.approx(209.3, rel=1e-6)

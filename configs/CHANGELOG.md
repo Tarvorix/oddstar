@@ -2,6 +2,25 @@
 
 All threshold, sample-cut, and prompt changes must be logged here under Ground Rule R4 before running validation or search.
 
+## Radio search version 4 (`bl_local_search_v4`): the allocation table is complete up to 4200 MHz - 2026-11-18, configuration unchanged (1.6.0)
+
+The owner chose the rule of version 3 on 2026-11-18 ("List every allocated band"). The Parkes ultra-wideband
+receiver, with which one star of the halo sample was observed, covers 704 to 4032 MHz, and the table was complete
+only up to 2900 MHz. It is completed up to 4200 MHz by the same rule, before any scan above 2900 MHz was searched
+(no result exists there, so no flag was looked at). Four bands are new: 2900 to 3100 MHz (maritime radionavigation
+and radiolocation), 3100 to 3300 MHz (radiolocation), 3300 to 3550 MHz (radiolocation, amateur, mobile broadband)
+and 3550 to 3700 MHz (citizens broadband radio service, radiolocation); 3700 to 4200 MHz was listed already. The
+United States table gives no band between 2900 and 4200 MHz to passive services only, so in that range every
+narrowband signal is marked as interference. The three passive bands below 2900 MHz are unchanged. Above 4200 MHz
+the table is not complete.
+
+The rule is taken from the United States table also for Parkes scans. Between 698 and 4200 MHz this changes
+nothing: outside the three passive bands, which are protected worldwide, every frequency is listed whatever the
+national plan gives it to.
+
+`SEARCH_VERSION` goes to `bl_local_search_v4`. No result below 2900 MHz changes; the stored version 3 results are
+scored again from the saved windows without a download.
+
 ## Radio search version 3 (`bl_local_search_v3`): the allocation table is complete from 698 to 2900 MHz - 2026-11-18, configuration unchanged (1.6.0)
 
 ### Why

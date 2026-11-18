@@ -43,10 +43,10 @@ decides anything, and it is the channel code above.
    half-power beam are not searched. The star's record keeps the cadence of one window (flagged outside the
    allocated transmitter bands first, then flagged, then the strongest ON-only excess) and the list of evaluated
    windows; `in_rfi_band` is set from the allocation table in `bl_radio.RFI_ALLOCATIONS_MHZ`.
-   From 698 to 2900 MHz the table lists every band the United States table of frequency allocations gives to a
+   From 698 to 4200 MHz the table lists every band the United States table of frequency allocations gives to a
    transmitting service, so `rfi_band` can pass there only in the passive bands 1400 to 1427, 1660.5 to 1668.4 and
-   2690 to 2700 MHz; above 2900 MHz it lists satellite downlink bands only and is not complete (rule and cost in
-   `configs/CHANGELOG.md`).
+   2690 to 2700 MHz; above 4200 MHz it lists two satellite downlink bands only and is not complete (rule and cost
+   in `configs/CHANGELOG.md`).
    Stored results are keyed by `bl_radio.SEARCH_VERSION`; a change of the search, or of the table inside the
    frequency range of a stored result, changes that version.
    The windows cut by `--search` stay under `data/breakthrough_listen_scans/_work`, keyed by `bl_radio.CUT_VERSION`:
