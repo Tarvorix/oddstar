@@ -123,7 +123,12 @@ changes that make it usable for any star. Both were made after the first verdict
   whose W1 is within `spherex_comparison_w1_halfwidth_mag` (0.6) of the star's, with clean AllWISE W1 and W2 (quality
   A, no contamination flag, not extended) and clean 2MASS photometry: the nearest `spherex_n_comparison_stars` (12).
   Nearby stars were observed by SPHEREx in the same weeks through the same zodiacal light. Nothing about a star's
-  infrared colour enters the choice.
+  infrared colour enters the choice. The archive is asked in two steps, because one query joining Gaia, AllWISE and
+  2MASS over a 3 degree cone timed out on the first live run (HTTP 408): first the Gaia sources of the right colour
+  in a cone (a quarter of the radius, then half, then all of it, only as far as needed), then the AllWISE and 2MASS
+  records of those sources, nearest first, 500 at a time, until twelve clean stars are in hand. Every source nearer
+  than the last one read has then been looked at, so the stars are the same as one query of the whole cone would
+  give. A Gaia list that comes back at the archive's 50,000 row limit is refused, since it is not the whole cone.
 - **Which comparison stars count.** Only those with a complete run and all three windows enter the median and the
   scatter, and at least `spherex_min_comparison_stars` (8) of them are needed.
 

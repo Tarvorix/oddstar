@@ -1499,8 +1499,8 @@ def _cmd_spherex_verdict(args: argparse.Namespace, cfg: PipelineConfig, short_ha
                 rec["status"] = "no_catalogue_record"
             else:
                 sel = sx.comparison_stars(target, cfg, cache)
-                print(f"  SPHEREx verdict {n}/{len(ids)}: {sid}: {len(sel['stars'])} comparison star(s) of {sel['n_clean']} clean in "
-                      f"{sel['radius_deg']:g} deg", file=sys.stderr, flush=True)
+                print(f"  SPHEREx verdict {n}/{len(ids)}: {sid}: {len(sel['stars'])} comparison star(s), the nearest of {sel['n_clean']} clean "
+                      f"among {sel['n_examined']} Gaia source(s) examined out to {sel['examined_out_to_deg']:g} deg", file=sys.stderr, flush=True)
                 t_rec = measure(target)
                 comparison: list[dict[str, Any]] = []
                 for k, st in enumerate(sel["stars"], 1):

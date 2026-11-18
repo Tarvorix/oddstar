@@ -575,6 +575,32 @@ def target_star(source_id: str, cfg: Any, cache: RawCache, *, sleep: Any = None)
     return stars[0] if stars else None
 
 
+# How the comparison stars are asked for. One query that joins Gaia to AllWISE and 2MASS over the whole cone does not
+# come back inside the archive's sync limit (seen live on 2026-11-18: HTTP 408 for 3 degrees), so the Gaia sources
+# of the right colour are listed first (a positional query on one table) and their AllWISE and 2MASS records are
+# read nearest first, this many at a time. The cone grows through these fractions of the radius only when needed.
+COMPARISON_BATCH = 500
+COMPARISON_CONE_FRACTIONS = (0.25, 0.5, 1.0)
+
+
+def gaia_sources_in_cone(ra: float, dec: float, radius_deg: float, bp_rp_lo: float, bp_rp_hi: float, cfg: Any, cache: RawCache,
+                         *, sleep: Any = None) -> list[tuple[float, str]]:
+    """(separation in arcsec, source id) of the Gaia sources in a cone whose BP - RP is in a range, nearest first."""
+    from oddstar.io import live_survey as ls
+
+    query = (f"SELECT g.source_id, g.ra, g.dec FROM gaiadr3.gaia_source AS g "
+             f"WHERE 1=CONTAINS(POINT('ICRS', g.ra, g.dec), CIRCLE('ICRS', {ra:.6f}, {dec:.6f}, {radius_deg:.4f})) "
+             f"AND g.phot_bp_mean_mag - g.phot_rp_mean_mag BETWEEN {bp_rp_lo:.4f} AND {bp_rp_hi:.4f}")
+    rows, _, _ = ls._tap_query_cached(urls=ls.GAIA_TAP_URLS, query=query, archive="gaia", release=f"{cfg.gaia.release}_spherex_cone",
+                                      cache=cache, timeout_s=90, sleep=sleep)
+    if len(rows) >= ls.GAIA_SYNC_ROW_CAP:
+        raise ArchiveAccessError(f"The Gaia list for a cone of {radius_deg:g} deg came back at the archive's row limit "
+                                 f"({ls.GAIA_SYNC_ROW_CAP}): it is not the whole cone, so the nearest stars cannot be named", retryable=False)
+    out = [(angular_separation_arcsec(ra, dec, float(r["ra"]), float(r["dec"])), str(int(r["source_id"]))) for r in rows]
+    out.sort()
+    return out
+
+
 def comparison_stars(target: dict[str, Any], cfg: Any, cache: RawCache, *, sleep: Any = None) -> dict[str, Any]:
     """The comparison stars of a target: the nearest on the sky of about its colour and brightness.
 
@@ -582,7 +608,12 @@ def comparison_stars(target: dict[str, Any], cfg: Any, cache: RawCache, *, sleep
     and whose W1 is within `spherex_comparison_w1_halfwidth_mag` of the target's, with AllWISE W1 and W2 measured
     cleanly (quality A, no contamination flag, not extended) and 2MASS photometry of quality A to D. The nearest
     `spherex_n_comparison_stars` are taken, in order of distance (ties by source id). Nothing about the stars'
-    infrared colours enters the choice. Returns the chosen records and the counts.
+    infrared colours enters the choice.
+
+    The Gaia sources of the right colour are examined nearest first, a batch at a time, and the search stops after
+    the batch that brings the count of clean stars to the number wanted: every star nearer than the last one examined
+    has then been looked at, so the stars chosen are the nearest ones, the same as from one query of the whole cone.
+    Returns the chosen records and the counts of what was examined.
     """
     v = cfg.vetting
     mags = target.get("mags") or {}
@@ -592,23 +623,40 @@ def comparison_stars(target: dict[str, Any], cfg: Any, cache: RawCache, *, sleep
     d_c, d_w, radius, n_want = (float(v["spherex_comparison_bp_rp_halfwidth_mag"]), float(v["spherex_comparison_w1_halfwidth_mag"]),
                                 float(v["spherex_comparison_radius_deg"]), int(v["spherex_n_comparison_stars"]))
     ra, dec = float(target["ra_deg"]), float(target["dec_deg"])
-    where = (f"1=CONTAINS(POINT('ICRS', g.ra, g.dec), CIRCLE('ICRS', {ra:.6f}, {dec:.6f}, {radius:.4f})) "
-             f"AND g.phot_bp_mean_mag - g.phot_rp_mean_mag BETWEEN {bp_rp - d_c:.4f} AND {bp_rp + d_c:.4f} "
-             f"AND aw.w1mpro BETWEEN {w1 - d_w:.4f} AND {w1 + d_w:.4f}")
-    found = catalogue_stars(where, cfg, cache, release=f"{cfg.gaia.release}_spherex_comparison", sleep=sleep)
+    w1_cut = f"aw.w1mpro BETWEEN {w1 - d_w:.4f} AND {w1 + d_w:.4f}"
+    examined: set[str] = {str(target["source_id"])}
     clean: list[tuple[float, str, dict[str, Any]]] = []
-    for st in found:
-        if str(st["source_id"]) == str(target["source_id"]):
-            continue
-        aw = st.get("allwise") or {}
-        if str(aw.get("ph_qual") or "")[:2] != "AA" or str(aw.get("cc_flags") or "")[:2] != "00" or str(aw.get("ext_flg", aw.get("ext_flag", "0"))) not in ("0", "0.0"):
-            continue
-        if st.get("2mass_clean") is False:
-            continue
-        clean.append((angular_separation_arcsec(ra, dec, float(st["ra_deg"]), float(st["dec_deg"])), str(st["source_id"]), st))
+    n_matched, n_gaia, cone, out_to = 0, 0, 0.0, 0.0
+    for fraction in COMPARISON_CONE_FRACTIONS:
+        cone = radius * fraction
+        listed = gaia_sources_in_cone(ra, dec, cone, bp_rp - d_c, bp_rp + d_c, cfg, cache, sleep=sleep)
+        n_gaia = len(listed)
+        todo = [(sep, sid) for sep, sid in listed if sid not in examined]
+        pos = 0
+        while pos < len(todo) and len(clean) < n_want:
+            chunk = todo[pos:pos + COMPARISON_BATCH]
+            pos += len(chunk)
+            found = catalogue_stars(f"g.source_id IN ({','.join(sid for _, sid in chunk)}) AND {w1_cut}", cfg, cache,
+                                    release=f"{cfg.gaia.release}_spherex_comparison", sleep=sleep)
+            examined.update(sid for _, sid in chunk)
+            out_to = max(out_to, chunk[-1][0])
+            n_matched += len(found)
+            for st in found:
+                aw = st.get("allwise") or {}
+                if (str(aw.get("ph_qual") or "")[:2] != "AA" or str(aw.get("cc_flags") or "")[:2] != "00"
+                        or str(aw.get("ext_flg", aw.get("ext_flag", "0"))) not in ("0", "0.0")):
+                    continue
+                if st.get("2mass_clean") is False:
+                    continue
+                clean.append((angular_separation_arcsec(ra, dec, float(st["ra_deg"]), float(st["dec_deg"])), str(st["source_id"]), st))
+        if pos >= len(todo):
+            out_to = max(out_to, cone * 3600.0)
+        if len(clean) >= n_want:
+            break
     clean.sort(key=lambda t: (t[0], t[1]))
     chosen = [dict(st, comparison_sep_arcsec=round(sep, 1)) for sep, _, st in clean[:n_want]]
-    return {"stars": chosen, "n_in_cone": len(found), "n_clean": len(clean), "radius_deg": radius,
+    return {"stars": chosen, "n_gaia_in_cone": n_gaia, "cone_deg": round(cone, 4), "n_examined": len(examined) - 1,
+            "examined_out_to_deg": round(out_to / 3600.0, 4), "n_matched": n_matched, "n_clean": len(clean), "radius_deg": radius,
             "bp_rp_range": [round(bp_rp - d_c, 4), round(bp_rp + d_c, 4)], "w1_range": [round(w1 - d_w, 4), round(w1 + d_w, 4)]}
 
 
