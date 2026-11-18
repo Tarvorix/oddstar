@@ -20,6 +20,8 @@ Every evaluated result stores the input values it used in its metrics (copied in
 
 from __future__ import annotations
 
+import math
+
 from pathlib import Path
 from typing import Any
 
@@ -125,7 +127,8 @@ def check_proper_motion(star: dict[str, Any], cfg: PipelineConfig, out_dir: Path
             metrics.update(missing_inputs=moved["missing"], live_star=True)
             return make_vet_result(out_dir, check="proper_motion", status="not_evaluated", metrics=metrics,
                                    note=f"{gaia_note}. Not settled for a star too faint for Gaia: {moved['note']}")
-        return make_vet_result(out_dir, check="proper_motion", status="pass", metrics=metrics, note=f"{gaia_note}. {moved['note']}")
+        return make_vet_result(out_dir, check="proper_motion", status="fail" if moved["verdict"] else "pass", metrics=metrics,
+                               note=f"{gaia_note}. {moved['note']}")
     usno_epoch = float(inputs["usno_epoch"])
     usno_ra, usno_dec = float(inputs["usno_ra_deg"]), float(inputs["usno_dec_deg"])
     pred_ra, pred_dec = propagate_position(
@@ -180,16 +183,82 @@ def first_epoch_seen(rows: list[dict[str, Any]], cfg: PipelineConfig) -> tuple[i
     return sum(1 for v in said if v), len(said)
 
 
+PANSTARRS_EPOCH = 2012.0  # mean epoch of the Pan-STARRS1 3-pi survey positions, to about two years
+
+
+def _peak_offset_from(row: dict[str, Any], ra: float, dec: float) -> tuple[float, float] | None:
+    """Where a row's peak is on the sky, as arcsec east and north of (ra, dec)."""
+    peak = row.get("peak")
+    if not isinstance(peak, dict) or row.get("ra_measured_deg") is None or peak.get("dx_arcsec") is None:
+        return None
+    cos_dec = max(1e-6, math.cos(math.radians(dec)))
+    east = ((float(row["ra_measured_deg"]) - ra + 180.0) % 360.0 - 180.0) * cos_dec * 3600.0 - float(peak["dx_arcsec"])  # east is towards smaller x
+    north = (float(row["dec_measured_deg"]) - dec) * 3600.0 + float(peak["dy_arcsec"])
+    return east, north
+
+
+def plate_track(rows: list[dict[str, Any]], ra: float, dec: float, cfg: PipelineConfig) -> dict[str, Any]:
+    """Three epochs on a line: did the plate source travel towards a present-day position (ra, dec)?
+
+    The first-epoch images that show the source give where it was (P1, t1); the object is where it would be now (P3,
+    2012). On each later plate that shows a point of light near the source (registered, `plate_image_min_snr`), that
+    light is either where a star on its way from P1 to P3 would be at the plate's date (`d_line`), or still at P1
+    (`d_stay`). `kind` is "moved" when at least `plate_track_min_images` later images are within
+    `plate_track_max_residual_arcsec` of the line and fewer are at P1, "stayed" for the reverse, "too_close" when
+    P1 and P3 are nearer than the match radius (the two cases then look alike), else "open".
+    On controls (2026-11-18): 43 of 57 known moving stars "moved" and none "stayed"; 73 of 79 still stars with a
+    neighbour "stayed" and none "moved".
+    """
+    vc = cfg.channels["vanishing"]
+    before, tol, need = float(vc["plate_image_first_epoch_before"]), float(vc["plate_track_max_residual_arcsec"]), int(vc["plate_track_min_images"])
+    first = [(o, float(r["plate_epoch"])) for r in rows if isinstance(r, dict) and r.get("plate_epoch") is not None
+             and float(r["plate_epoch"]) < before and plate_image_verdict(r, cfg) for o in [_peak_offset_from(r, ra, dec)] if o is not None]
+    out: dict[str, Any] = {"n_first_epoch": len(first), "max_residual_arcsec": tol, "min_images": need, "later": []}
+    if not first:
+        return dict(out, kind="open", why="no first-epoch image shows the source")
+    e1, n1 = sum(o[0] for o, _ in first) / len(first), sum(o[1] for o, _ in first) / len(first)
+    t1 = sum(t for _, t in first) / len(first)
+    length = math.hypot(e1, n1)
+    out.update(first_epoch=round(t1, 1), first_to_now_arcsec=round(length, 2))
+    n_line = n_stay = 0
+    for r in rows:
+        if not isinstance(r, dict) or r.get("status") != "ok" or r.get("plate_epoch") is None or float(r["plate_epoch"]) < before:
+            continue
+        peak = r.get("peak")
+        if r.get("registered") is not True or not isinstance(peak, dict) or peak.get("snr") is None \
+                or float(peak["snr"]) < float(vc["plate_image_min_snr"]):
+            continue
+        o = _peak_offset_from(r, ra, dec)
+        if o is None:
+            continue
+        frac = (float(r["plate_epoch"]) - t1) / (PANSTARRS_EPOCH - t1)
+        d_line = math.hypot(o[0] - e1 * (1.0 - frac), o[1] - n1 * (1.0 - frac))  # the object itself is at (0, 0)
+        d_stay = math.hypot(o[0] - e1, o[1] - n1)
+        n_line += d_line <= tol
+        n_stay += d_stay <= tol
+        out["later"].append({"survey": r.get("survey"), "plate_epoch": r.get("plate_epoch"), "d_line_arcsec": round(d_line, 2),
+                             "d_stay_arcsec": round(d_stay, 2)})
+    out.update(n_on_line=int(n_line), n_stayed=int(n_stay))
+    if length < float(vc["match_radius_arcsec"]):
+        return dict(out, kind="too_close", why=f"the source on the plates is only {length:.2f}\" from the object")
+    if n_line >= need and n_stay < need:
+        return dict(out, kind="moved")
+    if n_stay >= need and n_line < need:
+        return dict(out, kind="stayed")
+    return dict(out, kind="open", why=f"{len(out['later'])} later image(s) usable: {int(n_line)} on the line, {int(n_stay)} at the first-epoch place")
+
+
 def moved_star_verdict(star: dict[str, Any], cfg: PipelineConfig) -> dict[str, Any]:
-    """Could a nearby Pan-STARRS object be the plate source itself, having moved since the plates were taken?
+    """Is a nearby Pan-STARRS object the plate source itself, having moved since the plates were taken?
 
     A star too faint for Gaia can move several arcsec in sixty years. Pan-STARRS then holds an object of about the
     plate magnitude (within `plate_moved_max_dmag`) between the match radius and `plate_moved_radius_arcsec` of the
-    plate position. Such an object is shown to be another star when a first-epoch plate shows it where it is now
-    (none of 60 known moving stars was; control run of 2026-11-18). Otherwise it may be the same star, and the
-    question stays open: this test never says "moved", because empty plates at the object's position proved to be
-    a poor witness (10 of 100 still stars with a neighbour looked "moved").
-    `verdict` is False (no object that could be the source, moved) or None (one could be; `missing` names the input).
+    plate position. Such an object is another star when a first-epoch plate shows it where it is now (none of 60
+    known moving stars was; control run of 2026-11-18). Otherwise the later plates decide (`plate_track`): the
+    source on its way to the object means the same star, moved; the source still in place means another star.
+    Empty first-epoch plates at the object's position are not taken as proof of motion: that rule called 10 of 100
+    still stars with a neighbour moved.
+    `verdict` is True (moved), False (no object is the source, moved) or None (open; `missing` names the input).
     """
     vc = cfg.channels["vanishing"]
     min_plates, max_dmag = int(vc["min_early_plates"]), float(vc["plate_moved_max_dmag"])
@@ -197,7 +266,8 @@ def moved_star_verdict(star: dict[str, Any], cfg: PipelineConfig) -> dict[str, A
     r1 = _vd_input(star, "usno_mag_r")
     if not isinstance(images, dict):
         return {"verdict": None, "missing": ["plate_images"], "note": _missing_note(star, ["plate_images"]), "neighbours": None}
-    n_seen, n_said = first_epoch_seen(images.get("rows") or [], cfg)
+    rows = [r for r in images.get("rows") or [] if isinstance(r, dict)]
+    n_seen, n_said = first_epoch_seen(rows, cfg)
     out: dict[str, Any] = {"source_first_epoch_seen": n_seen, "source_first_epoch_images": n_said, "plate_moved_max_dmag": max_dmag, "neighbours": None}
     if n_said >= min_plates and n_seen == 0:
         # Nothing on the plates to have moved; what the catalogue entry is, is plate_defect's question
@@ -206,36 +276,49 @@ def moved_star_verdict(star: dict[str, Any], cfg: PipelineConfig) -> dict[str, A
     if not isinstance(nb, dict) or r1 is None:
         missing = ["plate_neighbours"] if not isinstance(nb, dict) else ["usno_mag_r"]
         return dict(out, verdict=None, missing=missing, note=_missing_note(star, missing))
-    table, open_ = [], []
+    table, open_, moved = [], [], []
     for n in nb.get("neighbours") or []:
         o_seen, o_said = first_epoch_seen(n.get("rows") or [], cfg)
         dmag = None if n.get("r_mag") is None else round(float(n["r_mag"]) - float(r1), 2)
+        track = None
         if dmag is not None and abs(dmag) > max_dmag:
             kind = "other_brightness"
         elif o_seen >= 1:
             kind = "on_the_plates_where_it_is_now"
         else:
             kind = "could_be_the_source_moved"
+            if n.get("ra_deg") is not None and n.get("dec_deg") is not None:
+                track = plate_track(rows, float(n["ra_deg"]), float(n["dec_deg"]), cfg)
+                kind = {"moved": "the_source_moved", "stayed": "source_stayed_in_place"}.get(track["kind"], kind)
         table.append({"objID": n.get("objID"), "sep_arcsec": n.get("sep_arcsec"), "r_mag": n.get("r_mag"), "dmag": dmag,
-                      "n_detections": n.get("n_detections"), "first_epoch_seen": o_seen, "first_epoch_images": o_said, "kind": kind})
+                      "n_detections": n.get("n_detections"), "first_epoch_seen": o_seen, "first_epoch_images": o_said, "kind": kind,
+                      "track": track})
         if kind == "could_be_the_source_moved":
             open_.append(table[-1])
+        elif kind == "the_source_moved":
+            moved.append(table[-1])
     out["neighbours"] = table
     out["n_objects_in_radius"] = nb.get("n_objects_in_radius")
+    if moved:
+        t = moved[0]
+        tr = t["track"]
+        return dict(out, verdict=True, missing=[], note=(
+            f"Pan-STARRS object {t['objID']} is {tr['first_to_now_arcsec']}\" from where the first-epoch plates ({tr['first_epoch']:.0f}) show the "
+            f"source (about {1000.0 * tr['first_to_now_arcsec'] / (PANSTARRS_EPOCH - tr['first_epoch']):.0f} mas/yr), is {t['dmag']:+.2f} mag from "
+            f"the plate magnitude, and {tr['n_on_line']} later plate image(s) show the source on its way there, within "
+            f"{tr['max_residual_arcsec']:g}\" of the straight line: the same star, moved"))
     if open_:
         t = open_[0]
         mag = "has no r magnitude" if t["dmag"] is None else f"is {t['dmag']:+.2f} mag from the plate magnitude"
-        speed = ""
-        if t["sep_arcsec"] is not None:
-            speed = f" (about {1000.0 * float(t['sep_arcsec']) / 60.0:.0f} mas/yr if it is the same star)"
+        why = f"; later plates: {t['track']['why']}" if t.get("track") and t["track"].get("why") else ""
         return dict(out, verdict=None, missing=["plate_neighbours"], note=(
-            f"Pan-STARRS object {t['objID']} lies {t['sep_arcsec']}\" from the plate position{speed}, {mag}, and no first-epoch plate "
-            f"shows it where it is now ({t['first_epoch_seen']} of {t['first_epoch_images']} images): it may be the plate source, moved"))
+            f"Pan-STARRS object {t['objID']} lies {t['sep_arcsec']}\" from the plate position, {mag}, and no first-epoch plate shows it "
+            f"where it is now ({t['first_epoch_seen']} of {t['first_epoch_images']} images): it may be the plate source, moved{why}"))
     if int(nb.get("n_objects_in_radius") or 0) > len(table):
         return dict(out, verdict=None, missing=["plate_neighbours"],
                     note=f"{nb.get('n_objects_in_radius')} Pan-STARRS objects in the radius, only {len(table)} measured")
     return dict(out, verdict=False, missing=[], note=(
-        f"Of {len(table)} Pan-STARRS object(s) between {nb.get('inner_radius_arcsec')}\" and {nb.get('radius_arcsec')}\" none can be the "
+        f"Of {len(table)} Pan-STARRS object(s) between {nb.get('inner_radius_arcsec')}\" and {nb.get('radius_arcsec')}\" none is the "
         "source, moved: " + ("; ".join(f"{t['objID']} at {t['sep_arcsec']}\" {t['kind']}" for t in table) or "none in the radius")))
 
 

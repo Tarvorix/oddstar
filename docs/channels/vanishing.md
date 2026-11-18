@@ -61,9 +61,13 @@ shows at the position (about five cutouts and four seconds per source; only the 
 - `proper_motion`, for a plate source without a Gaia counterpart, fails when a Gaia star's path over the plate era
   passes within the match radius (`vanishing_data.nearest_gaia_track`; a unit of a run made before 1.6.0 has no such
   record and is `not_evaluated`). Since 1.8.0 it also reads the Pan-STARRS objects between the match radius and
-  `plate_moved_radius_arcsec` whose r magnitude is within `plate_moved_max_dmag` of the plate magnitude: one that no
-  first-epoch plate shows where it is now may be the source itself, moved, and leaves the check `not_evaluated`.
-  The check does not say "moved" on that evidence (see `configs/CHANGELOG.md`, 1.8.0).
+  `plate_moved_radius_arcsec` whose r magnitude is within `plate_moved_max_dmag` of the plate magnitude. One that a
+  first-epoch plate shows where it is now is another star. For any other, the later plates decide: the check fails
+  ("the same star, moved") when `plate_track_min_images` later images show the source within
+  `plate_track_max_residual_arcsec` of where a star travelling from the first-epoch place to the object would be at
+  the plate's date; the object is ruled out when they show the source still in place; otherwise the check is
+  `not_evaluated`. On controls: 43 of 57 known moving stars fail and none is ruled out; 73 of 79 still stars with a
+  neighbour are ruled out and none fails (see `configs/CHANGELOG.md`, 1.8.0).
 `sso_plate`, `blend_split` and `known_variable` stay `not_evaluated`: no plate-epoch ephemeris, high-resolution imaging
 or variable-star lookup is made.
 
@@ -92,7 +96,7 @@ Defined in `configs/default.yaml` under `channels.vanishing`:
   `plate_rate_limit_rps: 2.0`
 - Plate images in vetting (since 1.8.0): `plate_image_min_snr: 5.0`, `plate_image_max_offset_arcsec: 2.0`,
   `plate_image_first_epoch_before: 1960.0`, `plate_image_judge_max_r_mag: 19.5`, `plate_moved_radius_arcsec: 10.0`,
-  `plate_moved_max_dmag: 1.5`
+  `plate_moved_max_dmag: 1.5`, `plate_track_max_residual_arcsec: 1.0`, `plate_track_min_images: 2`
 
 ## Known Impostors
 - High-proper-motion stars that moved beyond the static cross-match radius, plate emulsion flaws/scratches, large-amplitude Mira/LPV variables, asteroids, and blended sources resolved into multiple modern stars.

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from oddstar.io import plate_images as pi
 
 RA0, DEC0 = 150.0, 20.0
@@ -112,7 +114,7 @@ def test_a_faint_star_that_may_have_moved_is_not_passed_as_vanished(tmp_path) ->
 
     # Same brightness, 5.5 arcsec away now, and not there in 1953: it may be the star, moved (about 92 mas/yr)
     status, note, m = run(_live_unit(source, [nb(5.5, 17.9, empty, empty)]))
-    assert status == "not_evaluated" and "it may be the plate source, moved" in note and "about 92 mas/yr" in note
+    assert status == "not_evaluated" and "it may be the plate source, moved" in note
     assert m["moved_star_test"]["neighbours"][0]["kind"] == "could_be_the_source_moved" and m["missing_inputs"] == ["plate_neighbours"]
     # A neighbour the 1953 plates show where it is now is another star, and so is one of another brightness
     status, note, m = run(_live_unit(source, [nb(5.5, 17.9, seen, empty), nb(7.0, 17.5 + dmag + 0.2, empty, empty, "2")]))
@@ -132,3 +134,60 @@ def test_a_faint_star_that_may_have_moved_is_not_passed_as_vanished(tmp_path) ->
     unit = _live_unit(source, [])
     unit["vanishing_data"]["nearest_gaia_track"]["sep_arcsec"] = 1.1
     assert run(unit)[0] == "fail"
+
+
+def _sky_row(survey, epoch, east, north, *, snr=20.0, registered=True):
+    """A row whose peak lies (east, north) arcsec from (RA0, DEC0); the row was measured at (RA0, DEC0)."""
+    return {"survey": survey, "survey_returned": survey.upper(), "plate_id": "X", "plate_epoch": epoch, "status": "ok", "registered": registered,
+            "ra_measured_deg": RA0, "dec_measured_deg": DEC0, "snr_at_position": snr,
+            "peak": {"snr": snr, "offset_arcsec": round((east**2 + north**2) ** 0.5, 2), "dx_arcsec": -east, "dy_arcsec": north, "fwhm_arcsec": 4.0}}
+
+
+def test_the_later_plates_say_whether_the_source_moved_to_a_nearby_object(tmp_path) -> None:
+    """Three epochs on a line: 1953 at the plate position, the 1990s part of the way, Pan-STARRS at the end."""
+    import math
+
+    from oddstar.config import load_config
+    from oddstar.vet.vanishing_checks import PANSTARRS_EPOCH, check_proper_motion, plate_track
+
+    cfg = load_config()[0]
+    vc = cfg.channels["vanishing"]
+    tol = float(vc["plate_track_max_residual_arcsec"])
+    assert int(vc["plate_track_min_images"]) == 2
+    # The object is 6 arcsec east and 2 north of where the 1953 plates show the source
+    obj = {"objID": "7", "ra_deg": RA0 + 6.0 / 3600.0 / math.cos(math.radians(DEC0)), "dec_deg": DEC0 + 2.0 / 3600.0, "sep_arcsec": 6.32,
+           "r_mag": 17.8, "n_detections": 40, "rows": [_row("poss1_red", 1953.0, None, None), _row("poss1_blue", 1953.0, None, None)]}
+    first = [_sky_row("poss1_red", 1953.0, 0.2, -0.1), _sky_row("poss1_blue", 1953.0, -0.2, 0.1)]
+
+    def at(epoch, slip=0.0):
+        f = (epoch - 1953.0) / (PANSTARRS_EPOCH - 1953.0)
+        return 6.0 * f + slip, 2.0 * f
+
+    on_the_way = [_sky_row("poss2ukstu_red", 1990.0, *at(1990.0, 0.3)), _sky_row("poss2ukstu_blue", 1987.0, *at(1987.0, -0.4)),
+                  _sky_row("poss2ukstu_ir", 1996.0, *at(1996.0))]
+    in_place = [_sky_row("poss2ukstu_red", 1990.0, 0.3, 0.2), _sky_row("poss2ukstu_blue", 1987.0, -0.1, -0.4), _sky_row("poss2ukstu_ir", 1996.0, 0.0, 0.3)]
+
+    tr = plate_track(first + on_the_way, obj["ra_deg"], obj["dec_deg"], cfg)
+    assert tr["kind"] == "moved" and tr["n_on_line"] == 3 and tr["n_stayed"] == 0 and tr["first_to_now_arcsec"] == pytest.approx(6.32, abs=0.05)
+    assert all(row["d_line_arcsec"] <= tol < row["d_stay_arcsec"] for row in tr["later"])
+    tr = plate_track(first + in_place, obj["ra_deg"], obj["dec_deg"], cfg)
+    assert tr["kind"] == "stayed" and tr["n_on_line"] == 0 and tr["n_stayed"] == 3
+    # One later image is not enough, an unregistered one does not count, and a short line cannot tell the two apart
+    assert plate_track(first + on_the_way[:1], obj["ra_deg"], obj["dec_deg"], cfg)["kind"] == "open"
+    unreg = [dict(r, registered=False) for r in on_the_way]
+    assert plate_track(first + unreg, obj["ra_deg"], obj["dec_deg"], cfg)["kind"] == "open"
+    near_ra = RA0 + 1.5 / 3600.0 / math.cos(math.radians(DEC0))
+    assert plate_track(first + in_place, near_ra, DEC0, cfg)["kind"] == "too_close"
+    assert plate_track(on_the_way, obj["ra_deg"], obj["dec_deg"], cfg)["kind"] == "open", "no first-epoch position, no line"
+
+    def run(rows, nbs):
+        r = check_proper_motion(_live_unit(rows, nbs), cfg, tmp_path / f"v{len(list(tmp_path.iterdir()))}")
+        return r.status, r.note, r.metrics
+
+    status, note, m = run(first + on_the_way, [obj])
+    assert status == "fail" and "the same star, moved" in note and "about 107 mas/yr" in note
+    assert m["moved_star_test"]["neighbours"][0]["kind"] == "the_source_moved"
+    status, note, m = run(first + in_place, [obj])
+    assert status == "pass" and m["moved_star_test"]["neighbours"][0]["kind"] == "source_stayed_in_place"
+    status, note, m = run(first + on_the_way[:1], [obj])
+    assert status == "not_evaluated" and "later plates: 1 later image(s) usable" in note

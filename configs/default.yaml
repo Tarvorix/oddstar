@@ -215,6 +215,10 @@ channels:
     # itself, moved (10 arcsec over 60 years is 165 mas/yr), unless a first-epoch plate shows it where it is now
     plate_moved_radius_arcsec: 10.0
     plate_moved_max_dmag: 1.5
+    # The later plates decide: the source within this distance of the straight line to that object, on this many
+    # later images, is the same star on its way; the source still at its first-epoch place is another star
+    plate_track_max_residual_arcsec: 1.0
+    plate_track_min_images: 2
     # Vetting-only (since 1.1.0): SIMBAD types that explain a vanished plate source (was a literal in vanishing_checks.py)
     vetting_variable_simbad_types: ["Mira", "LPV*", "CV*", "Flare*"]
 

@@ -16,7 +16,7 @@ sources with a Pan-STARRS counterpart, spread over plate magnitude, and 69 blank
 
 - **New keys** under `channels.vanishing`: `plate_image_min_snr: 5.0`, `plate_image_max_offset_arcsec: 2.0`,
   `plate_image_first_epoch_before: 1960.0`, `plate_image_judge_max_r_mag: 19.5`, `plate_moved_radius_arcsec: 10.0`,
-  `plate_moved_max_dmag: 1.5`.
+  `plate_moved_max_dmag: 1.5`, `plate_track_max_residual_arcsec: 1.0`, `plate_track_min_images: 2`.
 - **`plate_defect` for a plate source of the live survey.** An image shows the source when a local maximum with
   aperture signal-to-noise of at least 5.0 lies within 2.0 arcsec of the position, after the image has been
   registered on the Gaia stars it holds. An image that could not be registered can show the source but not its
@@ -37,10 +37,20 @@ sources with a Pan-STARRS counterpart, spread over plate magnitude, and 69 blank
   between the match radius and 10 arcsec of the plate position whose r magnitude is within 1.5 mag of the plate
   magnitude (60 known moving stars: r minus plate magnitude has median +0.19, 5th and 95th percentile -0.65 and
   +0.72). Such an object is another star when a first-epoch plate shows it where it is now (true of none of the 60
-  moving stars). Otherwise it may be the plate source, moved, and the check is `not_evaluated`. The check never
-  says "moved" on this evidence: a control run of the opposite rule (object absent from the first-epoch plates at
-  its present place means moved) called 10 of 100 still stars with a neighbour moved and found 17 of the 60 moving
-  stars, so it is not used.
+  moving stars). Otherwise the later plates decide, with new keys `plate_track_max_residual_arcsec: 1.0` and
+  `plate_track_min_images: 2`: where the first-epoch images show the source, where Pan-STARRS has the object
+  (epoch 2012), and the date of each later plate give the place a star on its way would have on that plate. Fail
+  ("the same star, moved", tier Explained) when two later images show the source within 1.0 arcsec of that place
+  and fewer than two show it still at its first-epoch place; the object is ruled out when two later images show
+  the source still in place; `not_evaluated` otherwise, and when the two places are less than the match radius
+  apart.
+- **Measured on controls for the track rule** (60 Gaia stars moving 57 to 165 mas/yr with a USNO-B entry, 100 still
+  USNO-B sources with an unrelated Pan-STARRS neighbour 3 to 10 arcsec away; none a flagged source). Moving stars
+  with a first-epoch position at least 3 arcsec from the object (57): 43 "moved", 0 "stayed", 14 open (8 without a
+  usable later image). Still stars with a first-epoch position at least 3 arcsec from the neighbour (79): 73
+  "stayed", 0 "moved", 6 open. The same counts hold for limits of 0.75 and 1.0 arcsec.
+- **A rule that was tried and dropped.** "The object is absent from the first-epoch plates at its present place, so
+  it moved" called 10 of 100 still stars moved and found 17 of the 60 moving stars. It is not used.
 
 ### Youth: a star moving at thick-disc or halo speed is not young
 The one infrared candidate left after 1.7.0, Gaia DR3 5628404318169472, stood at `youth: not_evaluated` because the
@@ -59,8 +69,7 @@ limit is not fitted to it: it is the usual kinematic boundary of the thin disc.
 ### Not changed
 - Every channel's search thresholds, so no search result changes. Vetting results of vanishing flags and of
   5628404318169472 made under 1.7.0 are redone under this version before any tier is quoted.
-- Not covered yet: a test that says a faint star did move (three plate epochs on a line; control run pending),
-  and `sso_plate`, `blend_split`, `known_variable` for plate sources, which still have no live data.
+- Not covered yet: `sso_plate`, `blend_split`, `known_variable` for plate sources, which still have no live data.
 
 ## [1.7.0] - 2026-11-18
 
