@@ -24,7 +24,12 @@ Code: `src/oddstar/io/spherex.py`. Command: `oddstar spherex photometry`.
   counted as blended.
 - **Flags.** Pixels with a defect bit (cosmic-ray hit, saturation, non-functional, hot, cold, persistence,
   outlier, streak and the like) are left out. A defect within 1.5 pixels of the star gives no measurement
-  (`core_flagged`). Ghost, halo, crosstalk and dichroic bits are reported on the row and not masked.
+  (`core_flagged`). So does the dichroic bit on the star's core: it marks the edge of a detector's band, where
+  two detectors measured the same star 20 percent apart at the same wavelength. Ghost, halo and crosstalk bits
+  are reported on the row and not masked.
+- **Saturation.** Stars brighter than about G = 11 saturate at the short wavelengths (the overflow bit on the
+  core): the first star measured, G = 10.6, was usable in 3 of 30 exposures on detectors 1 and 2, 11 of 30 on
+  detector 3, and nearly all on detectors 4 to 6.
 - **Error.** The formal error of the fit, scaled up by the square root of the reduced chi-square when that is
   above one: on a bright star the model of the point spread function, not the noise, limits the fit.
 
@@ -37,6 +42,10 @@ and neighbour list. A repeat fetches nothing. A cutout that cannot be fetched is
 Per star and per visit (exposures less than 60 days apart): the weighted mean flux density in three windows,
 K (2.0 to 2.4 micron), the W1 part (3.0 to 3.8) and the W2 part (4.1 to 5.0; SPHEREx ends at 5.0, W2 at 5.3), each
 also as a magnitude over the 2MASS or WISE zero point, and the colours between them.
+
+A measurement whose reduced chi-square is more than 5 times the median of the star's measurements on the same
+detector is left out of the summary and counted (`n_misfit`). The first star measured had one such exposure in
+22: the star lay 0.36 pixel from where that image's sky solution put it, and the forced fit read 25 percent low.
 
 A window mean is not an integral through the 2MASS or WISE response. These magnitudes differ from catalogue
 magnitudes by a colour term of a few hundredths of a magnitude: compare a star with stars measured the same way,
@@ -52,8 +61,12 @@ and one visit with the next.
 ## Status
 
 The reader and the fit are tested on synthetic files laid out like a real cutout (the layout was read from a real
-file on 2026-11-18). The photometry has not yet been compared with 2MASS and WISE on ordinary stars, and no vetting
-check reads it yet. Both come before it is applied to a flagged star's tier: thresholds are fixed on ordinary
+file on 2026-11-18). On 22 real exposures of one star (2026-11-18) the point spread function as delivered fits
+better than its mirror images on five of six detectors (on the sixth, three exposures, one mirror image is
+slightly better), and the best position shift has a median of zero on every detector. Reduced chi-square is 1.3
+to 2.4 at 3.8 to 5 micron and 6 to 70 below that, where this star is bright: there the model of the point spread
+function limits the fit, and the error is scaled accordingly. The photometry has not yet been compared with 2MASS
+and WISE on a set of ordinary stars, and no vetting check reads it yet. Both come before it is applied to a flagged star's tier: thresholds are fixed on ordinary
 stars first.
 
 ## Command

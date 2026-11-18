@@ -83,7 +83,7 @@ def test_band_average_weights_by_error_and_reports_scatter() -> None:
 
 RA0, DEC0 = 45.165009, 0.200053
 PIX_DEG = 6.15 / 3600.0
-FLAG_CARDS = {0: "TRANSIENT", 1: "OVERFLOW", 2: "SUR_ERROR", 6: "NONFUNC", 10: "HOT", 19: "OUTLIER", 21: "SOURCE", 22: "GHOST"}
+FLAG_CARDS = {0: "TRANSIENT", 1: "OVERFLOW", 2: "SUR_ERROR", 6: "NONFUNC", 7: "DICHROIC", 10: "HOT", 19: "OUTLIER", 21: "SOURCE", 22: "GHOST"}
 
 
 def _cutout(*, flux_mjy: float = 95.0, star_xy: tuple[float, float] = (8.37, 7.81), n: int = 17, zodi: float = 0.2,
@@ -188,6 +188,16 @@ def test_flagged_pixels_are_left_out_and_a_flagged_core_gives_no_number() -> Non
     # The same hit on the star's own pixels: no measurement, and the flags say why
     row = sx.measure_cutout(_cutout(bad_pixels={(8, 8): bits["TRANSIENT"]}), RA0, DEC0)
     assert row["status"] == "core_flagged" and row["flags_core"] & bits["TRANSIENT"] and "flux_mjy" not in row
+    # A saturated core (OVERFLOW on the star's pixels, as real stars brighter than about G = 11 show at short wavelengths)
+    row = sx.measure_cutout(_cutout(bad_pixels={(8, 8): bits["OVERFLOW"], (9, 8): bits["OVERFLOW"]}), RA0, DEC0)
+    assert row["status"] == "core_flagged" and row["flags_core"] == bits["OVERFLOW"] | bits["SOURCE"]
+    # The edge of a detector's band (DICHROIC on the core): the pixels are valid but the calibration is not, so no number
+    data = _cutout(bad_pixels={(8, 8): bits["DICHROIC"]})
+    row = sx.measure_cutout(data, RA0, DEC0)
+    assert row["status"] == "core_flagged" and row["flags_core"] & bits["DICHROIC"] and "flux_mjy" not in row
+    # A ghost bit on the core is reported and the star is still measured
+    row = sx.measure_cutout(_cutout(bad_pixels={(11, 10): bits["GHOST"]}), RA0, DEC0)
+    assert row["status"] == "ok" and row["n_pixels"] == 81
     # A star within four pixels of the cutout's edge (the detector's edge): no measurement
     assert sx.measure_cutout(_cutout(star_xy=(2.2, 7.8)), RA0, DEC0)["status"] == "off_cutout"
     # A file that is not a Level 2 cutout is an error, not a zero
@@ -321,7 +331,24 @@ def test_summary_gives_window_means_per_visit() -> None:
     assert first["w1_w2"] == pytest.approx(0.5) and first["k_w1"] == pytest.approx(0.0) and first["k_w2"] == pytest.approx(0.5)
     assert second["w1_w2"] == pytest.approx(0.2) and second["k"] is None and second["k_w1"] is None
     assert first["w2"]["mag_err"] == pytest.approx(2.5 / np.log(10) * 0.01)
-    assert sx.summarize([]) == {"all": {"n": 0, "k": None, "w1": None, "w2": None, "k_w1": None, "w1_w2": None, "k_w2": None}, "visits": []}
+    assert s["n_misfit"] == 0
+    assert sx.summarize([]) == {"all": {"n": 0, "k": None, "w1": None, "w2": None, "k_w1": None, "w1_w2": None, "k_w2": None},
+                                "visits": [], "n_misfit": 0}
+
+
+def test_an_exposure_the_model_does_not_describe_is_left_out_of_the_summary() -> None:
+    # Four exposures on detector 6 as measured on a real star: one with reduced chi-square 28.9 against 1.3 to 1.6, 25 percent low
+    def pt(wave: float, flux: float, chi2: float, det: int = 6) -> dict:
+        return {"wavelength_um": wave, "flux_mjy": flux, "flux_err_mjy": 0.5, "mjd": 60892.0 + wave, "detector": det, "reduced_chi2": chi2}
+    pts = [pt(4.47, 24.58, 28.9), pt(4.66, 32.66, 1.32), pt(4.86, 29.17, 1.58), pt(5.01, 27.14, 1.41)]
+    assert [p["flux_mjy"] for p in sx.misfit_points(pts)] == [24.58]
+    s = sx.summarize(pts)
+    assert s["n_misfit"] == 1 and s["all"]["n"] == 3 and s["all"]["w2"]["n"] == 2
+    # Where every exposure fits badly (a bright star, the PSF model limits the fit) nothing is singled out
+    bright = [pt(2.5, 99.0, 17.8, 4), pt(2.8, 79.0, 6.4, 4), pt(3.3, 59.3, 11.1, 4), pt(3.8, 45.1, 7.6, 4)]
+    assert sx.misfit_points(bright) == [] and sx.summarize(bright)["n_misfit"] == 0
+    # Fewer than four exposures on a detector: no judgement
+    assert sx.misfit_points(pts[:3]) == []
 
 
 def test_command_measures_chosen_stars_and_writes_one_file_per_star(monkeypatch, tmp_path) -> None:

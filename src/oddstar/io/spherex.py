@@ -44,7 +44,7 @@ from oddstar.io.cache import RawCache
 from oddstar.io.physics import propagate_position
 
 ARCHIVE = "spherex"
-PHOTOMETRY_VERSION = "spherex_forced_v1"
+PHOTOMETRY_VERSION = "spherex_forced_v2"
 IRSA_BASE_URL = "https://irsa.ipac.caltech.edu/"
 IRSA_TAP_URL = "https://irsa.ipac.caltech.edu/TAP/sync"
 # Side of the cutout asked for (degrees): about 18 pixels of 6.15 arcsec, room for the fit stamp at any pixel phase
@@ -63,6 +63,17 @@ BLEND_RADIUS_PIX = 1.0
 # (`flags_core`), not masked.
 BAD_FLAG_NAMES = ("TRANSIENT", "OVERFLOW", "SUR_ERROR", "NONFUNC", "MISSING_DATA", "HOT", "COLD", "PHANMISS",
                   "NONLINEAR", "PERSIST", "OUTLIER", "STREAK", "BLOOM", "SNOWBALL")
+# Bits that do not mark a defective pixel but make the star's own measurement unreliable when set on its core.
+# DICHROIC: the edge of a detector's band, where the beam splitter cuts in. On the first real star measured
+# (Gaia DR3 9281425163264, 2026-11-18) the two exposures with this bit, at 2.420 micron on detector 3 and 2.422 micron
+# on detector 4, differ by 20 percent.
+UNRELIABLE_CORE_FLAG_NAMES = ("DICHROIC",)
+# A measurement whose reduced chi-square is more than this many times the median of the star's measurements on the
+# same detector is left out of the summary (`n_misfit`): the model does not describe that exposure. Seen on the
+# same star: one exposure of four on detector 6 with reduced chi-square 28.9 against 1.3 to 1.6, 25 percent low,
+# with the star 0.36 pixel from where the image's sky solution puts it. Needs at least MISFIT_MIN_POINTS on the detector.
+MISFIT_CHI2_FACTOR = 5.0
+MISFIT_MIN_POINTS = 4
 # Exposures closer in time than this belong to one visit (SPHEREx returns to a position about every six months
 # and takes a few weeks to sweep all wavelengths across it)
 VISIT_GAP_DAYS = 60.0
@@ -263,7 +274,10 @@ def measure_cutout(fits_bytes: bytes, ra: float, dec: float, neighbours: tuple[t
         "epsf_zone": zone, "epsf_cwave_um": float(table["CWAVE"][zone]), "pixel_solid_angle_sr": omega_sr,
         "flags_core": int(np.bitwise_or.reduce(stamp_flags[core])), "n_good_pixels": int(good.sum()),
     })
-    if not bool(np.all(good[core])):
+    unreliable = 0
+    for name in UNRELIABLE_CORE_FLAG_NAMES:
+        unreliable |= bits.get(name, 0)
+    if not bool(np.all(good[core])) or (row["flags_core"] & unreliable):
         return {**row, "status": "core_flagged"}
     if int(good.sum()) < MIN_GOOD_PIXELS:
         return {**row, "status": "too_few_pixels"}
@@ -457,13 +471,32 @@ def _visits(points: list[dict[str, Any]], gap_days: float = VISIT_GAP_DAYS) -> l
     return out
 
 
+def misfit_points(points: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The measurements the model does not describe: reduced chi-square far above the star's own on that detector."""
+    by_detector: dict[Any, list[dict[str, Any]]] = {}
+    for p in points:
+        if p.get("detector") is not None and p.get("reduced_chi2") is not None:
+            by_detector.setdefault(p["detector"], []).append(p)
+    out = []
+    for rows in by_detector.values():
+        if len(rows) < MISFIT_MIN_POINTS:
+            continue
+        limit = MISFIT_CHI2_FACTOR * float(np.median([float(r["reduced_chi2"]) for r in rows]))
+        out.extend(r for r in rows if float(r["reduced_chi2"]) > limit)
+    return out
+
+
 def summarize(points: list[dict[str, Any]]) -> dict[str, Any]:
     """Window means (K, W1 part, W2 part) over all exposures and per visit, with the colours between them.
 
     A magnitude here is -2.5 log10 of a window mean over a Vega zero point (`WINDOW_ZERO_POINT_JY`): useful to
     compare one star with another measured the same way, and one visit with the next. It is not a 2MASS or WISE
-    catalogue magnitude.
+    catalogue magnitude. Measurements the model does not describe (`misfit_points`) are left out and counted.
     """
+    misfit = misfit_points(points)
+    if misfit:
+        drop = {id(p) for p in misfit}
+        points = [p for p in points if id(p) not in drop]
     def block(sel: list[dict[str, Any]]) -> dict[str, Any]:
         out: dict[str, Any] = {"n": len(sel)}
         if sel:
@@ -483,9 +516,9 @@ def summarize(points: list[dict[str, Any]]) -> dict[str, Any]:
         out["k_w2"] = mags["k"] - mags["w2"] if "k" in mags and "w2" in mags else None
         return out
 
-    return {"all": block(points), "visits": [block(v) for v in _visits(points)]}
+    return {"all": block(points), "visits": [block(v) for v in _visits(points)], "n_misfit": len(misfit)}
 
 
 __all__ = ["ARCHIVE", "BAD_FLAG_NAMES", "CUTOUT_SIZE_DEG", "PHOTOMETRY_VERSION", "SED_WINDOWS_UM", "band_average", "cutout_url",
            "fit_point_source", "flag_bits", "forced_photometry", "gaia_neighbours", "image_query", "list_images", "measure_cutout", "measure_image",
-           "render_epsf", "summarize"]
+           "misfit_points", "render_epsf", "summarize"]
