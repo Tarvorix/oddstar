@@ -2,6 +2,16 @@
 
 All threshold, sample-cut, and prompt changes must be logged here under Ground Rule R4 before running validation or search.
 
+## Radio planner: ON and OFF files are of the same product - 2026-11-18, configuration unchanged (1.6.0)
+
+The first Parkes scan set that was fetched (the calibrator field 1934-638, beam 3, of 2018-04-17) could not be
+searched: its ON file was a `.0000.hires.hdf` product and its OFF files `.0000.h5` products, which differ in
+channel width. The planner (`bl_opendata.plan_star_scans`) matched OFF files by frequency only. It now pairs files
+of the same product only (`.hires.hdf` against `.hires.hdf`; `.h5` and `.fil` against each other) and gives one
+plan for a scan held as two products: the product with a full comparison, then the one with more frequencies,
+then `.h5`/`.fil`. A scan whose neighbours exist only as the other product is listed as incomplete. No search
+result existed for such a set, and no stored result changes.
+
 ## Radio search version 4 (`bl_local_search_v4`): the allocation table is complete up to 4200 MHz - 2026-11-18, configuration unchanged (1.6.0)
 
 The owner chose the rule of version 3 on 2026-11-18 ("List every allocated band"). The Parkes ultra-wideband
