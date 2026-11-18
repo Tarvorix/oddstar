@@ -1,10 +1,10 @@
 {
   "channel": "underluminous",
-  "gaia_release": "dr3",
+  "gaia_release": "dr4",
   "split": "all",
-  "config_hash": "09bf893863ce",
-  "git_commit": "142bbe4d233f4463bba8e4db718913f14e7de069",
-  "timestamp_utc": "2026-11-18T05:22:49.024876+00:00",
+  "config_hash": "951b3f2d31c7",
+  "git_commit": "6ee0e6067894d67322e711642bf0dcccb18290a4",
+  "timestamp_utc": "2026-11-18T05:34:36.948128+00:00",
   "passed": true,
   "blind_recovery_rate": 1.0,
   "blind_total": 3,
@@ -45,39 +45,39 @@
   "expected_false_positives": 3.333333333333333,
   "calibration_curve": [
     {
-      "stat": -0.16672390206626606,
+      "stat": -0.18085829453472968,
       "fap": 0.5
     },
     {
-      "stat": 0.3622062746983885,
+      "stat": 0.3815001151839904,
       "fap": 0.25
     },
     {
-      "stat": 0.707772483608045,
+      "stat": 0.7803759777700229,
       "fap": 0.09999999999999998
     },
     {
-      "stat": 0.9078492436380337,
+      "stat": 0.9326179036848606,
       "fap": 0.050000000000000044
     },
     {
-      "stat": 1.248491663803918,
+      "stat": 1.2622841680964758,
       "fap": 0.010000000000000009
     },
     {
-      "stat": 2.846799085684207,
+      "stat": 2.8587390185438504,
       "fap": 0.0001
     },
     {
-      "stat": 4.346799085684207,
+      "stat": 4.358739018543851,
       "fap": 1e-6
     },
     {
-      "stat": 7.346799085684207,
+      "stat": 7.358739018543851,
       "fap": 1e-9
     },
     {
-      "stat": 13.346799085684207,
+      "stat": 13.35873901854385,
       "fap": 1e-12
     }
   ],
@@ -86,17 +86,17 @@
       {
         "source_id": "733300000000000003",
         "flagged": true,
-        "raw_stat": 18.85879790055512
+        "raw_stat": 18.907527194806587
       },
       {
         "source_id": "733300000000000001",
         "flagged": true,
-        "raw_stat": 19.389859616047886
+        "raw_stat": 19.4731114693003
       },
       {
         "source_id": "733300000000000002",
         "flagged": true,
-        "raw_stat": 20.83155200963521
+        "raw_stat": 21.335502612829764
       }
     ],
     "impostor_rejection": [
@@ -167,8 +167,8 @@
       "oddstar/vet/radio_checks.py": "a80a21256c2adea7ed3fc463abd9dd6f38658fa316f5c08e7987475b9e12fd8f",
       "oddstar/vet/spectral_checks.py": "f9d6171de7e05d89db987dedb1bd0521ebce4fe1cce2989aba078ea1a7a69c15",
       "oddstar/vet/underluminous_checks.py": "50f9093f9d224f15068f8b456ca535032df7e3f835bd2e5a6ab5d680f6ed74a0",
-      "oddstar/vet/vanishing_checks.py": "6dc1a99d71d9d792aa581152313f874e4dd03d6487fcb3cd3b5d36bf77490128"
+      "oddstar/vet/vanishing_checks.py": "6ae056277d8a80c2ac2e06ffa63771770afd48b0da8e3c509cde1a043692fc2b"
     }
   },
-  "code_fingerprint": "d631a83b814b89228e9c6d94c9f555a76e1e3b527ad15e1f86d95b3d07cc7f58"
+  "code_fingerprint": "65f3072f94e5ccea69e17b30a9899cfe6019e1f80e6c4741b8f1b17825e91c3d"
 }

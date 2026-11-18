@@ -1,156 +1,192 @@
 {
-  "channel": "spectral_lines",
+  "channel": "ir_timedomain",
   "gaia_release": "dr3",
   "split": "all",
-  "config_hash": "09bf893863ce",
-  "git_commit": "142bbe4d233f4463bba8e4db718913f14e7de069",
-  "timestamp_utc": "2026-11-18T05:23:14.680356+00:00",
+  "config_hash": "37da0060d210",
+  "git_commit": "6ee0e6067894d67322e711642bf0dcccb18290a4",
+  "timestamp_utc": "2026-11-18T05:33:45.527367+00:00",
   "passed": true,
   "blind_recovery_rate": 1.0,
-  "blind_total": 2,
-  "blind_recovered": 2,
+  "blind_total": 6,
+  "blind_recovered": 6,
   "impostor_pass": true,
   "impostor_max_tier": "Explained",
   "impostors_evaluated": 3,
   "injection_completeness_design_point": 1.0,
   "completeness_grid": [
     {
-      "wavelength_a": 6530.0,
-      "injected_snr": 5.0,
-      "completeness": 0.7,
-      "n_trials": 20
-    },
-    {
-      "wavelength_a": 6530.0,
-      "injected_snr": 12.0,
+      "mode": "step",
+      "amp": 0.1,
       "completeness": 1.0,
       "n_trials": 20
     },
     {
-      "wavelength_a": 6530.0,
-      "injected_snr": 22.0,
+      "mode": "step",
+      "amp": 0.35,
       "completeness": 1.0,
       "n_trials": 20
     },
     {
-      "wavelength_a": 6615.0,
-      "injected_snr": 5.0,
+      "mode": "step",
+      "amp": 0.65,
+      "completeness": 1.0,
+      "n_trials": 20
+    },
+    {
+      "mode": "ramp",
+      "amp": 0.1,
+      "completeness": 1.0,
+      "n_trials": 20
+    },
+    {
+      "mode": "ramp",
+      "amp": 0.35,
+      "completeness": 1.0,
+      "n_trials": 20
+    },
+    {
+      "mode": "ramp",
+      "amp": 0.65,
+      "completeness": 1.0,
+      "n_trials": 20
+    },
+    {
+      "mode": "burst",
+      "amp": 0.1,
       "completeness": 0.65,
       "n_trials": 20
     },
     {
-      "wavelength_a": 6615.0,
-      "injected_snr": 12.0,
+      "mode": "burst",
+      "amp": 0.35,
       "completeness": 1.0,
       "n_trials": 20
     },
     {
-      "wavelength_a": 6615.0,
-      "injected_snr": 22.0,
+      "mode": "burst",
+      "amp": 0.65,
       "completeness": 1.0,
       "n_trials": 20
     }
   ],
   "false_alarm_rate": 0.0,
   "false_alarm_ci_low": 0.0,
-  "false_alarm_ci_high": 0.02497113914571871,
-  "expected_false_positives": 6.666666666666666,
+  "false_alarm_ci_high": 0.012643429997735661,
+  "expected_false_positives": 3.333333333333333,
   "calibration_curve": [
     {
-      "stat": 2.704598458857875,
+      "stat": 2.0624498743808117,
       "fap": 0.5
     },
     {
-      "stat": 2.905284741350482,
+      "stat": 2.451834055131434,
       "fap": 0.25
     },
     {
-      "stat": 3.0919355446974985,
+      "stat": 2.828073097471871,
       "fap": 0.09999999999999998
     },
     {
-      "stat": 3.271646385432357,
+      "stat": 3.037309183780127,
       "fap": 0.050000000000000044
     },
     {
-      "stat": 3.5475606408976716,
+      "stat": 3.3974070889695267,
       "fap": 0.010000000000000009
     },
     {
-      "stat": 5.11058441357504,
+      "stat": 5.726406928916329,
       "fap": 0.0001
     },
     {
-      "stat": 6.61058441357504,
+      "stat": 7.226406928916329,
       "fap": 1e-6
     },
     {
-      "stat": 9.61058441357504,
+      "stat": 10.22640692891633,
       "fap": 1e-9
     },
     {
-      "stat": 15.61058441357504,
+      "stat": 16.22640692891633,
       "fap": 1e-12
     }
   ],
   "details": {
     "blind_recovery": [
       {
-        "source_id": "744400000000000002",
+        "source_id": "1638028353993041792",
         "flagged": true,
-        "raw_stat": 47.14605327971782
+        "raw_stat": 31.028107311461497
       },
       {
-        "source_id": "744400000000000001",
+        "source_id": "5548511859528971520",
         "flagged": true,
-        "raw_stat": 52.972633179587234
+        "raw_stat": 216.6853099912111
+      },
+      {
+        "source_id": "3687158017250050176",
+        "flagged": true,
+        "raw_stat": 61.20588143736592
+      },
+      {
+        "source_id": "2996362101189875200",
+        "flagged": true,
+        "raw_stat": 31.3717447625158
+      },
+      {
+        "source_id": "4066368953121417984",
+        "flagged": true,
+        "raw_stat": 112.25993474698505
+      },
+      {
+        "source_id": "6485732215620751360",
+        "flagged": true,
+        "raw_stat": 96.52548854237382
       }
     ],
     "impostor_rejection": [
       {
-        "source_id": "744400000000000001",
+        "source_id": "711100000000000001",
         "tier": "Explained",
         "failed_checks": [
-          "stellar_emission"
+          "neighbour_signal"
         ],
         "expected_failed": [
-          "stellar_emission"
+          "neighbour_signal"
+        ],
+        "reason": "Explained by 'neighbour_signal': Dip/IR variation tracks neighbouring star within TESS/WISE beam (explicit flag) | TESS: no sectors loaded | NEOWISE: no per-visit PM-track residual vectors",
+        "passed": true
+      },
+      {
+        "source_id": "711100000000000002",
+        "tier": "Explained",
+        "failed_checks": [
+          "known_variable"
+        ],
+        "expected_failed": [
+          "known_variable"
         ],
         "reason": "Not flagged above channel thresholds",
         "passed": true
       },
       {
-        "source_id": "744400000000000003",
-        "tier": "Explained",
+        "source_id": "711100000000000003",
+        "tier": "Rejected",
         "failed_checks": [
-          "cosmic_ray",
-          "repeat"
+          "systematics_window"
         ],
         "expected_failed": [
-          "cosmic_ray",
-          "repeat"
+          "systematics_window"
         ],
-        "reason": "Not flagged above channel thresholds",
-        "passed": true
-      },
-      {
-        "source_id": "744400000000000004",
-        "tier": "Explained",
-        "failed_checks": [
-          "sky_line"
-        ],
-        "expected_failed": [
-          "sky_line"
-        ],
-        "reason": "Not flagged above channel thresholds",
+        "reason": "Failed integrity/artifact check 'systematics_window': Event aligns with documented scattered-light or scan-direction systematic window (explicit flag) | TESS: no sectors loaded | NEOWISE: no comparison-star ensemble fetched",
         "passed": true
       }
     ],
     "code_fingerprint_files": {
       "oddstar/__init__.py": "2af7d8f7316e5196abd067dcdd82791314113df68b496c3611136877b193be1e",
       "oddstar/channels/__init__.py": "af613ea2e399e30d14d7eca150d9a3f4fa5e409e0976b773c95c9f752789212e",
-      "oddstar/channels/spectral_lines/__init__.py": "4380e080ee02a361b9e75f562858e145a7a88221e5380218bc7e4c4a5eebb917",
-      "oddstar/channels/spectral_lines/channel.py": "24e151d628e08d4a171225c01cd94967003a105ce107cc321fad3877f2bcb77c",
+      "oddstar/channels/ir_timedomain/__init__.py": "db31a0eb206d0dee5a43b28f2e878c3b4bbfcfd0514ef140b8a99075a99c6317",
+      "oddstar/channels/ir_timedomain/channel.py": "6ec0ccaa5a554317a5f1f7be755b2931fa120b5ab6381984dc7f4fa9f3892594",
       "oddstar/config.py": "46af545c91b0db22ac5d71dcec4529e1d1cebfe3b62cb3be2b5268481ef3df0c",
       "oddstar/dossier/plots.py": "d304dad52af137199576932c3562f600003172fbff1f4712ef4bdc8a2b472e4d",
       "oddstar/errors.py": "6e2757f307284892a5d69bf8967ee111d49bcd4c4100bf82316d02d7fb09ed30",
@@ -174,8 +210,8 @@
       "oddstar/vet/radio_checks.py": "a80a21256c2adea7ed3fc463abd9dd6f38658fa316f5c08e7987475b9e12fd8f",
       "oddstar/vet/spectral_checks.py": "f9d6171de7e05d89db987dedb1bd0521ebce4fe1cce2989aba078ea1a7a69c15",
       "oddstar/vet/underluminous_checks.py": "50f9093f9d224f15068f8b456ca535032df7e3f835bd2e5a6ab5d680f6ed74a0",
-      "oddstar/vet/vanishing_checks.py": "6dc1a99d71d9d792aa581152313f874e4dd03d6487fcb3cd3b5d36bf77490128"
+      "oddstar/vet/vanishing_checks.py": "6ae056277d8a80c2ac2e06ffa63771770afd48b0da8e3c509cde1a043692fc2b"
     }
   },
-  "code_fingerprint": "664a2a07cfafbd03aba498a5ed3e95f1c9c3b1c33d5a46375dbca7f3f8981ca0"
+  "code_fingerprint": "26c599029e6def70916c007b3895354d369c2ad57fd74d6aa5c09a4c4a528690"
 }
