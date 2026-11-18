@@ -634,6 +634,79 @@ def _phot_quality_where_sql(cfg: PipelineConfig) -> str:
     """
 
 
+# The ESA sync service returns at most this many rows and gives no error when it stops there (seen live on
+# 2026-11-17: the bulge region index came back with exactly 50,000 rows). An answer this long is not the whole region.
+GAIA_SYNC_ROW_CAP = 50_000
+# Key-range slices: rows per page (well under the cap), where each key starts and ends, and the first slice width.
+# source_id packs a HEALPix level-12 pixel into its high bits, so a source_id range is a patch of sky.
+SLICE_PAGE_ROWS = 1000
+SLICE_MAX_NARROWINGS = 6
+SLICE_KEYS: dict[str, dict[str, int]] = {
+    "random_index": {"max": 2**33, "initial_width": 1_000_000},
+    "source_id": {"max": 2**63 - 1, "initial_width": 2**52},
+}
+
+
+def _fetch_live_sliced(
+    *,
+    where_gaia: str,
+    key: str,
+    reg: str,
+    n_lim: int,
+    after_key: int | None,
+    cfg: PipelineConfig,
+    cache: RawCache,
+) -> tuple[list[dict[str, Any]], list[ManifestRecord]]:
+    """The first `n_lim` stars by `key` (after `after_key`) that pass the region and photometry cuts, read in slices.
+
+    This is the same sample the single-shot `SELECT TOP n ... ORDER BY g.<key>` defines, built without asking the
+    archive to sort the whole region: each query covers one range `lo < g.<key> <= hi`, sorted and limited to one
+    page. A full page means the range may hold more, so the next query starts after the last key returned; a short
+    page means the range is done. Everything below the current `lo` is therefore complete at every step, and the
+    answer does not depend on how the ranges were cut. A range that fails (the archive times out) is retried
+    narrower; a range that returns little is followed by a wider one.
+    """
+    spec = SLICE_KEYS[key]
+    key_max = int(spec["max"])
+    width = int(spec["initial_width"])
+    lo = int(after_key) if after_key is not None else -1
+    rows_all: list[dict[str, Any]] = []
+    manifests: list[ManifestRecord] = []
+    narrowings = 0
+    while len(rows_all) < n_lim and lo < key_max:
+        hi = min(lo + width, key_max)
+        query = " ".join(
+            f"""
+            SELECT TOP {SLICE_PAGE_ROWS} {_select_columns_sql()}
+            {_join_and_phot_cuts_sql()}
+            WHERE {where_gaia}
+            AND g.{key} > {lo} AND g.{key} <= {hi}
+            {_phot_quality_where_sql(cfg)}
+            ORDER BY g.{key} ASC
+            """.split()
+        )
+        try:
+            rows, man, _ = _tap_query_cached(
+                urls=GAIA_TAP_URLS, query=query, archive="gaia", release=f"{cfg.gaia.release}_{reg}_slice", cache=cache, timeout_s=90,
+            )
+        except ArchiveAccessError:
+            if narrowings >= SLICE_MAX_NARROWINGS or width <= 1:
+                raise
+            narrowings += 1
+            width = max(1, width // 4)
+            continue
+        manifests.append(man)
+        rows_all.extend(rows)
+        if len(rows) >= SLICE_PAGE_ROWS:
+            lo = max(int(r[key]) for r in rows)
+        else:
+            lo = hi
+            if len(rows) < SLICE_PAGE_ROWS // 4:
+                width *= 2
+    rows_all.sort(key=lambda r: int(r[key]))
+    return rows_all[:n_lim], manifests
+
+
 def _fetch_live_two_stage(
     *,
     base_where_gaia: str,
@@ -643,7 +716,12 @@ def _fetch_live_two_stage(
     cfg: PipelineConfig,
     cache: RawCache,
 ) -> tuple[list[dict[str, Any]], list[ManifestRecord]]:
-    """Two-stage Gaia-index -> AllWISE/2MASS batch join for paginated live queries."""
+    """Two-stage Gaia-index -> AllWISE/2MASS batch join for paginated live queries.
+
+    The index lists the whole region, which only works while the region is smaller than the archive's row cap.
+    An index at the cap is truncated to an arbitrary part of the region, so it is not used: the sample is then read
+    in `random_index` slices instead, which gives the stars the untruncated index would have given.
+    """
     idx_query = " ".join(
         f"SELECT g.source_id, g.random_index FROM gaiadr3.gaia_source AS g WHERE {base_where_gaia}".split()
     )
@@ -655,6 +733,11 @@ def _fetch_live_two_stage(
         cache=cache,
         timeout_s=90,
     )
+    if len(idx_rows) >= GAIA_SYNC_ROW_CAP:
+        rows, mans = _fetch_live_sliced(
+            where_gaia=base_where_gaia, key="random_index", reg=reg, n_lim=n_lim, after_key=after_random_index, cfg=cfg, cache=cache,
+        )
+        return rows, [idx_man, *mans]
     ordered = sorted(idx_rows, key=lambda r: int(r["random_index"]))
     if after_random_index is not None:
         ordered = [r for r in ordered if int(r["random_index"]) > int(after_random_index)]
@@ -800,6 +883,18 @@ def fetch_live_halo_bulge_sample(
                 after_random_index=after_random_index,
                 cfg=cfg,
                 cache=cache,
+            )
+            return [_row_to_star_dict(r, gaia_release=cfg.gaia.release) for r in rows], mans
+    else:
+        # The local cut has no random-index paging: its sample is the first `n_lim` stars by source_id. The
+        # single-shot form of that also timed out live (HTTP 408 after about a minute, 2026-11-17), and no mirror
+        # holds the AllWISE/2MASS original tables. A stored single-shot answer is still used; otherwise the same
+        # stars are read in source_id slices.
+        one_sig = hashlib.sha256(f"{'|'.join(GAIA_TAP_URLS)}|{' '.join(query.split())}".encode("utf-8")).hexdigest()[:24]
+        cached_one = cache.lookup("gaia", f"{cfg.gaia.release}_{reg}", one_sig)
+        if cached_one is None or cached_one.offline_fixture:
+            rows, mans = _fetch_live_sliced(
+                where_gaia=base_where_gaia, key="source_id", reg=reg, n_lim=n_lim, after_key=None, cfg=cfg, cache=cache,
             )
             return [_row_to_star_dict(r, gaia_release=cfg.gaia.release) for r in rows], mans
     try:
