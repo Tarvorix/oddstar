@@ -319,6 +319,81 @@ def test_build_neowise_comparison_groups_stars_on_visit_grid() -> None:
     assert all(e is not None for e in comp["ensemble_dw2_err_mag"])
 
 
+def test_variation_carried_by_saturated_neowise_bands_fails(tmp_path: Path, cfg: Any) -> None:
+    """Config 1.7.0: brighter than W1 = 8.0 / W2 = 7.0 the single-exposure fluxes carry a bias the quoted errors do not hold."""
+    from oddstar.fuse.engine import assign_tier
+    from oddstar.schemas import ChannelScore
+    from oddstar.vet import vet_target
+
+    rng = np.random.default_rng(11)
+    neo = step_neowise(rng)                                   # median W2 8.09, W1 8.44: not saturated, a 0.3 mag step in both
+    bright = {k: ([v * 40.0 for v in vals] if k.endswith("_mjy") else vals) for k, vals in neo.items()}   # 4 mag brighter
+    # Saturated in both bands, and no comparison stars exist for a star this bright: the check fails on saturation
+    star = live_star()
+    star["neowise"] = dict(bright, comparison={"status": "too_few_comparison_stars", "n_stars": 0, "query_log": ["w1mpro between 3.98 and 6.48: 255 rows"]})
+    res = check_systematics_window(star, cfg, tmp_path / "sat")
+    assert res.status == "fail" and "saturated photometry" in res.note and "W2 3.80 (limit 7.0)" in res.note
+    sat = res.metrics["neowise"]["saturation"]
+    assert sat["bands_varying"] == ["w1", "w2"] and sat["saturated"] == {"w1": True, "w2": True}
+    # The same star without the brightening is `not_evaluated` as before (no comparison stars), never a pass
+    faint = live_star()
+    faint["neowise"] = dict(neo, comparison={"status": "too_few_comparison_stars", "n_stars": 0})
+    assert check_systematics_window(faint, cfg, tmp_path / "unsat").status == "not_evaluated"
+    # W1 saturated, W2 not, and the variation is in both: W2 still carries it, so saturation does not decide
+    mixed = dict(neo, w1_mjy=[v * 2.0 for v in neo["w1_mjy"]], w1_err_mjy=[v * 2.0 for v in neo["w1_err_mjy"]])   # W1 7.69
+    half = live_star()
+    half["neowise"] = dict(mixed, comparison={"status": "too_few_comparison_stars", "n_stars": 0})
+    res_h = check_systematics_window(half, cfg, tmp_path / "half")
+    assert res_h.status == "not_evaluated" and "saturated photometry" not in res_h.note
+    # A saturated star that does not vary is not failed
+    flat = {k: ([float(np.median(vals))] * len(vals) if k in ("w1_mjy", "w2_mjy") else vals) for k, vals in bright.items()}
+    quiet = live_star()
+    quiet["neowise"] = flat
+    assert "saturated" not in check_systematics_window(quiet, cfg, tmp_path / "quiet").note
+    # In the tiers: a failed systematics_window is an artifact, so the flag is Rejected
+    score = ChannelScore(source_id="1", channel="ir_timedomain", raw_statistic=30.0, false_alarm_prob=1e-6, flagged=True, rank_score=30.0, summary="x")
+    star.update({"abs_g_mag": 3.4, "teff_k": 5009.0, "teff_k_source": "gspphot"})
+    tier, why = assign_tier([score], vet_target(star, [score], cfg, tmp_path / "tier"), cfg)
+    assert tier == "Rejected" and "systematics_window" in why
+
+
+def test_infrared_change_of_a_luminous_giant_is_explained(tmp_path: Path, cfg: Any) -> None:
+    """Config 1.7.0: an ir_timedomain flag also gets the `evolved` check; before, a variable giant could reach Tier B."""
+    from oddstar.fuse.engine import assign_tier
+    from oddstar.schemas import ChannelScore
+    from oddstar.vet import vet_target
+    from oddstar.vet.ir_checks import check_evolved
+
+    rng = np.random.default_rng(12)
+    score = ChannelScore(source_id="1", channel="ir_timedomain", raw_statistic=30.0, false_alarm_prob=1e-6, flagged=True, rank_score=30.0, summary="x")
+
+    def tier_of(tag: str, **hr: Any) -> tuple[str, str | None, dict[str, str]]:
+        star = live_star()
+        star["neowise"] = step_neowise(rng)
+        star.update(hr)
+        vet = vet_target(star, [score], cfg, tmp_path / tag)
+        return (*assign_tier([score], vet, cfg), {v.check: v.status for v in vet})
+
+    # An M giant (M_G -2.9, 3600 K): long-period variability is ordinary
+    tier, why, checks = tier_of("m", abs_g_mag=-2.9, teff_k=3612.0, teff_k_source="gspphot")
+    assert checks["evolved"] == "fail" and tier == "Explained" and "evolved" in why
+    # A luminous star that the catalogue calls 5,600 K behind 4 mag of extinction is no main-sequence star either:
+    # at M_G < 0.5 the main sequence is hotter than 9,000 K. The limit was 5,200 K until 1.7.0.
+    tier, why, checks = tier_of("g", abs_g_mag=-4.8, teff_k=5597.0, teff_k_source="gspphot")
+    assert checks["evolved"] == "fail" and tier == "Explained"
+    # A dwarf passes `evolved`; an A star at M_G 0.3 is on the main sequence and passes too
+    assert tier_of("k", abs_g_mag=6.5, teff_k=4510.0, teff_k_source="gspphot")[2]["evolved"] == "pass"
+    hot = live_star()
+    hot.update({"abs_g_mag": 0.3, "teff_k": 9800.0, "teff_k_source": "gspphot"})
+    res = check_evolved(hot, cfg, tmp_path / "a")
+    assert res.status == "pass" and "not a luminous giant" in res.note
+    # No luminosity, or a giant-bright star with a default temperature: `not_evaluated`, so the tier is capped at C
+    tier, why, checks = tier_of("none")
+    assert checks["evolved"] == "not_evaluated" and tier == "C"
+    tier, why, checks = tier_of("def", abs_g_mag=-1.0, teff_k=5500.0, teff_k_source="default_5500K")
+    assert checks["evolved"] == "not_evaluated" and tier == "C"
+
+
 # --------------------------------------------------------------------------------- neighbour_signal
 
 

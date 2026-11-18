@@ -2,6 +2,43 @@
 
 All threshold, sample-cut, and prompt changes must be logged here under Ground Rule R4 before running validation or search.
 
+## [1.7.0] - 2026-11-18
+
+### Infrared-change vetting: saturated NEOWISE photometry and luminous giants
+On 2026-11-18 every infrared-change (`ir_timedomain`) flag that vetting had not explained was looked at again
+under the corrected NEOWISE systematics test (runs `v160-local-td`, `v160-bulge-td`, and the halo run). Two bulge
+stars stood at Tier B and three stars at Tier C. Gaia DR3 gives four of the five a giant's surface gravity, and
+four are far brighter than the NEOWISE saturation limits. The vetting of this channel had no rule for either
+case: it ran the six light-curve checks only. This version adds both rules. They were written after looking at
+those five stars, which is said here plainly; their limits are not fitted to them but taken from the NEOWISE
+documentation and from the position of the main sequence.
+
+- **Saturation** (`systematics_window`, NEOWISE part). New keys `channels.ir_timedomain.neowise_saturation_w1_mag: 8.0`
+  and `neowise_saturation_w2_mag: 7.0`: "The characteristic transition from non-saturated to saturated detections
+  occurs near W1=8.0 mag and W2=7.0 mags" (NEOWISE Explanatory Supplement, II.1.c.iv). Brighter than that the
+  profile-fit fluxes are overestimated, by more than 1 mag near 4th magnitude, and the bias changed with the
+  temperature of the telescope and detectors (II.1.c.iv.a). The quoted errors do not hold it, so a saturated star
+  passes the channel's chi-square, slope and jump thresholds without varying. Rule: when the star's median
+  magnitude is brighter than the limit in every band that carries its variation (W1: its chi-square; W2: its
+  chi-square, the slope, the jump), the check fails as an artifact (tier Rejected). A star with an unsaturated
+  band that varies is tested as before. Such stars also have no comparison stars of their brightness, so until now
+  they stayed `not_evaluated` at Tier C for good.
+- **Luminous giants.** An `ir_timedomain` flag now also gets the existing `evolved` check. A giant above the
+  horizontal branch varies in the infrared by tenths of a magnitude over months to years (long-period and
+  semi-regular variables); `evolved` failing gives tier Explained.
+- **`vetting.evolved_teff_max_k`: 5200 -> 8000.** `evolved` fails for M_G < `evolved_mg_bright_limit` (0.5) and
+  Teff below this limit. At M_G < 0.5 the main sequence is hotter than about 9,500 K, so a star that bright and
+  cooler than 8,000 K has left it whatever its exact temperature. The old limit let a star pass that Gaia GSP-Phot
+  puts at 5,600 K behind 4.3 mag of extinction with log g = 1.5 (Gaia DR3 4144479235457826816): the photometric
+  temperature of a reddened giant is not reliable to 400 K. The check also applies to `ir_excess` and
+  `generic_outlier` flags: a star of M_G < 0.5 between 5,200 and 8,000 K that was passed as "main sequence" there
+  now fails as a luminous giant. The note of a passing star says "not a luminous giant" instead of "main sequence"
+  (a clump giant or subgiant is neither).
+- Not changed: every channel's search thresholds, so no search result changes. Vetting results of infrared-change
+  flags made under 1.6.0 are redone under this version before any tier is quoted.
+- Not covered yet: giants below the limit (red clump, subgiants) and crowding in the bulge fields have no rule of
+  their own.
+
 ## Radio planner: ON and OFF files are of the same product - 2026-11-18, configuration unchanged (1.6.0)
 
 The first Parkes scan set that was fetched (the calibrator field 1934-638, beam 3, of 2018-04-17) could not be
