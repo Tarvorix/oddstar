@@ -152,12 +152,17 @@ stored record (`vetting_archive.spherex_colours`, query status `spherex_colours`
 ## Commands
 
 ```
-oddstar spherex verdict --ids <gaia_id>[,<gaia_id>] [--as-of 2026-11-18] [--run-id <name>]
+oddstar spherex verdict --ids <gaia_id>[,<gaia_id>] [--as-of 2026-11-18] [--passes 2] [--run-id <name>]
 ```
 
 Measures each star and its comparison stars on detectors 3 to 6, applies the rule, stores the colours for vetting
 and writes `runs/<run-id>/spherex_verdict.json` (default run id `spherex-verdict-<first id>`). Stored rows are not
-fetched again, so a repeat after a refused cutout fetches only what is missing.
+fetched again, so a repeat after a refused cutout fetches only what is missing. The command does that itself: a
+star with images missing is gone through again (`--passes`, 2 by default), because the rule counts a comparison
+star only when its run is complete and the archive refuses cutouts when it is busy. On the first live run
+(2026-11-18, evening) the archive took about 9 s per cutout and 30 minutes per star, against 8 minutes in the
+morning, and every one of the first five comparison stars was short of some images after one pass. Give a later
+run of the same star the same `--as-of`, so that it works from the same image list.
 
 
 ```

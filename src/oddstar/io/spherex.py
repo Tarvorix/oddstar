@@ -554,7 +554,8 @@ def colour_record(star: dict[str, Any], result: dict[str, Any]) -> dict[str, Any
             "catalogue": {k: (None if mags.get(k) is None else float(mags[k])) for k in ("Ks", "W1", "W2")},
             "windows": windows, "k_w2": k_w2, "k_w2_err": k_w2_err, "w1_w2": w1_w2, "w1_w2_err": w1_w2_err,
             "n_images": result.get("n_images"), "n_measured": result.get("n_measured"), "n_failed": result.get("n_failed"),
-            "complete": bool(result.get("complete")), "n_misfit": (result.get("summary") or {}).get("n_misfit"),
+            "complete": bool(result.get("complete")), "errors": list(result.get("errors") or [])[:5],
+            "n_misfit": (result.get("summary") or {}).get("n_misfit"),
             "mjd_min": block.get("mjd_min"), "mjd_max": block.get("mjd_max")}
 
 

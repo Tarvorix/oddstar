@@ -235,11 +235,12 @@ def test_spherex_verdict_command_measures_stores_and_judges(monkeypatch, tmp_pat
             return _photometry()
         if sid == "511":
             raise RuntimeError("HTTP 503 from the archive")
-        # bare photospheres of the catalogue colours, with the usual window offsets; one run short of two cutouts
+        # bare photospheres of the catalogue colours, with the usual window offsets; one run is short of two cutouts the
+        # first time and whole the second, one is short of them every time
         k = 666.7e3 * 10 ** (-0.4 * (10.49 + 0.01 + 0.07))
         w1 = 309.54e3 * 10 ** (-0.4 * (10.49 - 0.05 + 0.11))
         w2 = 171.787e3 * 10 ** (-0.4 * 10.49)
-        return _photometry(k, w1, w2, complete=sid != "510")
+        return _photometry(k, w1, w2, complete=sid != "509" and not (sid == "510" and [m[0] for m in measured].count("510") == 1))
 
     monkeypatch.setattr(sx, "target_star", lambda sid, cfg, cache, **kw: dict(target) if sid == "42" else None)
     monkeypatch.setattr(sx, "comparison_stars", lambda t, cfg, cache, **kw: {"stars": [dict(c) for c in comps], "n_examined": 30, "examined_out_to_deg": 0.5, "n_clean": 20,
@@ -255,9 +256,13 @@ def test_spherex_verdict_command_measures_stores_and_judges(monkeypatch, tmp_pat
         assert code == 0, payload
         first, second = payload["data"]["stars"]
         assert first["status"] == "measured" and first["verdict"] == "redder_now" and first["rule"]["n_comparison_usable"] == 10
+        # A star with images missing is gone through a second time, and only such a star
+        assert [m[0] for m in measured] == ["42"] + [str(500 + i) for i in range(9)] + ["509", "509", "510", "510", "511", "511"]
+        assert [c["passes"] for c in first["comparison"]] == [1] * 9 + [2, 2, 2] and first["target"]["passes"] == 1
+        assert first["comparison"][9]["complete"] is False and first["comparison"][9]["n_failed"] == 2 and first["comparison"][10]["complete"] is True
         assert second == {"source_id": "43", "status": "no_catalogue_record"}
-        assert [m[0] for m in measured] == ["42"] + [str(500 + i) for i in range(12)] and all(m[1] == (3, 4, 5, 6) for m in measured)
-        assert first["comparison"][11]["error"].startswith("RuntimeError: HTTP 503") and first["comparison"][10]["complete"] is False
+        assert all(m[1] == (3, 4, 5, 6) for m in measured)
+        assert first["comparison"][11]["error"].startswith("RuntimeError: HTTP 503") and first["comparison"][11]["complete"] is False
         assert first["comparison"][0]["comparison_sep_arcsec"] == 360.0 and first["selection"]["n_clean"] == 20
         assert json.loads((run_dir / "spherex_verdict.json").read_text())["stars"][0]["verdict"] == "redder_now"
         # What vetting reads afterwards
