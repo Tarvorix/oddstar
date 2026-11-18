@@ -1,10 +1,10 @@
 {
   "channel": "ir_excess",
-  "gaia_release": "dr3",
+  "gaia_release": "dr4",
   "split": "all",
-  "config_hash": "b16be4481f5c",
-  "git_commit": "7434185af4bec5ab5edd1bd7b7d2112b6a9c8220",
-  "timestamp_utc": "2026-11-18T04:58:31.567225+00:00",
+  "config_hash": "6b79cf018056",
+  "git_commit": "142bbe4d233f4463bba8e4db718913f14e7de069",
+  "timestamp_utc": "2026-11-18T05:23:21.427696+00:00",
   "passed": true,
   "blind_recovery_rate": 1.0,
   "blind_total": 13,
@@ -93,39 +93,39 @@
   "expected_false_positives": 3.333333333333333,
   "calibration_curve": [
     {
-      "stat": 0.38075422248131785,
+      "stat": 0.37785869310728226,
       "fap": 0.5
     },
     {
-      "stat": 0.9464140192984687,
+      "stat": 0.9255569747401845,
       "fap": 0.25
     },
     {
-      "stat": 1.4311844895930481,
+      "stat": 1.4028896176272196,
       "fap": 0.09999999999999998
     },
     {
-      "stat": 1.8626364652765373,
+      "stat": 1.8705648445010639,
       "fap": 0.050000000000000044
     },
     {
-      "stat": 2.3468398389876666,
+      "stat": 2.3961961832470196,
       "fap": 0.010000000000000009
     },
     {
-      "stat": 4.258870287829769,
+      "stat": 4.277589236957066,
       "fap": 0.0001
     },
     {
-      "stat": 5.758870287829769,
+      "stat": 5.777589236957066,
       "fap": 1e-6
     },
     {
-      "stat": 8.758870287829769,
+      "stat": 8.777589236957066,
       "fap": 1e-9
     },
     {
-      "stat": 14.758870287829769,
+      "stat": 14.777589236957066,
       "fap": 1e-12
     }
   ],
@@ -144,7 +144,7 @@
       {
         "source_id": "2996362101189875200",
         "flagged": true,
-        "raw_stat": 19.87517358536727
+        "raw_stat": 19.874251578227128
       },
       {
         "source_id": "1638028353993041792",
@@ -154,7 +154,7 @@
       {
         "source_id": "5290837497970360960",
         "flagged": true,
-        "raw_stat": 19.661324339200586
+        "raw_stat": 19.668286145096083
       },
       {
         "source_id": "6048418276566039424",
@@ -164,37 +164,37 @@
       {
         "source_id": "66549657436283904",
         "flagged": true,
-        "raw_stat": 18.834489154341796
+        "raw_stat": 18.82924896811775
       },
       {
         "source_id": "6485732215620751360",
         "flagged": true,
-        "raw_stat": 19.23653321518447
+        "raw_stat": 19.248346247068458
       },
       {
         "source_id": "6438274350302427904",
         "flagged": true,
-        "raw_stat": 20.56429029495777
+        "raw_stat": 20.560070621752743
       },
       {
         "source_id": "6133409280036818688",
         "flagged": true,
-        "raw_stat": 20.322935570822583
+        "raw_stat": 20.322159712238804
       },
       {
         "source_id": "5551530885782831616",
         "flagged": true,
-        "raw_stat": 20.42617741095508
+        "raw_stat": 20.421779325168355
       },
       {
         "source_id": "4066368953121417984",
         "flagged": true,
-        "raw_stat": 19.699605811741463
+        "raw_stat": 19.69875104944475
       },
       {
         "source_id": "115725517896200320",
         "flagged": true,
-        "raw_stat": 20.607859181238908
+        "raw_stat": 20.60777384382339
       }
     ],
     "impostor_rejection": [
@@ -320,10 +320,10 @@
       "oddstar/vet/ir_checks.py": "a77c031b87845bc4bca5a4317bdb0d9107ede05a9e0db0de3c9f48222f36f688",
       "oddstar/vet/lc_checks.py": "70a4323aca361ead440f139258a69cf7d196e1b040861704b6a730d504d41998",
       "oddstar/vet/radio_checks.py": "a80a21256c2adea7ed3fc463abd9dd6f38658fa316f5c08e7987475b9e12fd8f",
-      "oddstar/vet/spectral_checks.py": "fc0c86caac14a3a652c7d45740d2725cbe3a573f5db40b6f0d1198ec0a0995b7",
+      "oddstar/vet/spectral_checks.py": "f9d6171de7e05d89db987dedb1bd0521ebce4fe1cce2989aba078ea1a7a69c15",
       "oddstar/vet/underluminous_checks.py": "50f9093f9d224f15068f8b456ca535032df7e3f835bd2e5a6ab5d680f6ed74a0",
       "oddstar/vet/vanishing_checks.py": "6dc1a99d71d9d792aa581152313f874e4dd03d6487fcb3cd3b5d36bf77490128"
     }
   },
-  "code_fingerprint": "3dfce22a8edb47e7e78a454affb4f7086d875dc4ad6637b53652e28d14398ee3"
+  "code_fingerprint": "bc70a3a989bb170dad8362ca20840d78cea18610fa71278e209c0a4cc61237c4"
 }
