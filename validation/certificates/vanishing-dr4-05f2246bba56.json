@@ -1,10 +1,10 @@
 {
   "channel": "vanishing",
-  "gaia_release": "dr3",
+  "gaia_release": "dr4",
   "split": "all",
-  "config_hash": "ee4eba39a792",
-  "git_commit": "df694b2b0d0043f899664193528ee8f71dade83a",
-  "timestamp_utc": "2026-11-18T07:13:51.046187+00:00",
+  "config_hash": "05f2246bba56",
+  "git_commit": "9502badb10bb080a8fc88b1b15b65fe1439bef57",
+  "timestamp_utc": "2026-11-18T15:17:23.587087+00:00",
   "passed": true,
   "blind_recovery_rate": 1.0,
   "blind_total": 4,
@@ -155,14 +155,14 @@
       "oddstar/validate/fingerprint.py": "94a922c6bd78f5ae3dbc606b482957a8a8f9cc8c522f695d88e814a8a7f81a91",
       "oddstar/validate/harness.py": "d63ed92087688d45acb51f58b4b68bd7f81a3ca298b9c8cf540bf1d656a46388",
       "oddstar/vet/common.py": "0107f4da0f5b310f759688785f0c9347c5785db6ca6129452441ced3cb96622e",
-      "oddstar/vet/engine.py": "06c8dbb115be221f6d5d0443120e57aba7b35bcca6108f2885a8ee9f06b70403",
-      "oddstar/vet/ir_checks.py": "a77c031b87845bc4bca5a4317bdb0d9107ede05a9e0db0de3c9f48222f36f688",
-      "oddstar/vet/lc_checks.py": "70a4323aca361ead440f139258a69cf7d196e1b040861704b6a730d504d41998",
+      "oddstar/vet/engine.py": "aeb74a5b12a2a16bff0a33aeeb6890fd758709200c40f49a3bdad131efc3d945",
+      "oddstar/vet/ir_checks.py": "224450e6d2cc1b554369a526083c412461c7f0a1e35e67d6ac2790637ff0d333",
+      "oddstar/vet/lc_checks.py": "f8c925d6553298f2cc2d28bf8d1976b8aaa450723702374ae0e40af2a8681138",
       "oddstar/vet/radio_checks.py": "4cb0f9a2a482f96245a4950ff64ff4d82071c6a4cbd9de55d49f56c14a659246",
       "oddstar/vet/spectral_checks.py": "f9d6171de7e05d89db987dedb1bd0521ebce4fe1cce2989aba078ea1a7a69c15",
       "oddstar/vet/underluminous_checks.py": "50f9093f9d224f15068f8b456ca535032df7e3f835bd2e5a6ab5d680f6ed74a0",
       "oddstar/vet/vanishing_checks.py": "9903ff429c6bc79c23ee19aad2f5f31444b897c85b945945fb7984a1050ae8e3"
     }
   },
-  "code_fingerprint": "409d47cd08fd51273ea496ffa0ae58ab10f0f741f917b213f0fbbe817ddf0385"
+  "code_fingerprint": "6b89a25940f4987507140add30ebac7b0a170d251c929b601d5db32d29f7951b"
 }
