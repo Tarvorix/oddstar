@@ -2,6 +2,37 @@
 
 All threshold, sample-cut, and prompt changes must be logged here under Ground Rule R4 before running validation or search.
 
+## Radio search version 3 (`bl_local_search_v3`): the allocation table is complete from 698 to 2900 MHz - 2026-11-18, configuration unchanged (1.6.0)
+
+### Why
+The table `oddstar.io.bl_radio.RFI_ALLOCATIONS_MHZ` was extended twice in one night, each time after a search
+showed flags in a band it did not list (entries below). A third search then did the same: the 2017 S-band scan of
+HIP 11729 gave 64 flagged windows of 4,080, 49 of them outside the table: 35 at 1920 to 1930 MHz (cordless
+telephones), 1 at 1820 MHz, 4 in the PCS downlink band, 6 in the satellite telemetry band 2200 to 2290 MHz and 3
+in the 2400 MHz band of wireless networks. A table that grows where flags appear is fitted to the flags. It is
+replaced by a rule that does not look at them.
+
+### The rule
+From 698 to 2900 MHz every band that the United States table of frequency allocations (47 CFR 2.106, federal and
+non-federal columns) gives to a transmitting service is listed. In that range only the passive bands are not
+listed: 1400 to 1427 MHz, 1660.5 to 1668.4 MHz and 2690 to 2700 MHz. Seventeen bands are new: 1390 to 1400,
+1427 to 1435, 1668.4 to 1670, 1780 to 1850, 1915 to 1930, 1930 to 2000, 2000 to 2025, 2025 to 2110, 2110 to 2180,
+2200 to 2290, 2290 to 2300, 2300 to 2320, 2345 to 2360, 2360 to 2400, 2400 to 2483.5, 2500 to 2690 and 2700 to
+2900 MHz. A test checks that the listed bands and the passive bands tile 698 to 2900 MHz without gap or overlap.
+Above 2900 MHz only the satellite downlink bands are listed; the table has to be completed there before scans of
+those receivers are searched.
+
+### What it costs
+Between 698 and 2900 MHz a narrowband signal can pass `rfi_band` only in the three passive bands (44.9 MHz in
+all). Everywhere else it is marked as interference whatever the ON and OFF scans show, also when a full cadence
+shows it in every ON scan and in no OFF scan (the six lines at 825 MHz toward the NGC4168 field are such a case).
+Only a re-observation could tell such a signal from a transmitter, and the archive holds none for these stars.
+This is a choice between missing a real signal in a transmitter band and listing transmitters as leads; it is the
+owner's to make and was put to him on 2026-11-18.
+
+`SEARCH_VERSION` goes to `bl_local_search_v3`: no version 2 result is read again. The windows saved under
+`_work` are scored again without a download; a scan set whose saved windows were deleted is fetched again.
+
 ## Radio: cadences and the bands from 698 to 960 MHz - 2026-11-18, configuration unchanged (1.6.0)
 
 ### Radio: ON scans that follow each other are searched as one cadence
