@@ -13,8 +13,14 @@ it and stores the measured row. A row says what the plate shows at the position:
   to pixel, so the noise of an aperture is measured, not computed from the pixel scatter.
 - `peak`: the local maximum nearest to the position within `SEARCH_RADIUS_ARCSEC`, with its centroid offset, the
   same signal-to-noise taken at its centroid, and its width beside the median width of the other stars of the
-  cutout (`field_fwhm_median_arcsec`). The image's own sky solution is used as delivered; on the first-epoch
-  plates it is good to about 1.5 arcsec (measured on 30 fields, 2026-11-18).
+  cutout (`field_fwhm_median_arcsec`).
+
+The sky solution delivered with a cutout is a local approximation of the plate solution. On 203 ordinary stars
+(2026-11-18) it put one in eight first-epoch red images 2.5 to 3.5 arcsec from the star. So each cutout is first
+registered on the Gaia stars it holds (`REG_G_RANGE`, moved to the plate's date): the median offset between where
+the solution puts them and where their images are is added to the position before it is measured. A row says how
+many stars carried the registration (`registration`), and `registered` is false when fewer than `REG_MIN_STARS`
+did; the position is then measured where the delivered solution puts it.
 
 The position is the catalogue position moved to the date of each plate with the catalogue's proper motion.
 
@@ -46,18 +52,25 @@ from oddstar.io.cutouts import _clipped_stats, read_fits_image
 from oddstar.io.physics import propagate_position
 
 ARCHIVE = "historical_plates"
-MEASUREMENT_VERSION = "dss_plate_v1"
+MEASUREMENT_VERSION = "dss_plate_v2"
 DSS_URL = "https://archive.stsci.edu/cgi-bin/dss_search"
 FIRST_EPOCH_SURVEYS = ("poss1_red", "poss1_blue")
 SECOND_EPOCH_SURVEYS = ("poss2ukstu_red", "poss2ukstu_blue", "poss2ukstu_ir")
 SURVEYS = FIRST_EPOCH_SURVEYS + SECOND_EPOCH_SURVEYS
-CUTOUT_ARCMIN = 2.0
+CUTOUT_ARCMIN = 4.0  # wide enough to hold a handful of Gaia stars to register the image on
 APERTURE_RADIUS_ARCSEC = 2.5
 SKY_ANNULUS_ARCSEC = (8.0, 20.0)
 SEARCH_RADIUS_ARCSEC = 8.0
 PEAK_MIN_SIGMA = 3.0  # a local maximum counts when it stands this many pixel scatters above the sky
 FIELD_STAR_MIN_SNR = 10.0  # stars of the cutout whose width is the reference for a point source
 MIN_NOISE_APERTURES = 8
+# Registration of a cutout on Gaia stars (the delivered sky solution is off by up to 3.5 arcsec on first-epoch plates)
+REG_G_RANGE = (12.0, 19.0)  # brighter stars are saturated on the plates, fainter ones are not reliably there
+REG_MATCH_ARCSEC = 6.0  # a reference star's image is looked for this far from where the delivered solution puts it
+REG_EXCLUDE_ARCSEC = 10.0  # reference stars this close to the measured position, or to each other, are not used
+REG_MIN_PEAK_SIGMA = 10.0
+REG_MIN_STARS = 3
+GAIA_EPOCH = 2016.0
 PLATE_YEARS = (1940.0, 2005.0)
 
 Sleeper = Callable[[float], Any]
@@ -108,10 +121,34 @@ def _local_maxima(img: np.ndarray, floor: float) -> list[tuple[int, int]]:
     return [(int(y), int(x)) for y, x in zip(*np.nonzero(peaks))]
 
 
+def _register(bright: list[tuple[float, float]], refs_xy: list[tuple[float, float]], x0: float, y0: float, pix: float) -> dict[str, Any]:
+    """Median offset (pixels) between where the delivered solution puts the reference stars (`refs_xy`) and their
+    images (`bright`, centroids of the cutout's bright peaks). (x0, y0) is the position to be measured."""
+    excl = REG_EXCLUDE_ARCSEC / pix
+    usable = [(xr, yr) for i, (xr, yr) in enumerate(refs_xy)
+              if math.hypot(xr - x0, yr - y0) > excl
+              and all(math.hypot(xr - xo, yr - yo) > excl for j, (xo, yo) in enumerate(refs_xy) if j != i)]
+    offsets: list[tuple[float, float]] = []
+    for xr, yr in usable:
+        near = [(cx, cy) for cx, cy in bright if math.hypot(cx - xr, cy - yr) * pix <= REG_MATCH_ARCSEC]
+        if len(near) == 1:  # two bright peaks near one prediction: which is the star cannot be told
+            offsets.append((near[0][0] - xr, near[0][1] - yr))
+    out: dict[str, Any] = {"n_references": len(refs_xy), "n_usable": len(usable), "n_stars": len(offsets)}
+    if len(offsets) < REG_MIN_STARS:
+        return dict(out, registered=False, dx_px=0.0, dy_px=0.0)
+    arr = np.asarray(offsets)
+    dx, dy = float(np.median(arr[:, 0])), float(np.median(arr[:, 1]))
+    resid = np.hypot(arr[:, 0] - dx, arr[:, 1] - dy) * pix
+    return dict(out, registered=True, dx_px=dx, dy_px=dy, dx_arcsec=round(dx * pix, 2), dy_arcsec=round(dy * pix, 2),
+                scatter_arcsec=round(float(1.4826 * np.median(resid)), 2), max_residual_arcsec=round(float(resid.max()), 2))
+
+
 def measure_plate_cutout(payload: bytes, ra: float, dec: float, *, pmra_mas_yr: float = 0.0, pmdec_mas_yr: float = 0.0,
-                         position_epoch: float | None = None) -> dict[str, Any]:
+                         position_epoch: float | None = None, references: tuple[tuple[float, float, float, float], ...] = ()) -> dict[str, Any]:
     """What one plate cutout shows at a position. `ra`, `dec` are at `position_epoch`; with a proper motion the
     position is moved to the plate's date before it is measured.
+
+    `references` are Gaia stars (ra, dec, pmra, pmdec at epoch 2016.0) to register the image on; see the module text.
 
     `status` is "ok", "off_cutout" (the position is closer to the edge than the sky annulus needs),
     "no_plate_date" (a proper motion was given and the plate has no date) or "no_noise_estimate".
@@ -140,16 +177,36 @@ def measure_plate_cutout(payload: bytes, ra: float, dec: float, *, pmra_mas_yr: 
     wcs = WCS(hdr).celestial
     pix = float(np.mean(proj_plane_pixel_scales(wcs))) * 3600.0
     x0, y0 = (float(v) for v in wcs.all_world2pix(ra, dec, 0))
-    row.update({"pixel_arcsec": round(pix, 3), "x": round(x0, 2), "y": round(y0, 2)})
+    row.update({"pixel_arcsec": round(pix, 3), "x_delivered": round(x0, 2), "y_delivered": round(y0, 2)})
     ny, nx = img.shape
+    yy, xx = np.mgrid[0:ny, 0:nx].astype(float)
+    r_ap = APERTURE_RADIUS_ARCSEC / pix
+
+    # Registration: the bright peaks of the whole cutout, against its own sky level and pixel scatter
+    g_sky, g_sig = _clipped_stats(img.ravel())
+    bright: list[tuple[float, float]] = []
+    if references and math.isfinite(g_sig) and g_sig > 0:
+        for py, px in _local_maxima(img, g_sky + REG_MIN_PEAK_SIGMA * g_sig):
+            mom = _moments(img, xx, yy, float(px), float(py), r_ap + 1.0, g_sky)
+            if mom is not None:
+                bright.append((mom[0], mom[1]))
+    refs_xy: list[tuple[float, float]] = []
+    for r_ra, r_dec, r_pmra, r_pmdec in references:
+        if epoch is not None:
+            r_ra, r_dec = propagate_position(r_ra, r_dec, r_pmra, r_pmdec, GAIA_EPOCH, float(epoch))
+        xr, yr = (float(v) for v in wcs.all_world2pix(r_ra, r_dec, 0))
+        if 3.0 <= xr <= nx - 4.0 and 3.0 <= yr <= ny - 4.0:
+            refs_xy.append((xr, yr))
+    reg = _register(bright, refs_xy, x0, y0, pix)
+    x0, y0 = x0 + reg.pop("dx_px"), y0 + reg.pop("dy_px")
+    row.update({"registered": reg.pop("registered"), "registration": reg, "x": round(x0, 2), "y": round(y0, 2)})
+
     r_out = SKY_ANNULUS_ARCSEC[1] / pix
     if not (r_out <= x0 <= nx - 1 - r_out and r_out <= y0 <= ny - 1 - r_out):
         row["status"] = "off_cutout"
         return row
-    yy, xx = np.mgrid[0:ny, 0:nx].astype(float)
     rr = np.hypot(xx - x0, yy - y0) * pix
     sky, sky_sig = _clipped_stats(img[(rr >= SKY_ANNULUS_ARCSEC[0]) & (rr <= SKY_ANNULUS_ARCSEC[1])])
-    r_ap = APERTURE_RADIUS_ARCSEC / pix
     # The same aperture on rings around the position: the scatter of its mean is the noise of one measurement
     ring_means: list[float] = []
     rad = SKY_ANNULUS_ARCSEC[0] + APERTURE_RADIUS_ARCSEC
@@ -193,32 +250,58 @@ def measure_plate_cutout(payload: bytes, ra: float, dec: float, *, pmra_mas_yr: 
     return row
 
 
-def _signature(survey: str, ra: float, dec: float, pmra: float, pmdec: float, position_epoch: float | None) -> tuple[str, str]:
+References = tuple[tuple[float, float, float, float], ...]
+
+
+def _signature(survey: str, ra: float, dec: float, pmra: float, pmdec: float, position_epoch: float | None,
+               references: References = ()) -> tuple[str, str]:
+    refs = hashlib.sha256(json.dumps([[round(v, 6) for v in r] for r in references]).encode("utf-8")).hexdigest()[:16]
     desc = json.dumps({"version": MEASUREMENT_VERSION, "survey": survey, "ra": round(ra, 6), "dec": round(dec, 6), "pmra": round(pmra, 2),
-                       "pmdec": round(pmdec, 2), "position_epoch": position_epoch, "size_arcmin": CUTOUT_ARCMIN}, sort_keys=True)
+                       "pmdec": round(pmdec, 2), "position_epoch": position_epoch, "size_arcmin": CUTOUT_ARCMIN,
+                       "n_references": len(references), "references": refs}, sort_keys=True)
     return hashlib.sha256(desc.encode("utf-8")).hexdigest()[:24], desc
 
 
+def reference_stars(gaia_rows: list[dict[str, Any]]) -> References:
+    """The Gaia stars a cutout can be registered on, from rows with `ra_deg`, `dec_deg`, proper motions and `g_mag`."""
+    out = [(float(g["ra_deg"]), float(g["dec_deg"]), float(g.get("pmra_mas_yr") or 0.0), float(g.get("pmdec_mas_yr") or 0.0))
+           for g in gaia_rows if g.get("g_mag") is not None and REG_G_RANGE[0] <= float(g["g_mag"]) <= REG_G_RANGE[1]]
+    return tuple(sorted(out))
+
+
+def stored_row(survey: str, ra: float, dec: float, cache: RawCache, *, pmra_mas_yr: float = 0.0, pmdec_mas_yr: float = 0.0,
+               position_epoch: float | None = None, references: References = ()) -> dict[str, Any] | None:
+    """The row measured earlier for this survey, position and set of reference stars, or None."""
+    sig, _ = _signature(survey, ra, dec, pmra_mas_yr, pmdec_mas_yr, position_epoch, references)
+    cached = cache.lookup(ARCHIVE, MEASUREMENT_VERSION, sig)
+    if cached is None or cached.offline_fixture:
+        return None
+    try:
+        return json.loads(cache.read_bytes(cached).decode("utf-8"))
+    except (FileNotFoundError, OSError, ValueError):
+        return None
+
+
 def measure_position(survey: str, ra: float, dec: float, cache: RawCache, *, pmra_mas_yr: float = 0.0, pmdec_mas_yr: float = 0.0,
-                     position_epoch: float | None = None, timeout_s: float = 30.0, sleep: Sleeper = time.sleep) -> dict[str, Any]:
+                     position_epoch: float | None = None, references: References = (), timeout_s: float = 30.0,
+                     sleep: Sleeper = time.sleep) -> dict[str, Any]:
     """The measured row of one survey at a position: from the cache, or from a fresh cutout (which is not kept).
 
-    The cutout is centred on the position as given; it is 2 arcmin wide, so the position at the plate's date lies
+    The cutout is centred on the position as given; it is 4 arcmin wide, so the position at the plate's date lies
     inside it for any proper motion a catalogue holds. A response that is not a FITS image raises
     `ArchiveAccessError` and nothing is stored.
     """
     if survey not in SURVEYS:
         raise ValueError(f"unknown plate survey {survey!r}; one of {SURVEYS}")
-    sig, desc = _signature(survey, ra, dec, pmra_mas_yr, pmdec_mas_yr, position_epoch)
-    cached = cache.lookup(ARCHIVE, MEASUREMENT_VERSION, sig)
-    if cached is not None and not cached.offline_fixture:
-        try:
-            return json.loads(cache.read_bytes(cached).decode("utf-8"))
-        except (FileNotFoundError, OSError, ValueError):
-            pass
+    stored = stored_row(survey, ra, dec, cache, pmra_mas_yr=pmra_mas_yr, pmdec_mas_yr=pmdec_mas_yr, position_epoch=position_epoch,
+                        references=references)
+    if stored is not None:
+        return stored
+    sig, desc = _signature(survey, ra, dec, pmra_mas_yr, pmdec_mas_yr, position_epoch, references)
     resp = ot._get_with_retries(cutout_url(survey, ra, dec), None, timeout_s=timeout_s, attempts=3, backoff_s=3.0, sleep=sleep)
     try:
-        row = measure_plate_cutout(resp.content, ra, dec, pmra_mas_yr=pmra_mas_yr, pmdec_mas_yr=pmdec_mas_yr, position_epoch=position_epoch)
+        row = measure_plate_cutout(resp.content, ra, dec, pmra_mas_yr=pmra_mas_yr, pmdec_mas_yr=pmdec_mas_yr, position_epoch=position_epoch,
+                                   references=references)
     except (ValueError, KeyError, OSError, ArchiveAccessError) as exc:
         raise ArchiveAccessError(f"plate cutout {survey} at {ra:.5f} {dec:.5f} is not readable: {type(exc).__name__}: {str(exc)[:200]}",
                                  retryable=False) from exc
@@ -229,8 +312,8 @@ def measure_position(survey: str, ra: float, dec: float, cache: RawCache, *, pmr
 
 
 def measure_all_surveys(ra: float, dec: float, cache: RawCache, *, pmra_mas_yr: float = 0.0, pmdec_mas_yr: float = 0.0,
-                        position_epoch: float | None = None, surveys: tuple[str, ...] = SURVEYS, min_interval_s: float = 0.0,
-                        sleep: Sleeper = time.sleep) -> dict[str, Any]:
+                        position_epoch: float | None = None, references: References = (), surveys: tuple[str, ...] = SURVEYS,
+                        min_interval_s: float = 0.0, sleep: Sleeper = time.sleep) -> dict[str, Any]:
     """One row per survey at a position, and whether all of them were read.
 
     A survey that could not be fetched or read is listed in `errors` and has no row; `complete` is then false.
@@ -239,12 +322,58 @@ def measure_all_surveys(ra: float, dec: float, cache: RawCache, *, pmra_mas_yr: 
     errors: dict[str, str] = {}
     for survey in surveys:
         t0 = time.monotonic()
+        kw = {"pmra_mas_yr": pmra_mas_yr, "pmdec_mas_yr": pmdec_mas_yr, "position_epoch": position_epoch, "references": references}
+        row = stored_row(survey, ra, dec, cache, **kw) if survey in SURVEYS else None
+        if row is not None:  # nothing was asked of the archive, so nothing to wait for
+            rows.append(row)
+            continue
         try:
-            rows.append(measure_position(survey, ra, dec, cache, pmra_mas_yr=pmra_mas_yr, pmdec_mas_yr=pmdec_mas_yr,
-                                         position_epoch=position_epoch, sleep=sleep))
+            rows.append(measure_position(survey, ra, dec, cache, sleep=sleep, **kw))
         except ArchiveAccessError as exc:
             errors[survey] = str(exc)[:300]
         wait = min_interval_s - (time.monotonic() - t0)
         if wait > 0:
             sleep(wait)
-    return {"measurement_version": MEASUREMENT_VERSION, "surveys": list(surveys), "rows": rows, "errors": errors, "complete": not errors}
+    return {"measurement_version": MEASUREMENT_VERSION, "surveys": list(surveys), "rows": rows, "errors": errors, "complete": not errors,
+            "n_reference_stars": len(references)}
+
+
+def field_references(ra: float, dec: float, cfg: Any, cache: RawCache, *, sleep: Sleeper | None = None) -> References:
+    """The Gaia stars of the cutout around a position, to register it on (one cached cone query)."""
+    from oddstar.io.plate_survey import gaia_cone
+
+    rows, _, _ = gaia_cone(ra, dec, CUTOUT_ARCMIN * 60.0 / 2.0, cfg, cache, sleep=sleep)
+    return reference_stars(rows)
+
+
+def enrich_unit(unit: dict[str, Any], cache: RawCache, *, cfg: Any = None, min_interval_s: float = 0.5,
+                sleep: Sleeper = time.sleep) -> dict[str, Any]:
+    """Attach what the plates show to a plate-source unit of the vanishing survey, for vetting.
+
+    Writes `vanishing_data.plate_images` and `vetting_archive.query_status.plate_images`: "ok" when both first-epoch
+    surveys returned a readable image, "failed: ..." otherwise (the rows that were read are kept), and
+    "no_plate_record" for a unit without its catalogue row. The position is the catalogue position with the
+    catalogue's proper motion, moved to each plate's date. With `cfg` the cutouts are registered on the Gaia
+    stars around the position; when that query fails the status says so and nothing is measured, so that a row
+    is never a registered one on one day and an unregistered one on the next.
+    """
+    u = unit.get("usno") or {}
+    qs = unit.setdefault("vetting_archive", {}).setdefault("query_status", {})
+    if u.get("ra_deg") is None or u.get("dec_deg") is None:
+        qs["plate_images"] = "no_plate_record"
+        return unit
+    ra, dec = float(u["ra_deg"]), float(u["dec_deg"])
+    references: References = ()
+    if cfg is not None:
+        try:
+            references = field_references(ra, dec, cfg, cache, sleep=sleep)
+        except ArchiveAccessError as exc:
+            qs["plate_images"] = f"failed: reference stars: {str(exc)[:160]}"
+            return unit
+    res = measure_all_surveys(ra, dec, cache, pmra_mas_yr=float(u.get("pmra_mas_yr") or 0.0),
+                              pmdec_mas_yr=float(u.get("pmdec_mas_yr") or 0.0), position_epoch=u.get("position_epoch"),
+                              references=references, min_interval_s=min_interval_s, sleep=sleep)
+    unit.setdefault("vanishing_data", {})["plate_images"] = res
+    missing = [sv for sv in FIRST_EPOCH_SURVEYS if sv in res["errors"]]
+    qs["plate_images"] = "ok" if not missing else "failed: " + "; ".join(f"{sv}: {res['errors'][sv][:120]}" for sv in missing)
+    return unit

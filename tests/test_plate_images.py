@@ -99,6 +99,67 @@ def test_a_position_at_the_edge_is_not_measured() -> None:
     assert row["status"] == "off_cutout" and "peak" not in row
 
 
+def _ref(east: float, north: float, pmra: float = 0.0, pmdec: float = 0.0) -> tuple[float, float, float, float]:
+    """A reference star given by its true offset from the field centre (arcsec)."""
+    return (RA0 + east / 3600.0 / math.cos(math.radians(DEC0)), DEC0 + north / 3600.0, pmra, pmdec)
+
+
+FIELD = [(60.0, 40.0), (-70.0, 25.0), (35.0, -80.0), (-45.0, -60.0), (85.0, -15.0)]
+SHIFT = (2.8, 1.5)  # where this plate's delivered sky solution puts every star, relative to where it is (east, north)
+
+
+def _shifted_cutout(target_peak: float = 700.0, **kw) -> bytes:
+    stars = [(e + SHIFT[0], n + SHIFT[1], 5000.0) for e, n in FIELD]
+    if target_peak:
+        stars.append((SHIFT[0], SHIFT[1], target_peak))
+    return _cutout(stars, n=141, **kw)
+
+
+def test_a_cutout_is_registered_on_its_reference_stars() -> None:
+    payload = _shifted_cutout(seed=11)
+    refs = tuple(_ref(e, n) for e, n in FIELD)
+    as_delivered = pi.measure_plate_cutout(payload, RA0, DEC0)
+    assert as_delivered["registered"] is False and as_delivered["registration"]["n_references"] == 0
+    assert as_delivered["peak"]["offset_arcsec"] == pytest.approx(math.hypot(*SHIFT), abs=0.6)
+    row = pi.measure_plate_cutout(payload, RA0, DEC0, references=refs)
+    reg = row["registration"]
+    assert row["registered"] is True and reg["n_stars"] == 5 and reg["scatter_arcsec"] < 0.5
+    # east is towards smaller x
+    assert reg["dx_arcsec"] == pytest.approx(-SHIFT[0], abs=0.4) and reg["dy_arcsec"] == pytest.approx(SHIFT[1], abs=0.4)
+    assert row["peak"]["offset_arcsec"] < 0.7 and row["snr_at_position"] > as_delivered["snr_at_position"]
+    assert row["x"] != row["x_delivered"]
+    # An empty position stays empty: the registration is taken from other stars, never from the position itself
+    empty = pi.measure_plate_cutout(_shifted_cutout(target_peak=0.0, seed=12), RA0, DEC0, references=refs)
+    assert empty["registered"] is True and abs(empty["snr_at_position"]) < 3.5
+    assert empty["peak"] is None or empty["peak"]["snr"] < 4
+
+
+def test_reference_stars_move_to_the_plate_date() -> None:
+    # Each reference star has moved 200 mas/yr east since the plate: 64.3 years from 1951.7 to 2016.0 is 12.9 arcsec
+    moved = 0.2 * (2016.0 - 1951.685)
+    refs = tuple(_ref(e + moved, n, pmra=200.0) for e, n in FIELD)
+    row = pi.measure_plate_cutout(_shifted_cutout(seed=13), RA0, DEC0, references=refs)
+    assert row["registered"] is True and row["registration"]["n_stars"] == 5 and row["peak"]["offset_arcsec"] < 0.7
+
+
+def test_too_few_reference_stars_leave_the_position_as_delivered() -> None:
+    payload = _shifted_cutout(seed=14)
+    # The star at the position is not a reference for itself, a pair 6 arcsec apart is not used, one star has no image
+    refs = (_ref(0.0, 0.0), _ref(*FIELD[0]), _ref(FIELD[0][0] + 6.0, FIELD[0][1]), _ref(*FIELD[1]), _ref(*FIELD[2]), _ref(-90.0, 90.0))
+    row = pi.measure_plate_cutout(payload, RA0, DEC0, references=refs[:5])
+    assert row["registered"] is False and row["registration"] == {"n_references": 5, "n_usable": 2, "n_stars": 2}
+    assert row["x"] == row["x_delivered"] and row["peak"]["offset_arcsec"] == pytest.approx(math.hypot(*SHIFT), abs=0.6)
+    three = pi.measure_plate_cutout(payload, RA0, DEC0, references=refs[3:] + (_ref(*FIELD[3]),))
+    assert three["registered"] is True and three["registration"]["n_usable"] == 4 and three["registration"]["n_stars"] == 3
+
+
+def test_reference_stars_are_chosen_by_brightness_and_are_part_of_what_a_stored_row_stands_for() -> None:
+    gaia = [{"ra_deg": RA0, "dec_deg": DEC0, "pmra_mas_yr": 1.0, "pmdec_mas_yr": None, "g_mag": g} for g in (11.9, 12.0, 15.5, 19.0, 19.1, None)]
+    refs = pi.reference_stars(gaia)
+    assert len(refs) == 3 and refs[0] == (RA0, DEC0, 1.0, 0.0)
+    assert pi._signature("poss1_red", RA0, DEC0, 0.0, 0.0, None)[0] != pi._signature("poss1_red", RA0, DEC0, 0.0, 0.0, None, refs)[0]
+
+
 def test_rows_are_stored_and_a_bad_answer_is_not(monkeypatch, tmp_path) -> None:
     calls: list[str] = []
 
@@ -119,9 +180,70 @@ def test_rows_are_stored_and_a_bad_answer_is_not(monkeypatch, tmp_path) -> None:
     out = pi.measure_all_surveys(RA0, DEC0, cache, sleep=lambda s: None)
     assert [r["survey"] for r in out["rows"]] == ["poss1_red", "poss2ukstu_red", "poss2ukstu_blue"] and out["complete"] is False
     assert "not a FITS file" in out["errors"]["poss1_blue"] and "HTTP 503" in out["errors"]["poss2ukstu_ir"]
-    assert len(calls) == 5 and "v=poss1_red&r=150.000000&d=20.000000&e=J2000&h=2.0&w=2.0&f=fits" in calls[0]
+    assert len(calls) == 5 and "v=poss1_red&r=150.000000&d=20.000000&e=J2000&h=4.0&w=4.0&f=fits" in calls[0]
     # A second pass fetches only what has no stored row
     again = pi.measure_all_surveys(RA0, DEC0, cache, sleep=lambda s: None)
     assert again["rows"] == out["rows"] and len(calls) == 7
     with pytest.raises(ValueError, match="unknown plate survey"):
         pi.measure_position("sdss", RA0, DEC0, cache)
+
+
+def test_enrich_unit_attaches_rows_and_says_what_was_read(monkeypatch, tmp_path) -> None:
+    class Resp:
+        def __init__(self, content: bytes) -> None:
+            self.content = content
+
+    def fake_get(url, params, **kw):
+        if "poss1_blue" in url:
+            raise ArchiveAccessError("GET failed after 3 attempt(s): HTTP 503", retryable=True)
+        return Resp(_cutout([(0.0, 0.0, 900.0)], seed=8))
+
+    monkeypatch.setattr(pi.ot, "_get_with_retries", fake_get)
+    cache = RawCache(tmp_path / "raw")
+    slept: list[float] = []
+    unit = {"source_id": "USNO-B1.0 X", "plate_source": True, "usno": {"ra_deg": RA0, "dec_deg": DEC0, "pmra_mas_yr": 0.0, "pmdec_mas_yr": 0.0,
+                                                                      "position_epoch": 1975.0}, "vanishing_data": {"early_plates_count": 2}}
+    out = pi.enrich_unit(unit, cache, min_interval_s=0.5, sleep=slept.append)
+    assert out["vetting_archive"]["query_status"]["plate_images"].startswith("failed: poss1_blue: ")
+    assert len(out["vanishing_data"]["plate_images"]["rows"]) == 4 and len(slept) == 5
+    # Stored rows are not asked again and cost no wait
+    slept.clear()
+    again = pi.enrich_unit(dict(unit), cache, min_interval_s=0.5, sleep=slept.append)
+    assert len(again["vanishing_data"]["plate_images"]["rows"]) == 4 and len(slept) == 1
+    bare = pi.enrich_unit({"source_id": "x"}, cache)
+    assert bare["vetting_archive"]["query_status"] == {"plate_images": "no_plate_record"}
+
+
+def test_enrich_unit_registers_on_gaia_stars_when_given_a_config(monkeypatch, tmp_path) -> None:
+    from oddstar.io import plate_survey
+
+    class Resp:
+        content = _shifted_cutout(seed=15)
+
+    cones: list[float] = []
+
+    def fake_cone(ra, dec, radius_arcsec, cfg, cache, *, sleep=None):
+        cones.append(radius_arcsec)
+        if len(cones) > 1:
+            raise ArchiveAccessError("Gaia TAP failed on every mirror", retryable=True)
+        rows = [{"ra_deg": r[0], "dec_deg": r[1], "pmra_mas_yr": 0.0, "pmdec_mas_yr": 0.0, "g_mag": 16.0} for r in (_ref(e, n) for e, n in FIELD)]
+        return rows, "manifest", False
+
+    monkeypatch.setattr(pi.ot, "_get_with_retries", lambda url, params, **kw: Resp())
+    monkeypatch.setattr(plate_survey, "gaia_cone", fake_cone)
+    cache = RawCache(tmp_path / "raw")
+    unit = {"source_id": "USNO-B1.0 Y", "plate_source": True, "usno": {"ra_deg": RA0, "dec_deg": DEC0}}
+    out = pi.enrich_unit(json_copy(unit), cache, cfg=object(), min_interval_s=0.0, sleep=lambda s: None)
+    res = out["vanishing_data"]["plate_images"]
+    assert cones == [120.0] and res["n_reference_stars"] == 5 and out["vetting_archive"]["query_status"]["plate_images"] == "ok"
+    assert all(r["registered"] and r["peak"]["offset_arcsec"] < 1.2 for r in res["rows"])
+    # Without the reference stars nothing is measured, and the status says why
+    failed = pi.enrich_unit(json_copy(unit), cache, cfg=object(), min_interval_s=0.0, sleep=lambda s: None)
+    assert failed["vetting_archive"]["query_status"]["plate_images"].startswith("failed: reference stars: Gaia TAP failed")
+    assert "plate_images" not in failed.get("vanishing_data", {})
+
+
+def json_copy(obj):
+    import json
+
+    return json.loads(json.dumps(obj))
