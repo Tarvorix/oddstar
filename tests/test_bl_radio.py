@@ -413,3 +413,54 @@ def test_live_radio_search_end_to_end(tmp_path: Path, monkeypatch: pytest.Monkey
         assert len(s["not_searched_ids"]) == 5 and samples[0]["n"] == 6
     finally:
         shutil.rmtree(run_dir, ignore_errors=True)
+
+
+def test_one_file_at_a_time_search_gives_the_same_result_and_leaves_no_scan_on_disk(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cfg: Any) -> None:
+    import shutil
+
+    stars, arc, archive_dir = _sample(tmp_path)
+    monkeypatch.setattr(ot, "_get_with_retries", arc.get)
+    channel = build_channel("radio_narrowband", cfg, repo_root())
+    ref_cache = RawCache(tmp_path / "raw_ref")
+    ref, _ = br.enrich_sample_radio(stars[:1], cfg, ref_cache, channel, archive_dir, sleep=lambda s: None)
+
+    cache = RawCache(tmp_path / "raw")
+    rows, _, _ = bl.query_bl_files(RA, DEC, cache)
+    plan = bl.plan_star_scans(RA, DEC, rows, cache)[0]
+    data_dir = tmp_path / "empty"
+    data_dir.mkdir()
+    fetched: list[str] = []
+    on_disk_at_once: list[int] = []
+
+    def fake_download(url: str, dest: Path, size_bytes: int, md5sum: str, **kw: Any) -> str:
+        fetched.append(dest.name)
+        shutil.copy(archive_dir / dest.name, dest)
+        on_disk_at_once.append(len([p for p in data_dir.iterdir() if p.is_file()]))
+        return "downloaded"
+
+    monkeypatch.setattr(br, "download_file", fake_download)
+    assert not br.plan_searched("1", plan, cfg, cache)
+    log: list[str] = []
+    res = br.search_plan_one_file_at_a_time("1", plan, data_dir, channel, cfg, cache, log=log.append)
+    assert fetched == ["on_0022.gpuspec.0000.fil", "off_0021.gpuspec.0000.fil", "off_0023.gpuspec.0000.fil"] and on_disk_at_once == [1, 1, 1]
+    assert [p.name for p in data_dir.iterdir() if p.is_file()] == [], "each scan is deleted after use"
+    assert any("evaluated" in line for line in log)
+    want = ref[0]["radio_search"]["scan_sets"][0]
+    got = res[0]
+    assert got["selected"]["hit"] == ref[0]["radio_search"]["selected_hit"]
+    for k in ("n_windows_evaluated", "n_windows_flagged", "n_candidate_windows", "n_channels_searched", "windows", "comparison", "on_mjd"):
+        assert got[k] == want[k], k
+
+    # The stored result stands in for the files: the survey reports the star as searched with nothing on disk
+    assert br.plan_searched("1", plan, cfg, cache)
+    out, summary = br.enrich_sample_radio(stars[:2], cfg, cache, channel, data_dir, sleep=lambda s: None)
+    assert [br.radio_search_status(s) for s in out] == ["searched", "not_downloaded"] and summary["n_ok"] == 1
+    assert out[0]["scans"] == ref[0]["scans"]
+    # A second call does nothing; an interrupted run repeats only the unfinished phase
+    fetched.clear()
+    assert br.search_plan_one_file_at_a_time("1", plan, data_dir, channel, cfg, cache) == res and fetched == []
+    cache2 = RawCache(tmp_path / "raw2")
+    work = next((data_dir / "_work").iterdir())
+    (work / "off1.json").unlink()
+    res2 = br.search_plan_one_file_at_a_time("1", plan, data_dir, channel, cfg, cache2)
+    assert fetched == ["off_0023.gpuspec.0000.fil"] and res2[0]["selected"]["hit"] == got["selected"]["hit"]
