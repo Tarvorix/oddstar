@@ -2,6 +2,38 @@
 
 All threshold, sample-cut, and prompt changes must be logged here under Ground Rule R4 before running validation or search.
 
+## Radio: cadences and the bands from 698 to 960 MHz - 2026-11-18, configuration unchanged (1.6.0)
+
+### Radio: ON scans that follow each other are searched as one cadence
+The planner made one comparison per ON scan (that scan against the OFF scan before and after it), also where the
+archive holds several ON scans of the same target in a row. The channel's own rule (`require_all_on_scans: true`)
+could then not act: with one ON scan, "in every ON scan" is always true. Now ON scans of one target, telescope and
+frequency set whose starts follow each other within 0.02 day become one plan (`comparison: "cadence"`); the signal
+has to be in every ON scan and in no OFF scan. No threshold changes. A lone ON scan is handled as before and its
+stored result keeps its key.
+
+Basis: the two complete ON scans of the NGC4168 pointing that holds Gaia DR3 3920615854833203328 (HIP 59490;
+Green Bank, 2021-07-31, 751 to 1126 MHz), searched one at a time, gave 255 and 1,327 flagged windows of 1,840 and
+6,459 evaluated. The archive holds three ON scans of that pointing that start within 22 minutes.
+
+The cut around a hit stays `live_window_channels` (2048) for a lone ON scan with OFF scans 5 to 6 minutes away.
+For a cadence it is doubled until a signal at `max_abs_drift_hz_s` stays inside from the start of the reference
+scan to the end of the farthest scan (4096 channels for three 5-minute ON scans 10.6 minutes apart); otherwise a
+fast-drifting signal would leave the cut in the outer scans and be lost.
+
+### Radio: four more transmitter bands, 698 to 960 MHz
+Same table and same reasoning as in the entry below. All 906 flagged windows of those two searches that fell
+outside the table lie between 751 and 960 MHz (173 and 654 in 751 to 939 MHz, 79 in 939 to 960 MHz); the other 676
+were inside it (960 to 1126 MHz, aeronautical radionavigation). 698 to 960 MHz is allocated without a gap to
+transmitters (47 CFR 2.106): 698 to 806 MHz mobile telephone and public safety, 806 to 902 MHz land mobile, mobile
+telephone and air-ground, 902 to 928 MHz industrial, scientific and medical devices and radiolocation, 928 to
+960 MHz paging, fixed and land mobile. These four bands are added. As before, the bands were chosen after looking
+at the flags, so this field is not a test of them.
+
+`SEARCH_VERSION` stays `bl_local_search_v2`: the added bands lie below 960 MHz, and the only stored results that
+reach below 960 MHz are the two one-at-a-time searches named above, which the cadence plan replaces (it has another
+key). No stored result that is still read changes a label.
+
 ## Radio search version 2 (`bl_local_search_v2`) - 2026-11-18, configuration unchanged (1.6.0)
 
 ### Radio: six transmitter bands added to the allocation table

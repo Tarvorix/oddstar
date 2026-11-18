@@ -172,6 +172,31 @@ def test_scan_plan_pairs_each_on_scan_with_the_off_scans_around_it(tmp_path: Pat
     assert bl.plan_star_scans(200.0, 45.0, [], cache2) == []
 
 
+def test_on_scans_that_follow_each_other_become_one_cadence(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A, B, A, C, A, D on one target: one plan with the middle ON scan as reference, the other two and all three OFF scans."""
+    ra, dec, t = 183.0, 13.26, 59426.8885
+    step = 5.3 / 1440.0
+    files = []
+    for k, (name, d_ra) in enumerate((("NGCX", 0.0), ("HIPB", 1.0), ("NGCX", 0.0), ("HIPC", -0.3), ("NGCX", 0.0), ("HIPD", 0.5))):
+        on = name == "NGCX"
+        for freq in (845.2, 1032.7):
+            files.append(_scan(name, ra + (0.05 if on else d_ra), dec + (0.0 if on else 1.2), t + k * step, freq=freq, size=3_200_000_000))
+    files.append(_scan("NGCX", ra + 0.05, dec, t + 0.5, freq=845.2))       # half a day later: its own scan, and nothing to compare it with
+    idx = _TimeIndex(files)
+    monkeypatch.setattr(ot, "_get_with_retries", idx.get)
+    cache = RawCache(tmp_path / "raw")
+    rows, _, _ = bl.query_bl_files(ra, dec, cache)
+    plans = bl.plan_star_scans(ra, dec, rows, cache)
+    assert [(p["comparison"], p["complete"]) for p in plans] == [("cadence", True), ("incomplete", False)]
+    p = plans[0]
+    assert p["n_on_scans"] == 3 and p["mjd"] == pytest.approx(t + 2 * step) and p["center_freqs_mhz"] == [845.2, 1032.7] and len(p["on_files"]) == 2
+    assert [e["minutes_from_on"] for e in p["on_other"]] == pytest.approx([-10.6, 10.6], abs=0.05) and all(len(e["files"]) == 2 for e in p["on_other"])
+    assert [(e["target"], e["minutes_from_on"]) for e in p["off_cadence"]] == [("HIPB", pytest.approx(-5.3, abs=0.05)), ("HIPC", pytest.approx(5.3, abs=0.05)),
+                                                                              ("HIPD", pytest.approx(15.9, abs=0.05))]
+    assert p["off_before"] is None and p["off_after"] is None and p["bytes_on_plus_offs"] == 12 * 3_200_000_000
+    assert "on_other" not in plans[1]
+
+
 def test_fine_resolution_files_are_recognised_for_each_recorder() -> None:
     fine = [
         "http://x/blc00_guppi_57585_43906_HIP3026_0022.gpuspec.0000.h5", "http://x/blc00_guppi_57585_43906_HIP3026_0022.gpuspec.0000.fil",
