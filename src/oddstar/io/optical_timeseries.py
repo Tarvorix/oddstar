@@ -52,6 +52,41 @@ def _mjd_to_jyear(mjd: float) -> float:
     return 2000.0 + (mjd - 51544.5) / 365.25
 
 
+def _call_with_deadline(fn: Callable[[], Any], timeout_s: float, label: str) -> Any:
+    """Run `fn` and return its result, or raise TimeoutError when it has not finished after `timeout_s` seconds.
+
+    For third-party clients that offer no timeout. The call runs in a daemon thread: a call that never returns is
+    abandoned (it cannot be interrupted) and does not keep the process alive at exit.
+    """
+    import threading
+
+    box: dict[str, Any] = {}
+
+    def _run() -> None:
+        try:
+            box["value"] = fn()
+        except BaseException as exc:  # handed to the caller, which decides what a failure means
+            box["error"] = exc
+
+    worker = threading.Thread(target=_run, name=f"deadline:{label}", daemon=True)
+    worker.start()
+    worker.join(timeout_s)
+    if worker.is_alive():
+        raise TimeoutError(f"{label} gave no answer within {timeout_s:.0f} s")
+    if "error" in box:
+        raise box["error"]
+    return box["value"]
+
+
+# `requests` timeouts bound the wait for the next byte, not the whole transfer: an answer that keeps trickling never
+# trips them. Each GET therefore also gets a wall-clock limit of this many times its timeout.
+GET_TOTAL_TIMEOUT_FACTOR = 3.0
+# Wall-clock budget for one star's ZTF light curve. The retry ladder (2 bands x 2 cone sizes x 9 yearly pages x 3
+# attempts x 60 s) can otherwise run for about two hours on one crowded field; on 2026-11-17 one bulge star held a
+# search until it was stopped by hand. Operational limit, not a science threshold.
+ZTF_FETCH_BUDGET_S = 600.0
+
+
 def _get_with_retries(
     url: str,
     params: dict[str, Any] | None,
@@ -66,13 +101,14 @@ def _get_with_retries(
     errors: list[str] = []
     for i in range(attempts):
         try:
-            resp = requests.get(url, params=params, timeout=timeout_s)
+            resp = _call_with_deadline(lambda: requests.get(url, params=params, timeout=timeout_s),
+                                       GET_TOTAL_TIMEOUT_FACTOR * timeout_s, f"GET {url}")
             if resp.status_code in ok_statuses:
                 return resp
             errors.append(f"HTTP {resp.status_code}")
             if resp.status_code < 500 and resp.status_code != 429:
                 break
-        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as exc:
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError, TimeoutError) as exc:
             errors.append(f"{type(exc).__name__}")
         if i < attempts - 1:
             sleep(backoff_s * (2**i))
@@ -145,14 +181,27 @@ def fetch_ztf_lightcurve(
     now_mjd: float | None = None,
     timeout_s: float = 60.0,
     sleep: Sleeper = time.sleep,
+    budget_s: float | None = None,
+    clock: Callable[[], float] = time.monotonic,
 ) -> tuple[dict[str, Any] | None, list[ManifestRecord]]:
     """Fetch IRSA ZTF light curves robustly: per band, retried, shrinking cone, yearly TIME pages on timeout.
 
     Rows are kept only when `catflags == 0` and the epoch position lies within 1.5" of the Gaia position
     propagated to that epoch, so a moving star is matched across ZTF object IDs.
+
+    The whole fetch has a wall-clock budget (`budget_s`, default `ZTF_FETCH_BUDGET_S`). When it runs out the
+    light curve is reported as `query_failed`, never as a partial light curve: missing years would look like
+    missing variability. Pages already fetched stay in the cache, so a later run gets further.
     """
     if now_mjd is None:
         now_mjd = 40587.0 + time.time() / 86400.0
+    budget = float(budget_s) if budget_s is not None else ZTF_FETCH_BUDGET_S
+    t_start = clock()
+
+    def _out_of_time() -> bool:
+        return clock() - t_start > budget
+
+    exhausted = False
     c_ra, c_dec = propagate_position(ra, dec, pmra, pmdec, 2016.0, 2021.5)
     manifests: list[ManifestRecord] = []
     log: list[str] = []
@@ -162,6 +211,9 @@ def fetch_ztf_lightcurve(
     for band in ("g", "r"):
         band_rows: list[dict[str, Any]] | None = None
         for radius in ZTF_CONE_LADDER_ARCSEC:
+            if exhausted or _out_of_time():
+                exhausted = True
+                break
             base = {"POS": f"CIRCLE {c_ra:.6f} {c_dec:+.6f} {radius / 3600.0:.6f}", "BANDNAME": band, "FORMAT": "CSV"}
             try:
                 payload, man, _ = _cached_get(
@@ -181,6 +233,9 @@ def fetch_ztf_lightcurve(
             n_failed = 0
             pages = _ztf_time_pages(now_mjd)
             for lo, hi in pages:
+                if _out_of_time():
+                    exhausted = True
+                    break
                 params = dict(base, TIME=f"{lo:.1f} {hi:.1f}")
                 try:
                     payload, man, _ = _cached_get(
@@ -192,6 +247,8 @@ def fetch_ztf_lightcurve(
                     paged.extend(_parse_ztf_csv(payload.decode("utf-8", errors="replace")))
                 except ArchiveAccessError:
                     n_failed += 1
+            if exhausted:
+                break
             log.append(f"{band}: paged {radius:.1f}\" {len(pages) - n_failed}/{len(pages)} pages ok")
             if n_failed < len(pages):
                 band_rows = paged
@@ -199,6 +256,10 @@ def fetch_ztf_lightcurve(
                 break
         if band_rows:
             rows.extend(band_rows)
+
+    if exhausted:
+        log.append(f"time budget of {budget:.0f} s exhausted before the light curve was complete")
+        return {"survey": "ZTF", "n_epochs": 0, "query_log": log, "status": "query_failed"}, manifests
 
     kept: list[dict[str, Any]] = []
     seen: set[tuple[str, str]] = set()
@@ -237,32 +298,6 @@ def fetch_ztf_lightcurve(
 # The pyasassn client sets no socket timeout. On 2026-11-17 a connection the server had already closed kept a live
 # search waiting for 27 minutes, until it was stopped by hand. This is an operational limit, not a science threshold.
 ASASSN_CLIENT_TIMEOUT_S = 180.0
-
-
-def _call_with_deadline(fn: Callable[[], Any], timeout_s: float, label: str) -> Any:
-    """Run `fn` and return its result, or raise TimeoutError when it has not finished after `timeout_s` seconds.
-
-    For third-party clients that offer no timeout. The call runs in a daemon thread: a call that never returns is
-    abandoned (it cannot be interrupted) and does not keep the process alive at exit.
-    """
-    import threading
-
-    box: dict[str, Any] = {}
-
-    def _run() -> None:
-        try:
-            box["value"] = fn()
-        except BaseException as exc:  # handed to the caller, which decides what a failure means
-            box["error"] = exc
-
-    worker = threading.Thread(target=_run, name=f"deadline:{label}", daemon=True)
-    worker.start()
-    worker.join(timeout_s)
-    if worker.is_alive():
-        raise TimeoutError(f"{label} gave no answer within {timeout_s:.0f} s")
-    if "error" in box:
-        raise box["error"]
-    return box["value"]
 
 
 def fetch_asassn_lightcurve(

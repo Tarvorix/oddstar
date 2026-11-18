@@ -481,3 +481,61 @@ def test_asassn_client_that_never_answers_is_a_recorded_failure(tmp_path: Path) 
     with pytest.raises(KeyError):
         ot._call_with_deadline(lambda: {}["missing"], 1.0, "x")
     assert ot.ASASSN_CLIENT_TIMEOUT_S >= 60.0
+
+
+# ------------------------------------------------------------------------------- ZTF time budget and trickling downloads
+
+def test_a_download_that_never_finishes_is_a_failed_attempt(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`requests` timeouts bound the gap between bytes, not the transfer; the wall-clock limit ends a trickle."""
+    import threading
+
+    from oddstar.io import optical_timeseries as ot
+
+    release = threading.Event()
+    calls = {"n": 0}
+
+    def trickle(url: str, params: Any = None, timeout: float = 0.0) -> Any:
+        calls["n"] += 1
+        release.wait(20.0)
+        raise requests.exceptions.ConnectionError("released")
+
+    monkeypatch.setattr(requests, "get", trickle)
+    monkeypatch.setattr(ot, "GET_TOTAL_TIMEOUT_FACTOR", 2.0)
+    with pytest.raises(ArchiveAccessError, match="2 attempt"):
+        ot._get_with_retries("https://irsa.example/ztf", {}, timeout_s=0.1, attempts=2, sleep=lambda s: None)
+    release.set()
+    assert calls["n"] == 2
+
+
+def test_ztf_fetch_stops_at_its_time_budget_and_reports_a_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from oddstar.io import optical_timeseries as ot
+
+    now = {"t": 0.0}
+    asked: list[dict[str, Any]] = []
+
+    class R:
+        def __init__(self, status: int, text: str = "") -> None:
+            self.status_code, self.text, self.content = status, text, text.encode()
+
+    def slow(url: str, params: Any = None, timeout: float = 0.0) -> Any:
+        asked.append(dict(params))
+        now["t"] += 200.0  # every request costs 200 s of the clock the fetch reads
+        if "TIME" in params:
+            return R(200, "oid,mjd,mag,magerr,catflags,ra,dec,filtercode\n1,58300.0,14.0,0.01,0,%f,%f,zg\n" % (RA, DEC))
+        return R(500)
+
+    monkeypatch.setattr(requests, "get", slow)
+    cache = RawCache(tmp_path / "raw", max_cache_gb=1.0)
+    summary, mans = ot.fetch_ztf_lightcurve(ra=RA, dec=DEC, pmra=0.0, pmdec=0.0, cache=cache, now_mjd=61000.0, sleep=lambda s: None,
+                                            budget_s=1000.0, clock=lambda: now["t"])
+    # 3 failed full-range attempts (600 s), then yearly pages start at 600, 800 and 1000 s; nothing starts after 1000 s
+    assert summary is not None and summary["status"] == "query_failed" and summary["n_epochs"] == 0
+    assert "time budget of 1000 s exhausted" in summary["query_log"][-1]
+    assert len(asked) == 6 and all(p["BANDNAME"] == "g" for p in asked)
+    assert len(mans) == 3  # the pages that did arrive are stored for the next run
+
+    # with enough budget the same archive yields a light curve (cached pages are free)
+    summary2, _ = ot.fetch_ztf_lightcurve(ra=RA, dec=DEC, pmra=0.0, pmdec=0.0, cache=cache, now_mjd=61000.0, sleep=lambda s: None,
+                                          budget_s=1.0e9, clock=lambda: now["t"])
+    assert summary2 is not None and summary2.get("status") != "query_failed"
+    assert ot.ZTF_FETCH_BUDGET_S >= 300.0
