@@ -269,10 +269,11 @@ def test_allocations_and_beam_edge() -> None:
     assert br.rfi_allocation(1420.4) is None and br.rfi_allocation(1700.0) is not None and br.rfi_allocation(6000.0) is None
     for freq, word in ((1340.0, "radar"), (1381.05, "GPS L3"), (1440.0, "telemetry"), (1627.5, "Inmarsat"), (1750.0, "AWS"), (1906.0, "PCS"),
                        (751.5, "700 MHz"), (868.9, "800 MHz"), (915.0, "industrial"), (953.6, "paging"),
-                       (1922.9, "cordless"), (1960.0, "PCS"), (2250.0, "telemetry"), (2440.0, "wireless networks"), (2800.0, "radar")):
+                       (1922.9, "cordless"), (1960.0, "PCS"), (2250.0, "telemetry"), (2440.0, "wireless networks"), (2800.0, "radar"),
+                       (3000.0, "ship radar"), (3200.0, "radiolocation"), (3500.0, "mobile broadband"), (3600.0, "citizens broadband")):
         assert word in (br.rfi_allocation(freq) or ""), freq
-    assert br.SEARCH_VERSION == "bl_local_search_v3"
-    # From 698 to 2900 MHz the table is complete: a frequency is in a listed band or in one of the three passive bands
+    assert br.SEARCH_VERSION == "bl_local_search_v4"
+    # From 698 to 4200 MHz the table is complete: a frequency is in a listed band or in one of the three passive bands
     rows = sorted(br.RFI_ALLOCATIONS_MHZ)
     assert list(br.RFI_ALLOCATIONS_MHZ) == rows and all(lo < hi for lo, hi, _ in rows)
     assert all(a[1] <= b[0] for a, b in zip(rows, rows[1:], strict=False)), "bands do not overlap"
@@ -282,7 +283,7 @@ def test_allocations_and_beam_edge() -> None:
     for lo, hi in br.PASSIVE_BANDS_MHZ:
         assert br.rfi_allocation((lo + hi) / 2.0) is None
     assert br.rfi_allocation(1420.4057) is None and br.rfi_allocation(1665.4) is None and br.rfi_allocation(2695.0) is None
-    assert br.rfi_allocation(611.0) is None and br.rfi_allocation(680.0) is None and br.rfi_allocation(3000.0) is None
+    assert br.rfi_allocation(611.0) is None and br.rfi_allocation(680.0) is None and br.rfi_allocation(5000.0) is None
     f_edge = br.max_in_beam_freq_mhz("GBT", 209.3)
     assert f_edge == pytest.approx(1773.0, abs=3.0)
     assert bl.half_power_radius_arcsec("GBT", f_edge) == pytest.approx(209.3, rel=1e-6)
@@ -594,3 +595,15 @@ def test_one_file_at_a_time_search_gives_the_same_result_and_leaves_no_scan_on_d
     (work / "off1.json").unlink()
     res2 = br.search_plan_one_file_at_a_time("1", plan, data_dir, channel, cfg, cache2)
     assert fetched == ["off_0023.gpuspec.0000.fil"] and res2[0]["selected"]["hit"] == got["selected"]["hit"]
+
+
+def test_two_nodes_of_one_parkes_scan_do_not_share_a_local_file(tmp_path: Path) -> None:
+    # The two recording nodes of one Parkes multibeam scan write the same file name into different directories
+    a = "http://blpd12.ssl.berkeley.edu/collate_mb_2/blc11/guppi_58326_62282_852088_G299.60-41.91_0001.0000.h5"
+    b = "http://blpd12.ssl.berkeley.edu/collate_mb_2/blc12/guppi_58326_62282_852088_G299.60-41.91_0001.0000.h5"
+    pa, pb = br.local_path(tmp_path, a), br.local_path(tmp_path, b)
+    assert pa != pb and pa.name.endswith("_guppi_58326_62282_852088_G299.60-41.91_0001.0000.h5") and pa.suffix == ".h5"
+    assert br.local_path(tmp_path, a.replace("http://", "https://")) == pa, "the scheme does not change the name"
+    # Names that carry their node keep their name
+    gbt = "https://bldata.berkeley.edu/blc07_guppi_59426_77412_NGC4168_0012.rawspec.0000.h5"
+    assert br.local_path(tmp_path, gbt).name == "blc07_guppi_59426_77412_NGC4168_0012.rawspec.0000.h5"

@@ -44,7 +44,7 @@ from oddstar.errors import ArchiveAccessError
 from oddstar.io import bl_opendata as bl
 from oddstar.io.cache import RawCache
 
-SEARCH_VERSION = "bl_local_search_v3"
+SEARCH_VERSION = "bl_local_search_v4"
 # Version of the cutting phases (candidate windows of the ON scan, the same windows of the other scans). The windows
 # saved under `<data_dir>/_work` are keyed by it, not by SEARCH_VERSION, so a change that only touches the scoring
 # (the allocation table, the listing) scores the saved windows again without fetching a scan.
@@ -52,14 +52,14 @@ CUT_VERSION = "bl_cut_v1"
 # Trial drift rates per search; must equal the grid inside `channels.radio_narrowband.dedoppler_search_scan`
 N_DRIFT_TRIALS = 161
 # Bands allocated to transmitters, where a narrowband line toward any sky position is expected from them.
-# From 698 to 2900 MHz the table is complete: every band the United States table of frequency allocations (47 CFR
+# From 698 to 4200 MHz the table is complete: every band the United States table of frequency allocations (47 CFR
 # 2.106, federal and non-federal columns) gives to a transmitting service is listed, so the only frequencies in that
 # range that are not listed are the passive bands 1400 to 1427, 1660.5 to 1668.4 and 2690 to 2700 MHz (radio
-# astronomy, passive sensing). Above 2900 MHz only the satellite downlink bands are listed; the table is not
-# complete there and must be completed before scans of those receivers are searched. History of the table and the
-# reason for the rule: configs/CHANGELOG.md.
+# astronomy, passive sensing); from 2900 to 4200 MHz no band is passive. Above 4200 MHz only two satellite downlink
+# bands are listed; the table is not complete there and must be completed before scans of those receivers are
+# searched. History of the table and the reason for the rule: configs/CHANGELOG.md.
 # (low MHz, high MHz, service)
-ALLOCATIONS_COMPLETE_MHZ = (698.0, 2900.0)
+ALLOCATIONS_COMPLETE_MHZ = (698.0, 4200.0)
 PASSIVE_BANDS_MHZ: tuple[tuple[float, float], ...] = ((1400.0, 1427.0), (1660.5, 1668.4), (2690.0, 2700.0))
 RFI_ALLOCATIONS_MHZ: tuple[tuple[float, float, str], ...] = (
     (698.0, 806.0, "mobile telephone and public safety (700 MHz band)"),
@@ -98,6 +98,10 @@ RFI_ALLOCATIONS_MHZ: tuple[tuple[float, float, str], ...] = (
     (2483.5, 2500.0, "mobile satellite downlinks (Globalstar)"),
     (2500.0, 2690.0, "broadband radio service (mobile)"),
     (2700.0, 2900.0, "airport surveillance and weather radar"),
+    (2900.0, 3100.0, "maritime radionavigation and radiolocation (ship radar)"),
+    (3100.0, 3300.0, "radiolocation (military radar)"),
+    (3300.0, 3550.0, "radiolocation, amateur and mobile broadband"),
+    (3550.0, 3700.0, "citizens broadband radio service and radiolocation"),
     (3700.0, 4200.0, "fixed satellite downlinks (C band)"),
     (7250.0, 7750.0, "fixed satellite downlinks (X band)"),
     (10700.0, 12750.0, "fixed and broadcasting satellite downlinks (Ku band)"),
@@ -551,7 +555,14 @@ def search_scan_set(
 
 
 def local_path(data_dir: Path, url: str) -> Path:
-    return Path(data_dir) / url.rsplit("/", 1)[-1]
+    """Where a scan file lives on disk. Green Bank names carry the recording node in front (`blc07_guppi_...`,
+    `spliced_blc0001..._guppi_...`). Parkes multibeam names start with `guppi_`: the two nodes of one scan write the
+    same file name into different directories, so such a name is prefixed with a short hash of its URL and the two
+    files stay apart."""
+    name = url.rsplit("/", 1)[-1]
+    if name.startswith("guppi_"):
+        name = f"{hashlib.sha1(_file_key(url).encode('utf-8')).hexdigest()[:8]}_{name}"
+    return Path(data_dir) / name
 
 
 def plan_other_scans(plan: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
