@@ -1,194 +1,147 @@
 {
-  "channel": "ir_timedomain",
-  "gaia_release": "dr4",
+  "channel": "radio_narrowband",
+  "gaia_release": "dr3",
   "split": "all",
-  "config_hash": "675990993dc0",
-  "git_commit": "9bd0ddd6108feec538cf55e564db364927789e03",
-  "timestamp_utc": "2026-11-18T17:17:23.409768+00:00",
+  "config_hash": "2a7cb49e0e09",
+  "git_commit": "2fc1f264682e0dc7d72718f0da6ae629f8e91c3a",
+  "timestamp_utc": "2026-11-18T17:27:06.778278+00:00",
   "passed": true,
   "blind_recovery_rate": 1.0,
-  "blind_total": 6,
-  "blind_recovered": 6,
+  "blind_total": 1,
+  "blind_recovered": 1,
   "impostor_pass": true,
   "impostor_max_tier": "Explained",
-  "impostors_evaluated": 3,
+  "impostors_evaluated": 1,
   "injection_completeness_design_point": 1.0,
   "completeness_grid": [
     {
-      "mode": "step",
-      "amp": 0.1,
+      "drift_hz_s": 0.25,
+      "injected_snr": 8.0,
       "completeness": 1.0,
       "n_trials": 20
     },
     {
-      "mode": "step",
-      "amp": 0.35,
+      "drift_hz_s": 0.25,
+      "injected_snr": 20.0,
       "completeness": 1.0,
       "n_trials": 20
     },
     {
-      "mode": "step",
-      "amp": 0.65,
+      "drift_hz_s": 0.25,
+      "injected_snr": 35.0,
       "completeness": 1.0,
       "n_trials": 20
     },
     {
-      "mode": "ramp",
-      "amp": 0.1,
+      "drift_hz_s": 1.0,
+      "injected_snr": 8.0,
       "completeness": 1.0,
       "n_trials": 20
     },
     {
-      "mode": "ramp",
-      "amp": 0.35,
+      "drift_hz_s": 1.0,
+      "injected_snr": 20.0,
       "completeness": 1.0,
       "n_trials": 20
     },
     {
-      "mode": "ramp",
-      "amp": 0.65,
+      "drift_hz_s": 1.0,
+      "injected_snr": 35.0,
       "completeness": 1.0,
       "n_trials": 20
     },
     {
-      "mode": "burst",
-      "amp": 0.1,
-      "completeness": 0.65,
-      "n_trials": 20
-    },
-    {
-      "mode": "burst",
-      "amp": 0.35,
+      "drift_hz_s": 2.5,
+      "injected_snr": 8.0,
       "completeness": 1.0,
       "n_trials": 20
     },
     {
-      "mode": "burst",
-      "amp": 0.65,
+      "drift_hz_s": 2.5,
+      "injected_snr": 20.0,
+      "completeness": 1.0,
+      "n_trials": 20
+    },
+    {
+      "drift_hz_s": 2.5,
+      "injected_snr": 35.0,
       "completeness": 1.0,
       "n_trials": 20
     }
   ],
   "false_alarm_rate": 0.0,
   "false_alarm_ci_low": 0.0,
-  "false_alarm_ci_high": 0.012643429997735661,
-  "expected_false_positives": 3.333333333333333,
+  "false_alarm_ci_high": 0.13798057582897535,
+  "expected_false_positives": 41.666666666666664,
   "calibration_curve": [
     {
-      "stat": 2.0624498743808086,
+      "stat": 0.0,
       "fap": 0.5
     },
     {
-      "stat": 2.451834055131432,
+      "stat": 0.0001,
       "fap": 0.25
     },
     {
-      "stat": 2.828073097471875,
+      "stat": 0.0002,
       "fap": 0.09999999999999998
     },
     {
-      "stat": 3.0373091837801294,
+      "stat": 0.00030000000000000003,
       "fap": 0.050000000000000044
     },
     {
-      "stat": 3.39740708896953,
+      "stat": 0.0004,
       "fap": 0.010000000000000009
     },
     {
-      "stat": 5.726406928916332,
+      "stat": 1.5,
       "fap": 0.0001
     },
     {
-      "stat": 7.226406928916332,
+      "stat": 3.0,
       "fap": 1e-6
     },
     {
-      "stat": 10.226406928916333,
+      "stat": 6.0,
       "fap": 1e-9
     },
     {
-      "stat": 16.226406928916333,
+      "stat": 12.0,
       "fap": 1e-12
     }
   ],
   "details": {
     "blind_recovery": [
       {
-        "source_id": "1638028353993041792",
+        "source_id": "GBT_VOYAGER1_20151230",
         "flagged": true,
-        "raw_stat": 31.028107311461497
-      },
-      {
-        "source_id": "5548511859528971520",
-        "flagged": true,
-        "raw_stat": 216.6853099912111
-      },
-      {
-        "source_id": "3687158017250050176",
-        "flagged": true,
-        "raw_stat": 61.20588143736592
-      },
-      {
-        "source_id": "2996362101189875200",
-        "flagged": true,
-        "raw_stat": 31.3717447625158
-      },
-      {
-        "source_id": "4066368953121417984",
-        "flagged": true,
-        "raw_stat": 112.25993474698505
-      },
-      {
-        "source_id": "6485732215620751360",
-        "flagged": true,
-        "raw_stat": 96.52548854237382
+        "raw_stat": 115.18180887697143
       }
     ],
     "impostor_rejection": [
       {
-        "source_id": "711100000000000001",
+        "source_id": "GBT_BLC1_PROXCEN",
         "tier": "Explained",
         "failed_checks": [
-          "neighbour_signal"
+          "multi_target",
+          "off_scan",
+          "rfi_band"
         ],
         "expected_failed": [
-          "neighbour_signal"
-        ],
-        "reason": "Explained by 'neighbour_signal': Dip/IR variation tracks neighbouring star within TESS/WISE beam (explicit flag) | TESS: no sectors loaded | NEOWISE: no per-visit PM-track residual vectors",
-        "passed": true
-      },
-      {
-        "source_id": "711100000000000002",
-        "tier": "Explained",
-        "failed_checks": [
-          "evolved",
-          "known_variable",
-          "systematics_window"
-        ],
-        "expected_failed": [
-          "known_variable"
+          "multi_target",
+          "off_scan",
+          "rfi_band"
         ],
         "reason": "Not flagged above channel thresholds",
-        "passed": true
-      },
-      {
-        "source_id": "711100000000000003",
-        "tier": "Rejected",
-        "failed_checks": [
-          "systematics_window"
-        ],
-        "expected_failed": [
-          "systematics_window"
-        ],
-        "reason": "Failed integrity/artifact check 'systematics_window': Event aligns with documented scattered-light or scan-direction systematic window (explicit flag) | TESS: no sectors loaded | NEOWISE: no comparison-star ensemble fetched",
         "passed": true
       }
     ],
     "code_fingerprint_files": {
       "oddstar/__init__.py": "2af7d8f7316e5196abd067dcdd82791314113df68b496c3611136877b193be1e",
       "oddstar/channels/__init__.py": "af613ea2e399e30d14d7eca150d9a3f4fa5e409e0976b773c95c9f752789212e",
-      "oddstar/channels/ir_timedomain/__init__.py": "db31a0eb206d0dee5a43b28f2e878c3b4bbfcfd0514ef140b8a99075a99c6317",
-      "oddstar/channels/ir_timedomain/channel.py": "6ec0ccaa5a554317a5f1f7be755b2931fa120b5ab6381984dc7f4fa9f3892594",
+      "oddstar/channels/radio_narrowband/__init__.py": "127a5acd5b347ba2b6270613d92f1f0ccfeed6d748a4ddd780d170ccf3035bcc",
+      "oddstar/channels/radio_narrowband/channel.py": "5317405ba113bc65889aa5c6eee77cb2959c5b2da313dd04ff24bfbd0ef5344c",
       "oddstar/config.py": "46af545c91b0db22ac5d71dcec4529e1d1cebfe3b62cb3be2b5268481ef3df0c",
       "oddstar/dossier/plots.py": "d304dad52af137199576932c3562f600003172fbff1f4712ef4bdc8a2b472e4d",
       "oddstar/errors.py": "6e2757f307284892a5d69bf8967ee111d49bcd4c4100bf82316d02d7fb09ed30",
@@ -200,7 +153,6 @@
       "oddstar/io/physics.py": "1861802f5f9e8439ba53ff79b3450ea7bd7e38918d04a0a4cb7ef01fdf2ceb0d",
       "oddstar/io/storage.py": "63843e3a91f38ae2604a9aea9b6c8f23fb727392dc8488c2ff1270765f768e50",
       "oddstar/io/vetting_queries.py": "7edd0d88e2094740d933f2f97eac872c1b804de90d4051ed2fd135c584b0f171",
-      "oddstar/sample/builder.py": "3b54c7d25f3b150e98a5c72f89efa82dd14e3d979b914395ebcbd41880e0e4ac",
       "oddstar/schemas/__init__.py": "f042a0e7698fd0bbd38af7a4a6e948f0e47a587dae1315d2f9fc2c943605fc0f",
       "oddstar/schemas/models.py": "64fedcad48d4d68b769097def87f49371ffe8f8ed501f4dfcf02b6682f53514a",
       "oddstar/validate/fingerprint.py": "94a922c6bd78f5ae3dbc606b482957a8a8f9cc8c522f695d88e814a8a7f81a91",
@@ -212,8 +164,8 @@
       "oddstar/vet/radio_checks.py": "4cb0f9a2a482f96245a4950ff64ff4d82071c6a4cbd9de55d49f56c14a659246",
       "oddstar/vet/spectral_checks.py": "f9d6171de7e05d89db987dedb1bd0521ebce4fe1cce2989aba078ea1a7a69c15",
       "oddstar/vet/underluminous_checks.py": "50f9093f9d224f15068f8b456ca535032df7e3f835bd2e5a6ab5d680f6ed74a0",
-      "oddstar/vet/vanishing_checks.py": "818d63556ff605ab66711de0059e59ad39909d5c23d2b77ceefbfedfb770873c"
+      "oddstar/vet/vanishing_checks.py": "8598286d73f47f7a8c2b69b0a08bb92e5f926783e69c59e074f1304eb0802072"
     }
   },
-  "code_fingerprint": "3a71a65147e23eab87515e963d92b14385a26400d4ddc04264561db8f430fc03"
+  "code_fingerprint": "e60286fd2f3334fef9ea3559e4553332f1c63dad8ca0923e9f1884dfc34fa74b"
 }
