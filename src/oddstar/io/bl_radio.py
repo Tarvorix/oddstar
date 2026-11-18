@@ -732,10 +732,13 @@ def enrich_sample_radio(
 
 
 def download_file(url: str, dest: Path, size_bytes: int, md5sum: str, *, chunk_bytes: int = 8 << 20,
-                  progress: Callable[[int, int], None] | None = None, timeout_s: float = 60.0) -> str:
+                  progress: Callable[[int, int], None] | None = None, timeout_s: float = 60.0, attempts: int = 6,
+                  sleep: Callable[[float], Any] = time.sleep) -> str:
     """Fetch one archive file to `dest`, resuming a partial download, and check its size and MD5.
 
-    Returns "present" (already complete), or "downloaded". The partial file is `dest` + ".part".
+    A transfer of many gigabytes is often cut by the server or a proxy. A cut transfer is resumed from the bytes
+    already on disk, up to `attempts` requests in a row that add nothing. Returns "present" (already complete) or
+    "downloaded". The partial file is `dest` + ".part" and is kept on failure, so a later call resumes too.
     """
     import requests
 
@@ -744,12 +747,13 @@ def download_file(url: str, dest: Path, size_bytes: int, md5sum: str, *, chunk_b
         return "present"
     part = dest.with_name(dest.name + ".part")
     dest.parent.mkdir(parents=True, exist_ok=True)
-    have = part.stat().st_size if part.is_file() else 0
-    if size_bytes and have > size_bytes:
+    if size_bytes and part.is_file() and part.stat().st_size > size_bytes:
         part.unlink()
-        have = 0
-    if not size_bytes or have < size_bytes:
+    idle = 0
+    while not (size_bytes and part.is_file() and part.stat().st_size == size_bytes):
+        have = start = part.stat().st_size if part.is_file() else 0
         headers = {"Range": f"bytes={have}-"} if have else {}
+        error = ""
         try:
             with requests.get(url, headers=headers, stream=True, timeout=timeout_s) as resp:
                 if resp.status_code == 200 and have:
@@ -763,9 +767,18 @@ def download_file(url: str, dest: Path, size_bytes: int, md5sum: str, *, chunk_b
                         if progress is not None:
                             progress(have, size_bytes)
         except requests.exceptions.RequestException as exc:
-            raise ArchiveAccessError(f"{url}: {type(exc).__name__}: {str(exc)[:160]} (rerun to resume from {have} bytes)", retryable=True) from exc
-    if size_bytes and part.stat().st_size != size_bytes:
-        raise ArchiveAccessError(f"{url}: got {part.stat().st_size} of {size_bytes} bytes (rerun to resume)", retryable=True)
+            error = f"{type(exc).__name__}: {str(exc)[:160]}"
+        if not size_bytes and not error:
+            break  # no size to check against: the body the server sent is the file
+        now = part.stat().st_size if part.is_file() else 0
+        if size_bytes and now > size_bytes:
+            raise ArchiveAccessError(f"{url}: got {now} bytes, the index lists {size_bytes}", retryable=False)
+        idle = 0 if now > start else idle + 1
+        if idle >= attempts or (not size_bytes and error):
+            raise ArchiveAccessError(f"{url}: {error or 'the transfer ended early'}; {now} of {size_bytes} bytes on disk (rerun to resume)",
+                                     retryable=True)
+        if now != size_bytes:
+            sleep(min(60.0, 5.0 * (idle + 1)))
     if md5sum and set(md5sum) != {"0"}:
         h = hashlib.md5()  # noqa: S324  (the archive publishes MD5; this is a transfer check, not security)
         with open(part, "rb") as fh:
