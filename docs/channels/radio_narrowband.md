@@ -25,9 +25,17 @@ decides anything, and it is the channel code above.
    / dish diameter). `--plan` lists, for each covered star, the fine-resolution files that contain it (ON) and the
    comparison scans: the nearest scan before and after on another target with the same receiver, or other beams of
    the Parkes multibeam recorded at the same instant. Only the index is read.
+   The index lists many southern declinations wrongly: the fraction of a degree is mirrored, differently for each
+   file family (`bl_opendata.true_declination`, measured against catalogue positions of named targets). A southern
+   star is therefore asked for at every declination the index may use, and each file is put back at its true
+   declination before any separation is computed. A southern file of a family that was not measured is
+   "unverified": it never makes a star covered, and a star that only such a file could contain is counted as
+   `unverified_pointing`.
 2. **Download** (`python -m oddstar.io.bl_radio --plan <bl_scan_plan.json> --source-id <id>`). One scan set is tens
    of gigabytes, so nothing is downloaded by a search; this command fetches one star's set into
-   `data/breakthrough_listen_scans`, resumes a broken transfer and checks size and MD5.
+   `data/breakthrough_listen_scans`, resumes a broken transfer and checks size and MD5. With `--search` it instead
+   downloads, searches and deletes one scan at a time (disk for one file is enough) and stores the result where
+   the survey finds it, so the star counts as searched without its files on disk.
 3. **Search** (`oddstar/io/bl_radio.py`). The ON scan is read in blocks of `live_block_channels`. In each block every
    stretch of `live_window_channels` is tested with the channel's statistic and drift grid; a stretch that reaches
    `live_prefilter_snr` is cut from the ON scan and, at the same sky frequencies, from every OFF scan, and that
@@ -41,6 +49,10 @@ with a full scan set in the archive, files not on disk), `n_no_comparison` (insi
 archive), `n_failed` (index or file unreadable).
 
 Known limits of the live search:
+- Pointings with a true declination between -1 and 0 degrees cannot be recovered from the index and are not found.
+  The declination rules rest on a few named targets per file family (listed in `bl_opendata.py`).
+- The index and the Parkes file servers answer over plain HTTP only. A machine that can reach HTTPS only can read
+  Green Bank files (`bldata.berkeley.edu`) but neither the index nor Parkes files.
 - A scan set with one ON scan cannot test persistence. Interference that happened to be on during the ON scan only
   is flagged; the `reobservation` check stays `not_evaluated`, which caps the tier at C.
 - The trial drift rates are 0.05 Hz/s apart while one channel over one scan is 0.01 Hz/s, so a line between two

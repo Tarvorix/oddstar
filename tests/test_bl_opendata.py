@@ -51,7 +51,7 @@ def test_half_power_radius_follows_dish_and_frequency() -> None:
 
 
 def test_star_is_covered_only_inside_the_half_power_beam() -> None:
-    ra, dec = 55.0, -3.0
+    ra, dec = 55.0, 3.0
     rows = [
         _file("HIP1", ra, dec + 200.0 / 3600.0, 1400.0), _file("HIP1", ra, dec + 200.0 / 3600.0, 1420.0, size=264_000_000),
         _file("HIP1", ra, dec + 200.0 / 3600.0, 6000.0),           # same pointing, C band: 200" is outside a 62" radius
@@ -106,7 +106,7 @@ def test_census_counts_each_status_and_resumes(tmp_path: Path, monkeypatch: pyte
     assert summary["n_in_beam"] == 1 and summary["n_near_pointing"] == 1 and summary["n_no_coverage"] == 1 and summary["n_failed"] == 1
     assert summary["in_beam_ids"] == ["1"] and summary["near_pointing_ids"] == ["2"] and summary["failed_ids"] == ["4"]
     assert seen == ["1/4:1:in_beam", "2/4:2:near_pointing", "3/4:3:no_coverage", "4/4:4:failed"]
-    assert len(slept) == 4, "every network request is followed by a pause"
+    assert len(slept) == len(idx.calls) == 8, "every network request is followed by a pause (the southern star takes five)"
 
     n = len(idx.calls)
     slept.clear()
@@ -135,7 +135,7 @@ class _TimeIndex(_Index):
 
 
 def test_scan_plan_pairs_each_on_scan_with_the_off_scans_around_it(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    ra, dec, t = 9.7, -13.4, 57585.508
+    ra, dec, t = 9.7, 13.4, 57585.508
     step = 5.5 / 1440.0
     files = [
         _scan("HIPON", ra, dec + 200.0 / 3600.0, t), _scan("HIPON", ra, dec + 200.0 / 3600.0, t, product="0002", size=90_000_000),
@@ -218,3 +218,95 @@ def test_scan_plan_uses_beams_of_the_same_instant_and_one_file_per_frequency(tmp
     assert all(e["minutes_from_on"] == 0.0 and len(e["files"]) == 2 for e in p["off_simultaneous"])
     assert p["off_before"] is None and p["off_after"]["target"] == "G250.00-50.00"
     assert p["bytes_on_plus_offs"] == 6 * 2_768_000_000
+
+
+GBT_URL = "https://bldata.berkeley.edu/p/spliced_blc0001020304050607_guppi_57585_43576_{}_0021.gpuspec.0000.h5"
+UWL_URL = "http://blpd2.ssl.berkeley.edu/PKSUWL/blc01/PKSUWL/blc01_{}_2019-05-19T19:11:11.000.fil"
+PKS_FINE_URL = "http://blpd8.ssl.berkeley.edu/dl/Parkes_57840_11779_{}_fine.h5"
+MULTIBEAM_URL = "http://blpd12.ssl.berkeley.edu/collate_mb_2/PKS_0295/blc10/blc10_guppi_58233_07909_007538_{}_0001.0000.hires.hdf"
+
+
+def test_southern_index_declinations_are_put_right() -> None:
+    # index values and catalogue positions measured 2026-11-18 (see the comment above DEC_MIRROR_40_40)
+    for tel, url, listed, true, rule in [
+        ("GBT", GBT_URL.format("Hip3909"), -10.0325006, -10.64528, "mirror_40_40"),
+        ("GBT", GBT_URL.format("Hip3026"), -8.3698361111, -8.30794, "mirror_40_40"),
+        ("GBT", GBT_URL.format("HIP17147"), -3.4600025, -3.21778, "mirror_40_40"),
+        ("Parkes", UWL_URL.format("HIP1837_S"), -33.51083, -33.16695, "mirror_40_40"),
+        ("Parkes", PKS_FINE_URL.format("HIP113368_S"), -28.3777777778, -29.62222, "mirror_0"),
+        ("Parkes", PKS_FINE_URL.format("HIP8102_S"), -14.0625, -15.9375, "mirror_0"),
+        ("Parkes", MULTIBEAM_URL.format("G238.23-51.24"), -35.93489, -35.93489, "as_listed"),
+        ("Parkes", "http://blpd0.ssl.berkeley.edu/other/a_0001.0000.fil", -40.5, -40.5, "unverified"),
+        ("GBT", "https://bldata.berkeley.edu/other/a.0000.h5", -40.5, -40.5, "unverified"),
+        ("GBT", "https://bldata.berkeley.edu/other/a.0000.h5", 40.5, 40.5, "as_listed"),
+        ("GBT", GBT_URL.format("HIP1"), 12.25, 12.25, "as_listed"),
+    ]:
+        dec, how = bl.true_declination(tel, url, listed)
+        assert how == rule and dec == pytest.approx(true, abs=2e-5), url
+    for c in bl.DEC_MIRRORS.values():
+        for dec in (-1.0, -1.5, -20.0, -20.999999, -45.677778, -45.7, -89.3):
+            listed = bl.mirror_declination(dec, c)
+            assert listed is not None and bl.unmirror_declination(listed, c) == pytest.approx(dec, abs=1e-9)
+        assert bl.mirror_declination(-0.5, c) is None and bl.mirror_declination(3.0, c) is None
+    assert bl.candidate_declinations(-14.0625) == pytest.approx([-14.0625, -14.615278, -15.9375], abs=1e-6)
+
+
+def test_a_southern_position_is_asked_for_wherever_the_index_may_list_it() -> None:
+    assert bl.index_query_declinations(20.0, 0.25) == [20.0]
+    assert bl.index_query_declinations(-10.5, 0.25) == pytest.approx([-10.5, -(10 + bl.DEC_MIRROR_40_40 - 0.5), -9.5])
+    # the circle reaches into the ninth degree, which is mirrored somewhere else
+    assert bl.index_query_declinations(-10.1, 0.25) == pytest.approx(
+        [-10.1, -(10 + bl.DEC_MIRROR_40_40 - 0.1), -(9 + bl.DEC_MIRROR_40_40 - 0.85), -9.9, -8.15])
+    assert bl.index_query_declinations(-0.5, 0.25) == [-0.5], "the strip above -1 degree cannot be recovered"
+
+
+def test_southern_stars_are_found_through_the_mirrored_declination(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def listed(dec: float, rule: str) -> float:
+        m = bl.mirror_declination(dec, bl.DEC_MIRRORS[rule])
+        assert m is not None
+        return m
+
+    def rec(target: str, url: str, ra: float, decl: float, freq: float, tel: str, n: int) -> dict[str, Any]:
+        return {"id": n, "target": target, "ra": ra, "decl": decl, "center_freq": freq, "telescope": tel, "size": 10**9, "mjd": 57585.5,
+                "file_type": "HDF5", "md5sum": "0" * 32, "url": url}
+
+    idx = _Index([
+        rec("Hip3026", GBT_URL.format("Hip3026"), 9.6329, listed(-8.30794, "mirror_40_40"), 1475.0, "GBT", 1),
+        rec("HIP1837_S", UWL_URL.format("HIP1837_S"), 5.81625, listed(-33.16695, "mirror_40_40"), 768.0, "Parkes", 2),
+        rec("HIP8102_S", PKS_FINE_URL.format("HIP8102_S"), 26.017, listed(-15.9375, "mirror_0"), 3094.0, "Parkes", 3),
+        rec("G1", MULTIBEAM_URL.format("G1"), 57.56, -35.93, 1282.75, "Parkes", 4),
+        rec("odd", "http://blpd0.ssl.berkeley.edu/other/odd_0001.0000.fil", 100.0, listed(-50.3, "mirror_0"), 1400.0, "Parkes", 5),
+        # a Green Bank file listed where a star truly is, but truly 0.6 degree away
+        rec("HIP9", GBT_URL.format("HIP9"), 150.0, -20.2, 1475.0, "GBT", 6),
+    ])
+    monkeypatch.setattr(ot, "_get_with_retries", idx.get)
+    stars = [
+        {"source_id": "hip3026", "ra_deg": 9.6332, "dec_deg": -8.3117},
+        {"source_id": "hip1837", "ra_deg": 5.8163, "dec_deg": -33.1670},
+        {"source_id": "hip8102", "ra_deg": 26.017, "dec_deg": -15.9375},
+        {"source_id": "multibeam", "ra_deg": 57.56, "dec_deg": -35.95},
+        {"source_id": "odd", "ra_deg": 100.0, "dec_deg": -50.3},
+        {"source_id": "coincidence", "ra_deg": 150.0, "dec_deg": -20.2},
+    ]
+    recs, summary = bl.sample_radio_coverage(stars, RawCache(tmp_path / "raw"), sleep=lambda s: None)
+    by = {r["source_id"]: r for r in recs}
+    assert [by[k]["status"] for k in ("hip3026", "hip1837", "hip8102", "multibeam")] == ["in_beam"] * 4
+    assert by["hip3026"]["pointings"][0]["sep_arcsec"] == pytest.approx(13.6, abs=0.5) and by["hip3026"]["pointings"][0]["dec_rules"] == ["mirror_40_40"]
+    assert by["odd"]["status"] == "unverified_pointing" and by["odd"]["pointings"][0]["possibly_in_beam"] and not by["odd"]["pointings"][0]["in_beam"]
+    assert by["coincidence"]["status"] == "near_pointing", "the listed declination of a mirrored file is not where the telescope pointed"
+    assert summary["n_in_beam"] == 4 and summary["n_unverified_pointing"] == 1 and summary["unverified_pointing_ids"] == ["odd"]
+    assert len(by["hip3026"]["manifest_ids"]) == 3
+
+
+def test_scan_plan_of_a_southern_star_uses_true_declinations(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    c = bl.DEC_MIRROR_40_40
+    ra, dec, t = 9.6332, -8.3117, 57585.508
+    files = [_scan("Hip3026", 9.6329, bl.mirror_declination(-8.30794, c), t), _scan("Hip3909", 12.53, bl.mirror_declination(-10.64528, c), t - 0.004),
+             _scan("Hip3909", 12.53, bl.mirror_declination(-10.64528, c), t + 0.004)]
+    idx = _TimeIndex(files)
+    monkeypatch.setattr(ot, "_get_with_retries", idx.get)
+    cache = RawCache(tmp_path / "raw")
+    rows, _, _ = bl.query_star_rows(ra, dec, cache)
+    plans = bl.plan_star_scans(ra, dec, rows, cache)
+    assert len(plans) == 1 and plans[0]["comparison"] == "before_after" and plans[0]["sep_arcsec"] == pytest.approx(13.6, abs=0.5)
+    assert plans[0]["off_before"]["target"] == "Hip3909" and plans[0]["off_before"]["sep_arcsec"] > 10000.0

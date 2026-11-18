@@ -202,7 +202,7 @@ def test_allocations_and_beam_edge() -> None:
 
 # ------------------------------------------------------------------------------------------------ survey level
 
-RA, DEC = 9.7, -13.4
+RA, DEC = 9.7, 13.4
 
 
 def _index_row(name: str, target: str, ra: float, dec: float, mjd: float, size: int, freq: float = 1400.0114) -> dict[str, Any]:

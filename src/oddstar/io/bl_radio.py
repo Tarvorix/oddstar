@@ -670,7 +670,7 @@ def enrich_sample_radio(
         t_req = time.monotonic()
         hit = True
         try:
-            rows, _, hit = bl.query_bl_files(ra, dec, cache, sleep=sleep)
+            rows, _, hit = bl.query_star_rows(ra, dec, cache, sleep=sleep)
             cov = bl.beam_coverage(ra, dec, rows)
             if cov["status"] != "in_beam":
                 status = "no_coverage"
