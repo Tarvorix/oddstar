@@ -1,10 +1,10 @@
 {
   "channel": "ir_excess",
-  "gaia_release": "dr3",
+  "gaia_release": "dr4",
   "split": "all",
-  "config_hash": "8471e256c62e",
-  "git_commit": "9502badb10bb080a8fc88b1b15b65fe1439bef57",
-  "timestamp_utc": "2026-11-18T15:16:08.835306+00:00",
+  "config_hash": "675990993dc0",
+  "git_commit": "9bd0ddd6108feec538cf55e564db364927789e03",
+  "timestamp_utc": "2026-11-18T17:17:08.883899+00:00",
   "passed": true,
   "blind_recovery_rate": 1.0,
   "blind_total": 13,
@@ -93,39 +93,39 @@
   "expected_false_positives": 3.333333333333333,
   "calibration_curve": [
     {
-      "stat": 0.38075422248131785,
+      "stat": 0.37785869310728226,
       "fap": 0.5
     },
     {
-      "stat": 0.9464140192984687,
+      "stat": 0.9255569747401845,
       "fap": 0.25
     },
     {
-      "stat": 1.4311844895930481,
+      "stat": 1.4028896176272196,
       "fap": 0.09999999999999998
     },
     {
-      "stat": 1.8626364652765373,
+      "stat": 1.8705648445010639,
       "fap": 0.050000000000000044
     },
     {
-      "stat": 2.3468398389876666,
+      "stat": 2.3961961832470196,
       "fap": 0.010000000000000009
     },
     {
-      "stat": 4.258870287829769,
+      "stat": 4.277589236957066,
       "fap": 0.0001
     },
     {
-      "stat": 5.758870287829769,
+      "stat": 5.777589236957066,
       "fap": 1e-6
     },
     {
-      "stat": 8.758870287829769,
+      "stat": 8.777589236957066,
       "fap": 1e-9
     },
     {
-      "stat": 14.758870287829769,
+      "stat": 14.777589236957066,
       "fap": 1e-12
     }
   ],
@@ -144,7 +144,7 @@
       {
         "source_id": "2996362101189875200",
         "flagged": true,
-        "raw_stat": 19.87517358536727
+        "raw_stat": 19.874251578227128
       },
       {
         "source_id": "1638028353993041792",
@@ -154,7 +154,7 @@
       {
         "source_id": "5290837497970360960",
         "flagged": true,
-        "raw_stat": 19.661324339200586
+        "raw_stat": 19.668286145096083
       },
       {
         "source_id": "6048418276566039424",
@@ -164,37 +164,37 @@
       {
         "source_id": "66549657436283904",
         "flagged": true,
-        "raw_stat": 18.834489154341796
+        "raw_stat": 18.82924896811775
       },
       {
         "source_id": "6485732215620751360",
         "flagged": true,
-        "raw_stat": 19.23653321518447
+        "raw_stat": 19.248346247068458
       },
       {
         "source_id": "6438274350302427904",
         "flagged": true,
-        "raw_stat": 20.56429029495777
+        "raw_stat": 20.560070621752743
       },
       {
         "source_id": "6133409280036818688",
         "flagged": true,
-        "raw_stat": 20.322935570822583
+        "raw_stat": 20.322159712238804
       },
       {
         "source_id": "5551530885782831616",
         "flagged": true,
-        "raw_stat": 20.42617741095508
+        "raw_stat": 20.421779325168355
       },
       {
         "source_id": "4066368953121417984",
         "flagged": true,
-        "raw_stat": 19.699605811741463
+        "raw_stat": 19.69875104944475
       },
       {
         "source_id": "115725517896200320",
         "flagged": true,
-        "raw_stat": 20.607859181238908
+        "raw_stat": 20.60777384382339
       }
     ],
     "impostor_rejection": [
@@ -317,13 +317,13 @@
       "oddstar/validate/harness.py": "d63ed92087688d45acb51f58b4b68bd7f81a3ca298b9c8cf540bf1d656a46388",
       "oddstar/vet/common.py": "0107f4da0f5b310f759688785f0c9347c5785db6ca6129452441ced3cb96622e",
       "oddstar/vet/engine.py": "aeb74a5b12a2a16bff0a33aeeb6890fd758709200c40f49a3bdad131efc3d945",
-      "oddstar/vet/ir_checks.py": "224450e6d2cc1b554369a526083c412461c7f0a1e35e67d6ac2790637ff0d333",
+      "oddstar/vet/ir_checks.py": "e6dc7ac512512b0e93144dd238540cd100073b6ea62fc2cdfe33bbe4d3f81f5c",
       "oddstar/vet/lc_checks.py": "f8c925d6553298f2cc2d28bf8d1976b8aaa450723702374ae0e40af2a8681138",
       "oddstar/vet/radio_checks.py": "4cb0f9a2a482f96245a4950ff64ff4d82071c6a4cbd9de55d49f56c14a659246",
       "oddstar/vet/spectral_checks.py": "f9d6171de7e05d89db987dedb1bd0521ebce4fe1cce2989aba078ea1a7a69c15",
       "oddstar/vet/underluminous_checks.py": "50f9093f9d224f15068f8b456ca535032df7e3f835bd2e5a6ab5d680f6ed74a0",
-      "oddstar/vet/vanishing_checks.py": "9903ff429c6bc79c23ee19aad2f5f31444b897c85b945945fb7984a1050ae8e3"
+      "oddstar/vet/vanishing_checks.py": "818d63556ff605ab66711de0059e59ad39909d5c23d2b77ceefbfedfb770873c"
     }
   },
-  "code_fingerprint": "2f5eeb6e7fd7fd14766141bec1dda030a341fd5d44c53f8937fc949425f96ede"
+  "code_fingerprint": "4681b892fd421d95009e825dbabe959e45f2eeaad7c1fbc223cd280aff81b55b"
 }
