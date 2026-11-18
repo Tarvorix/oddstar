@@ -44,6 +44,7 @@ _PRODUCTS: dict[str, tuple[str, str]] = {
     "panstarrs_depth_mag": ("panstarrs_depth", "Pan-STARRS local limiting depth"),
     "plate_images": ("plate_images", "digitized first-epoch plate images at the catalogued position"),
     "plate_neighbours": ("plate_neighbours", "first-epoch plate images at the nearby Pan-STARRS objects"),
+    "plate_first_place": ("plate_first_place", "Gaia and Pan-STARRS objects at the place where the first-epoch plates show the source"),
     "sso_on_plate": ("plate_epoch_ephemeris", "Solar System ephemeris at the plate epoch"),
     "blend_split_sources": ("highres_imaging", "modern high-resolution imaging (blend split)"),
     "known_lpv": ("variable_star_catalogue", "variable-star catalogue cross-match (LPV/Mira)"),
@@ -94,7 +95,10 @@ def check_proper_motion(star: dict[str, Any], cfg: PipelineConfig, out_dir: Path
     """Fail when the plate-to-Gaia offset is a high-proper-motion star that moved (Gaia counterpart present).
 
     A plate source of the survey without a Gaia counterpart has no star to move. It passes only when the survey
-    recorded that no Gaia star's path over the plate era comes within the match radius of the plate position.
+    recorded that no Gaia star's path over the plate era comes within the match radius of the plate position. A live
+    plate source also fails when a present-day object is at the place where the first-epoch plates show it
+    (`first_place_counterpart`: a false catalogue proper motion) or when a nearby Pan-STARRS object is the source,
+    moved (`moved_star_verdict`), and passes only when both tests could be made and found nothing.
     """
     inputs = {k: _vd_input(star, k) for k in ("usno_epoch", "usno_ra_deg", "usno_dec_deg", "present_in_gaia")}
     gaia = {k: _star_input(star, k) for k in ("ra_deg", "dec_deg", "pmra_mas_yr", "pmdec_mas_yr")}
@@ -119,16 +123,28 @@ def check_proper_motion(star: dict[str, Any], cfg: PipelineConfig, out_dir: Path
                      f"{where} (match radius {match_rad:.1f}\")")
         if moved_star or not _is_live(star):
             return make_vet_result(out_dir, check="proper_motion", status="fail" if moved_star else "pass", note=gaia_note, metrics=metrics)
+        # The catalogue position can be wrong (a false catalogue proper motion): the survey's comparison again, at the
+        # place where the first-epoch plates show the source
+        still = first_place_counterpart(star, cfg)
+        metrics["first_place_test"] = still
+        if still["verdict"]:
+            return make_vet_result(out_dir, check="proper_motion", status="fail", metrics=metrics, note=f"{gaia_note}. {still['note']}")
         # A star too faint for Gaia can still have moved: the Pan-STARRS objects nearby against the first-epoch plates
         moved = moved_star_verdict(star, cfg)
         metrics["moved_star_test"] = moved
         metrics["input_values"]["plate_neighbours"] = moved.get("neighbours")
+        if moved["verdict"]:
+            return make_vet_result(out_dir, check="proper_motion", status="fail", metrics=metrics, note=f"{gaia_note}. {moved['note']}")
         if moved["verdict"] is None:
             metrics.update(missing_inputs=moved["missing"], live_star=True)
             return make_vet_result(out_dir, check="proper_motion", status="not_evaluated", metrics=metrics,
                                    note=f"{gaia_note}. Not settled for a star too faint for Gaia: {moved['note']}")
-        return make_vet_result(out_dir, check="proper_motion", status="fail" if moved["verdict"] else "pass", metrics=metrics,
-                               note=f"{gaia_note}. {moved['note']}")
+        if still["verdict"] is None:
+            metrics.update(missing_inputs=still["missing"], live_star=True)
+            return make_vet_result(out_dir, check="proper_motion", status="not_evaluated", metrics=metrics,
+                                   note=f"{gaia_note}. Not settled at the place where the plates show the source: {still['note']}")
+        return make_vet_result(out_dir, check="proper_motion", status="pass", metrics=metrics,
+                               note=f"{gaia_note}. {still['note']}. {moved['note']}")
     usno_epoch = float(inputs["usno_epoch"])
     usno_ra, usno_dec = float(inputs["usno_ra_deg"]), float(inputs["usno_dec_deg"])
     pred_ra, pred_dec = propagate_position(
@@ -195,6 +211,69 @@ def _peak_offset_from(row: dict[str, Any], ra: float, dec: float) -> tuple[float
     east = ((float(row["ra_measured_deg"]) - ra + 180.0) % 360.0 - 180.0) * cos_dec * 3600.0 - float(peak["dx_arcsec"])  # east is towards smaller x
     north = (float(row["dec_measured_deg"]) - dec) * 3600.0 + float(peak["dy_arcsec"])
     return east, north
+
+
+def first_place_counterpart(star: dict[str, Any], cfg: PipelineConfig) -> dict[str, Any]:
+    """Is a present-day object at the place where the first-epoch plates show the source?
+
+    The survey looks for a Gaia or Pan-STARRS counterpart at the catalogue position. USNO-B1.0 gives some sources a
+    false proper motion, by joining detections of different objects into one track; the catalogue position is then
+    several arcsec from the object the first plates recorded, and the survey finds nothing there although the object
+    never left. This repeats the survey's own comparison, with the survey's `match_radius_arcsec`, at the mean sky
+    place of the first-epoch plate images that show the source: a Gaia star that was there at the plate's date
+    (moved back with its Gaia proper motion), or a Pan-STARRS object there now.
+    `verdict` is True (a counterpart: the source did not vanish), False (none, or no first-epoch image shows the
+    source, so there is no place to compare at) or None (open; `missing` names the input).
+    """
+    match = float(cfg.channels["vanishing"]["match_radius_arcsec"])
+    before = float(cfg.channels["vanishing"]["plate_image_first_epoch_before"])
+    images = _vd_input(star, "plate_images")
+    out: dict[str, Any] = {"match_radius_arcsec": match, "place": None, "counterparts": []}
+    if not isinstance(images, dict):
+        return dict(out, verdict=None, missing=["plate_images"], note=_missing_note(star, ["plate_images"]))
+    shown = [r for r in images.get("rows") or [] if isinstance(r, dict) and r.get("plate_epoch") is not None
+             and float(r["plate_epoch"]) < before and plate_image_verdict(r, cfg)]
+    if not shown:
+        return dict(out, verdict=False, missing=[], note="No first-epoch plate image shows the source, so there is no measured place to compare at")
+    place = _vd_input(star, "plate_first_place")
+    if not isinstance(place, dict) or not isinstance(place.get("position"), list):
+        return dict(out, verdict=None, missing=["plate_first_place"], note=_missing_note(star, ["plate_first_place"]))
+    ra0, dec0 = float(place["position"][0]), float(place["position"][1])
+    offs = [o for o in (_peak_offset_from(r, ra0, dec0) for r in shown) if o is not None]
+    if not offs:
+        return dict(out, verdict=None, missing=["plate_images"], note="The first-epoch rows that show the source carry no peak position")
+    e1, n1 = sum(o[0] for o in offs) / len(offs), sum(o[1] for o in offs) / len(offs)
+    t1 = sum(float(r["plate_epoch"]) for r in shown) / len(shown)
+    cos_dec = max(1e-6, math.cos(math.radians(dec0)))
+
+    def _dist(ra: float, dec: float) -> float:
+        east = ((ra - ra0 + 180.0) % 360.0 - 180.0) * cos_dec * 3600.0
+        return math.hypot(east - e1, (dec - dec0) * 3600.0 - n1)
+
+    found: list[dict[str, Any]] = []
+    for g in place.get("gaia") or []:
+        d = _dist(float(g["ra_then_deg"]), float(g["dec_then_deg"]))
+        if d <= match:
+            found.append({"catalogue": "Gaia DR3", "id": str(g.get("source_id")), "sep_arcsec": round(d, 2), "mag": g.get("g_mag"), "band": "G",
+                          "pm_mas_yr": round(math.hypot(float(g.get("pmra_mas_yr") or 0.0), float(g.get("pmdec_mas_yr") or 0.0)), 1)})
+    for p in place.get("ps1") or []:
+        d = _dist(float(p["ra_deg"]), float(p["dec_deg"]))
+        if d <= match:
+            found.append({"catalogue": "Pan-STARRS", "id": str(p.get("objID")), "sep_arcsec": round(d, 2), "mag": p.get("r_mag"), "band": "r",
+                          "n_detections": p.get("n_detections")})
+    found.sort(key=lambda f: (f["sep_arcsec"], f["id"]))
+    out.update(place={"east_arcsec": round(e1, 2), "north_arcsec": round(n1, 2), "of_position": [ra0, dec0], "epoch": round(t1, 1),
+                      "n_images": len(offs)},
+               counterparts=found, n_gaia_in_cone=len(place.get("gaia") or []), n_ps1_in_cone=len(place.get("ps1") or []))
+    where = f"the place where {len(offs)} first-epoch plate image(s) ({t1:.0f}) show the source"
+    if not found:
+        return dict(out, verdict=False, missing=[], note=f"No Gaia star was, and no Pan-STARRS object is, within {match:.1f}\" of {where}")
+    f = found[0]
+    mag = "" if f.get("mag") is None else f", {f['band']} {float(f['mag']):.2f}"
+    when = "was" if f["catalogue"] == "Gaia DR3" else "is"
+    return dict(out, verdict=True, missing=[], note=(
+        f"{f['catalogue']} {f['id']}{mag} {when} {f['sep_arcsec']:.2f}\" from {where}: the object the plates recorded is still there, "
+        "and it is the catalogue position that is off"))
 
 
 def plate_track(rows: list[dict[str, Any]], ra: float, dec: float, cfg: PipelineConfig) -> dict[str, Any]:

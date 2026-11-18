@@ -18,9 +18,9 @@ def _unit(rows, *, status="ok", errors=None, early=2, r1=17.5):
 
 
 def _row(survey, epoch, snr, offset, status="ok"):
-    peak = None if snr is None else {"snr": snr, "offset_arcsec": offset, "fwhm_arcsec": 4.0}
+    peak = None if snr is None else {"snr": snr, "offset_arcsec": offset, "dx_arcsec": -offset, "dy_arcsec": 0.0, "fwhm_arcsec": 4.0}
     return {"survey": survey, "survey_returned": survey.upper(), "plate_id": "X", "plate_epoch": epoch, "status": status,
-            "snr_at_position": snr, "peak": peak, "field_fwhm_median_arcsec": 4.1}
+            "ra_measured_deg": RA0, "dec_measured_deg": DEC0, "snr_at_position": snr, "peak": peak, "field_fwhm_median_arcsec": 4.1}
 
 
 def test_plate_defect_reads_the_plates_for_a_survey_source(tmp_path) -> None:
@@ -79,14 +79,17 @@ def test_plate_defect_reads_the_plates_for_a_survey_source(tmp_path) -> None:
     assert status == "fail" and "Early-epoch detections on 1" in note
 
 
-def _live_unit(rows, neighbours, *, nb_status="ok", n_in_radius=None, r1=17.5):
+def _live_unit(rows, neighbours, *, nb_status="ok", n_in_radius=None, r1=17.5, place_status="ok", gaia=(), ps1=()):
     u = _unit(rows, r1=r1)
     u["live_enriched"] = True
     u.update(ra_deg=RA0, dec_deg=DEC0, pmra_mas_yr=0.0, pmdec_mas_yr=0.0)
     u["vanishing_data"].update({
         "usno_epoch": 1953.0, "usno_ra_deg": RA0, "usno_dec_deg": DEC0, "present_in_gaia": False, "present_in_panstarrs": False,
         "nearest_gaia_track": {"n_gaia_stars": 4, "sep_arcsec": 41.2, "source_id": "1", "epoch": 1953.0, "plate_era": [1949.0, 2002.0]}})
-    u["vetting_archive"]["query_status"].update({"modern_counterpart": "ok", "plate_neighbours": nb_status})
+    u["vetting_archive"]["query_status"].update({"modern_counterpart": "ok", "plate_neighbours": nb_status, "plate_first_place": place_status})
+    if place_status == "ok":
+        u["vanishing_data"]["plate_first_place"] = {"position": [RA0, DEC0], "epoch": 1953.0, "radius_arcsec": 10.0, "gaia": list(gaia),
+                                                    "ps1": list(ps1)}
     if neighbours is not None:
         u["vanishing_data"]["plate_neighbours"] = {"radius_arcsec": 10.0, "inner_radius_arcsec": 3.0, "neighbours": neighbours,
                                                    "n_objects_in_radius": len(neighbours) if n_in_radius is None else n_in_radius}
@@ -191,3 +194,58 @@ def test_the_later_plates_say_whether_the_source_moved_to_a_nearby_object(tmp_pa
     assert status == "pass" and m["moved_star_test"]["neighbours"][0]["kind"] == "source_stayed_in_place"
     status, note, m = run(first + on_the_way[:1], [obj])
     assert status == "not_evaluated" and "later plates: 1 later image(s) usable" in note
+
+
+def test_an_object_at_the_place_the_first_plates_show_means_the_source_never_left(tmp_path) -> None:
+    """A false catalogue proper motion puts the catalogue position arcsec away from an object that stayed put."""
+    import math
+
+    from oddstar.config import load_config
+    from oddstar.vet.vanishing_checks import check_proper_motion, first_place_counterpart
+
+    cfg = load_config()[0]
+    match = float(cfg.channels["vanishing"]["match_radius_arcsec"])
+    cos_dec = math.cos(math.radians(DEC0))
+    # The 1953 plates show the source 1.2 arcsec east and 0.8 south of where they were measured
+    first = [_sky_row("poss1_red", 1953.0, 1.3, -0.9), _sky_row("poss1_blue", 1953.0, 1.1, -0.7)]
+
+    def at(east, north):
+        return RA0 + east / 3600.0 / cos_dec, DEC0 + north / 3600.0
+
+    def gaia(east, north, sid="77"):
+        ra, dec = at(east, north)
+        return {"source_id": sid, "ra_then_deg": ra, "dec_then_deg": dec, "sep_then_arcsec": 1.0, "pmra_mas_yr": 30.0, "pmdec_mas_yr": -40.0, "g_mag": 17.6}
+
+    def ps1(east, north, objid="88", r_mag=19.7):
+        ra, dec = at(east, north)
+        return {"objID": objid, "ra_deg": ra, "dec_deg": dec, "sep_arcsec": 1.0, "n_detections": 60, "r_mag": r_mag}
+
+    def run(unit):
+        r = check_proper_motion(unit, cfg, tmp_path / f"v{len(list(tmp_path.iterdir()))}")
+        return r.status, r.note, r.metrics
+
+    # A Gaia star that was there in 1953
+    status, note, m = run(_live_unit(first, [], gaia=[gaia(1.4, -0.6)]))
+    assert status == "fail" and "Gaia DR3 77, G 17.60 was 0.28\" from the place" in note and "is still there" in note
+    assert m["first_place_test"]["place"] == {"east_arcsec": 1.2, "north_arcsec": -0.8, "of_position": [RA0, DEC0], "epoch": 1953.0, "n_images": 2}
+    assert m["first_place_test"]["counterparts"][0]["pm_mas_yr"] == 50.0 and "moved_star_test" not in m
+    # A Pan-STARRS object there now, with or without an r magnitude; the nearest is named
+    status, note, m = run(_live_unit(first, [], ps1=[ps1(1.2, -0.8 + match - 0.2, "89", None), ps1(1.0, -1.0)]))
+    assert status == "fail" and "Pan-STARRS 88, r 19.70 is 0.28\" from the place" in note
+    assert [c["id"] for c in m["first_place_test"]["counterparts"]] == ["88", "89"]
+    # Objects outside the survey's match radius of that place are not counterparts, also when they are near the measured position
+    far = _live_unit(first, [], gaia=[gaia(1.2 - match - 0.3, -0.8)], ps1=[ps1(1.2, -0.8 + match + 0.3)])
+    status, note, m = run(far)
+    assert status == "pass" and f"within {match:.1f}\" of the place where 2 first-epoch plate image(s) (1953) show the source" in note
+    assert m["first_place_test"]["verdict"] is False and m["first_place_test"]["n_gaia_in_cone"] == 1
+    # The catalogues at that place not read: no pass, whatever the neighbours say
+    for st in ("failed: HTTP 503", "no_coverage", "not run"):
+        status, note, m = run(_live_unit(first, [], place_status=st))
+        assert status == "not_evaluated" and m["missing_inputs"] == ["plate_first_place"] and "Not settled at the place" in note, st
+    # No first-epoch image shows the source: there is no place to compare at, and the test does not stand in the way
+    empty = [_row("poss1_red", 1953.0, None, None), _row("poss1_blue", 1953.0, None, None)]
+    res = first_place_counterpart(_live_unit(empty, [], place_status="failed: HTTP 503"), cfg)
+    assert res["verdict"] is False and "no measured place" in res["note"]
+    # One first-epoch image is enough for a place
+    one = _live_unit(first[:1], [], ps1=[ps1(1.3, -0.9)])
+    assert first_place_counterpart(one, cfg)["place"]["n_images"] == 1 and run(one)[0] == "fail"

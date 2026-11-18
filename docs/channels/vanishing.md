@@ -68,6 +68,12 @@ shows at the position (about five cutouts and four seconds per source; only the 
   the plate's date; the object is ruled out when they show the source still in place; otherwise the check is
   `not_evaluated`. On controls: 43 of 57 known moving stars fail and none is ruled out; 73 of 79 still stars with a
   neighbour are ruled out and none fails (see `configs/CHANGELOG.md`, 1.8.0).
+  Since 1.9.0 the check first repeats the survey's comparison at the place where the first-epoch plates show the
+  source (`vanishing_data.plate_first_place`): USNO-B1.0 gives some sources a false proper motion, and the catalogue
+  position is then several arcsec from an object that never left. The check fails ("the object the plates recorded
+  is still there") when a Gaia star, moved back to the plate's date, or a Pan-STARRS object is within
+  `match_radius_arcsec` of that place, and it passes only when this comparison and the moved-star test could both be
+  made and found nothing (see `configs/CHANGELOG.md`, 1.9.0).
 `sso_plate`, `blend_split` and `known_variable` stay `not_evaluated`: no plate-epoch ephemeris, high-resolution imaging
 or variable-star lookup is made.
 

@@ -377,7 +377,75 @@ def enrich_unit(unit: dict[str, Any], cache: RawCache, *, cfg: Any = None, min_i
     missing = [sv for sv in FIRST_EPOCH_SURVEYS if sv in res["errors"]]
     qs["plate_images"] = "ok" if not missing else "failed: " + "; ".join(f"{sv}: {res['errors'][sv][:120]}" for sv in missing)
     if cfg is not None:
+        attach_first_place(unit, cfg, cache, sleep=sleep)
         attach_neighbours(unit, cfg, cache, references, min_interval_s=min_interval_s, sleep=sleep)
+    return unit
+
+
+FIRST_PLACE_CONE_ARCSEC = 10.0  # not a limit of a check: wide enough for the offset limit plus the match radius
+
+
+def attach_first_place(unit: dict[str, Any], cfg: Any, cache: RawCache, *, sleep: Sleeper = time.sleep) -> dict[str, Any]:
+    """The present-day catalogue objects around the place where the first-epoch plates were measured.
+
+    The survey compares a plate source with Gaia and Pan-STARRS at the catalogue position. USNO-B1.0 gives some
+    sources a false proper motion (detections of different objects joined into one track), and the catalogue
+    position is then several arcsec from where the source was on the first plates. This reads the Gaia stars, moved
+    back to the first plate's date, and the Pan-STARRS objects within `FIRST_PLACE_CONE_ARCSEC` of the position the
+    first-epoch plates were measured at, so that vetting can repeat the survey's comparison at the place where the
+    plates show the source. Writes `vanishing_data.plate_first_place` and
+    `vetting_archive.query_status.plate_first_place` ("ok", "no_first_epoch_image", "no_coverage" south of the
+    Pan-STARRS footprint, or "failed: ...").
+    """
+    from oddstar.io.plate_survey import GAIA_EPOCH as GAIA_POSITION_EPOCH, PS1_DEC_LIMIT_DEG, _float, gaia_cone, ps1_cone
+
+    u = unit.get("usno") or {}
+    qs = unit.setdefault("vetting_archive", {}).setdefault("query_status", {})
+    vc = cfg.channels["vanishing"]
+    rows = [r for r in ((unit.get("vanishing_data") or {}).get("plate_images") or {}).get("rows") or []
+            if isinstance(r, dict) and r.get("survey") in FIRST_EPOCH_SURVEYS and r.get("ra_measured_deg") is not None
+            and r.get("plate_epoch") is not None]
+    if not rows:
+        qs["plate_first_place"] = "no_first_epoch_image"
+        return unit
+    ra, dec, epoch = float(rows[0]["ra_measured_deg"]), float(rows[0]["dec_measured_deg"]), float(rows[0]["plate_epoch"])
+    if dec < PS1_DEC_LIMIT_DEG:
+        qs["plate_first_place"] = "no_coverage"
+        return unit
+    half = CUTOUT_ARCMIN * 60.0 / 2.0
+    try:
+        # The cone the cutouts were registered on (stored) holds every star that was within reach of the place
+        centre = (float(u["ra_deg"]), float(u["dec_deg"]))
+        if angular_separation_arcsec(centre[0], centre[1], ra, dec) > half / 2.0:
+            centre = (ra, dec)
+        gaia, _, _ = gaia_cone(centre[0], centre[1], half, cfg, cache, sleep=sleep)
+        ps1, _, _ = ps1_cone(ra, dec, FIRST_PLACE_CONE_ARCSEC, int(vc["plate_ps1_min_detections"]), cache, sleep=sleep)
+    except ArchiveAccessError as exc:
+        qs["plate_first_place"] = f"failed: {str(exc)[:160]}"
+        return unit
+    g_out: list[dict[str, Any]] = []
+    for g in gaia:
+        then_ra, then_dec = propagate_position(g["ra_deg"], g["dec_deg"], g["pmra_mas_yr"], g["pmdec_mas_yr"], GAIA_POSITION_EPOCH, epoch)
+        sep = angular_separation_arcsec(ra, dec, then_ra, then_dec)
+        if sep <= FIRST_PLACE_CONE_ARCSEC:
+            g_out.append({"source_id": g["source_id"], "ra_then_deg": round(then_ra, 7), "dec_then_deg": round(then_dec, 7),
+                          "sep_then_arcsec": round(sep, 2), "pmra_mas_yr": g["pmra_mas_yr"], "pmdec_mas_yr": g["pmdec_mas_yr"],
+                          "g_mag": g.get("g_mag")})
+    p_out: list[dict[str, Any]] = []
+    for p in ps1:
+        p_ra, p_dec = _float(p.get("raMean")), _float(p.get("decMean"))
+        if p_ra is None or p_dec is None:
+            continue
+        sep = angular_separation_arcsec(ra, dec, p_ra, p_dec)
+        if sep <= FIRST_PLACE_CONE_ARCSEC:
+            r_mag = _float(p.get("rMeanPSFMag"))
+            p_out.append({"objID": str(p.get("objID")), "ra_deg": p_ra, "dec_deg": p_dec, "sep_arcsec": round(sep, 2),
+                          "n_detections": p.get("nDetections"), "r_mag": r_mag if r_mag is not None and 5.0 < r_mag < 30.0 else None})
+    unit.setdefault("vanishing_data", {})["plate_first_place"] = {
+        "position": [round(ra, 7), round(dec, 7)], "epoch": epoch, "radius_arcsec": FIRST_PLACE_CONE_ARCSEC,
+        "gaia": sorted(g_out, key=lambda g: (g["sep_then_arcsec"], g["source_id"])),
+        "ps1": sorted(p_out, key=lambda p: (p["sep_arcsec"], p["objID"]))}
+    qs["plate_first_place"] = "ok"
     return unit
 
 

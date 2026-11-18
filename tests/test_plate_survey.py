@@ -247,11 +247,14 @@ def test_moving_stars_are_matched_along_their_path_and_bright_star_halos_are_not
     assert by["I"]["plate_fetch"]["bright_star"] == {"source_id": "900", "g_mag": 10.02, "sep_arcsec": pytest.approx(28.0, abs=0.5), "halo_radius_arcsec": 50.0}
     assert ps.plate_search_status(by["J"]) == "searched" and ch.score(ch.measure(by["J"], {})).flagged
     # With the plate images read: the source is on both first-epoch plates and no Pan-STARRS object could be it, moved
-    seen = {"status": "ok", "registered": True, "plate_epoch": 1954.0, "peak": {"snr": 25.0, "offset_arcsec": 0.4}}
+    ju = by["J"]["usno"]
+    seen = {"status": "ok", "registered": True, "plate_epoch": 1954.0, "ra_measured_deg": ju["ra_deg"], "dec_measured_deg": ju["dec_deg"],
+            "peak": {"snr": 25.0, "offset_arcsec": 0.4, "dx_arcsec": 0.4, "dy_arcsec": 0.0}}
     j = json.loads(json.dumps(by["J"]))
     j["vanishing_data"]["plate_images"] = {"rows": [dict(seen, survey="poss1_red"), dict(seen, survey="poss1_blue")], "errors": {}}
     j["vanishing_data"]["plate_neighbours"] = {"radius_arcsec": 10.0, "inner_radius_arcsec": 3.0, "n_objects_in_radius": 0, "neighbours": []}
-    j["vetting_archive"]["query_status"].update({"plate_images": "ok", "plate_neighbours": "ok"})
+    j["vanishing_data"]["plate_first_place"] = {"position": [ju["ra_deg"], ju["dec_deg"]], "epoch": 1954.0, "radius_arcsec": 10.0, "gaia": [], "ps1": []}
+    j["vetting_archive"]["query_status"].update({"plate_images": "ok", "plate_neighbours": "ok", "plate_first_place": "ok"})
     vet = {r.check: r for r in run_vanishing_vetting(j, cfg, tmp_path / "vet")}
     assert vet["plate_defect"].status == "pass"
     assert vet["proper_motion"].status == "pass" and vet["proper_motion"].metrics["nearest_track_sep_arcsec"] == pytest.approx(64.0, abs=1.5)

@@ -2,6 +2,36 @@
 
 All threshold, sample-cut, and prompt changes must be logged here under Ground Rule R4 before running validation or search.
 
+## [1.9.0] - 2026-11-18
+
+### Vanishing vetting: the survey's comparison is repeated at the place where the first plates show the source
+Run `v180-halo-vanishing` (config 1.8.0) left five plate sources that both first-epoch plate images show and that
+have no counterpart at the catalogue position. All five were looked at on 2026-11-18, and each is an ordinary
+object that never left: three stars and two extended objects (galaxies by their Legacy Survey profiles), on every
+plate at one place (two of the stars drift at their Gaia proper motions of 22 and 42 mas/yr). USNO-B1.0 gives each
+a proper motion of 92 to 553 mas/yr that the plates do not show: detections of different objects joined into one
+track. The catalogue position for epoch 2000, where the survey looks for a Pan-STARRS counterpart, is then 4 to 25
+arcsec from the object, and the mean-epoch plate position, where it looks for the paths of Gaia stars, 2 to 7
+arcsec. The survey finds nothing within its 3 arcsec, and the later plates, measured where the false motion puts
+the source, are empty. The rule below was prompted by those five sources, which is said here plainly. It adds no
+limit: it is the survey's own comparison, with the survey's own `match_radius_arcsec`, made at another place.
+
+- **No new keys.** The version changes because `proper_motion` gives different verdicts.
+- **`proper_motion` for a plate source of the live survey without a Gaia counterpart.** `vet --live` now also reads
+  the Gaia stars, moved back to the first plate's date with their Gaia proper motions, and the Pan-STARRS objects
+  (at least `plate_ps1_min_detections` detections) around the position the first-epoch plates were measured at
+  (`vanishing_data.plate_first_place`, status `plate_first_place`). The check fails ("the object the plates
+  recorded is still there") when one of them is within `match_radius_arcsec` of the mean sky place of the
+  first-epoch images that show the source. It passes only when that comparison and the moved-star test of 1.8.0
+  could both be made and found nothing; when the catalogues at that place could not be read it is `not_evaluated`.
+  A source that no first-epoch image shows has no measured place, and the comparison does not apply to it.
+- **What the rule costs.** A source that did vanish is wrongly explained when an unrelated object lies within the
+  match radius of its place. The survey's comparison at the catalogue position has the same cost. Both rates are
+  measured on control positions before this version is applied to a flagged source: see the control numbers below.
+- **Not changed.** The search, its flags and `plate_defect`. The later-plate measurement still uses the catalogue
+  motion; it is reported, and no check reads it except through the track test of 1.8.0, which works from the peaks'
+  sky places.
+
 ## [1.8.0] - 2026-11-18
 
 ### Vanishing vetting: the plate images decide whether a catalogue entry is a source
