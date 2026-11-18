@@ -44,6 +44,11 @@ def vet_target(
         _merge(run_ir_vetting(star_or_cadence, cfg, out_dir))
     if "ir_timedomain" in target_channels or "optical_dips" in target_channels:
         _merge(run_lc_vetting(star_or_cadence, cfg, out_dir))
+    if "ir_timedomain" in target_channels:
+        # A luminous giant varies in the infrared by tenths of a magnitude over months to years (long-period and
+        # semi-regular variables). Until config 1.7.0 this route ran the six light-curve checks only, and such a
+        # star could reach Tier B.
+        _merge([check_evolved(star_or_cadence, cfg, out_dir)])
     if "radio_narrowband" in target_channels:
         _merge(run_radio_vetting(star_or_cadence, cfg, out_dir))
     if "underluminous" in target_channels:

@@ -571,10 +571,48 @@ def _ir_variation(neo: dict[str, Any], cfg: PipelineConfig) -> dict[str, Any]:
             "chi2_w1": round(chi1, 2), "chi2_w2": round(chi2, 2), "slope_snr": round(slope_snr, 2), "jump_snr": round(jump_snr, 2)}
 
 
+# Vega zero points (Jy) of W1 and W2 (Jarrett et al. 2011), to turn a median visit flux back into a magnitude
+_WISE_ZERO_POINT_JY = {"w1": 309.54, "w2": 171.787}
+
+
+def _neowise_saturation(neo: dict[str, Any], cfg: PipelineConfig) -> dict[str, Any] | None:
+    """The saturation state of the bands that carry the star's NEOWISE variation, or None when nothing varies.
+
+    NEOWISE single exposures saturate near W1 = 8.0 and W2 = 7.0 mag. Brighter than that, profile-fit fluxes are
+    overestimated by an amount that grows with brightness (more than 1 mag near 4th magnitude) and that changed
+    with the temperature of the telescope and detectors (NEOWISE Explanatory Supplement II.1.c.iv and II.1.c.iv.a).
+    The quoted errors do not hold that bias, so a saturated star passes the channel's chi-square, slope and jump
+    thresholds without varying. W1 carries only its own chi-square; W2 carries its chi-square, the slope and the jump.
+    """
+    var = _ir_variation(neo, cfg)
+    if not var.get("active"):
+        return None
+    thr = _it(cfg, "reduced_chi2_threshold")
+    active = {"w1": var["chi2_w1"] >= thr,
+              "w2": var["chi2_w2"] >= thr or var["slope_snr"] >= _it(cfg, "slope_snr_threshold") or var["jump_snr"] >= _it(cfg, "jump_snr_threshold")}
+    out: dict[str, Any] = {"bands_varying": [b for b in ("w1", "w2") if active[b]], "saturated": {}, "median_mag": {}}
+    for band in ("w1", "w2"):
+        flux = np.asarray(neo.get(f"{band}_mjy", []) or [], dtype=float)
+        flux = flux[np.isfinite(flux) & (flux > 0)]
+        if not len(flux):
+            return None
+        mag = -2.5 * math.log10(float(np.median(flux)) * 1.0e-3 / _WISE_ZERO_POINT_JY[band])
+        out["median_mag"][band] = round(mag, 3)
+        out["saturated"][band] = bool(mag < _it(cfg, f"neowise_saturation_{band}_mag"))
+    out["all_varying_bands_saturated"] = bool(out["bands_varying"]) and all(out["saturated"][b] for b in out["bands_varying"])
+    return out
+
+
 def _neowise_systematics(neo: dict[str, Any], cfg: PipelineConfig) -> dict[str, Any]:
     comp = neo.get("comparison")
     if not neo.get("mjd"):
         return {"status": "not_evaluated", "note": "NEOWISE: no visit light curve"}
+    sat = _neowise_saturation(neo, cfg)
+    if sat is not None and sat["all_varying_bands_saturated"]:
+        bands = " and ".join(f"{b.upper()} {sat['median_mag'][b]:.2f} (limit {_it(cfg, f'neowise_saturation_{b}_mag'):.1f})" for b in sat["bands_varying"])
+        return {"status": "fail", "saturation": sat,
+                "note": f"NEOWISE: saturated photometry: the variation is in {bands}; profile-fit fluxes of saturated stars carry a "
+                        "brightness- and temperature-dependent bias that the quoted errors do not hold"}
     if not comp:
         return {"status": "not_evaluated", "note": "NEOWISE: no comparison-star ensemble fetched"}
     if comp.get("status") != "ok":

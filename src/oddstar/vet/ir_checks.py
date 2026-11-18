@@ -848,7 +848,8 @@ def check_evolved(star: dict[str, Any], cfg: PipelineConfig, out_dir: Path) -> V
         out_dir,
         check="evolved",
         status="fail" if is_evolved else "pass",
-        note=f"HR position M_G={mg:.2f}, Teff={teff:.0f} K ({'giant branch' if is_evolved else 'main sequence'}; giant limit M_G < {bright_lim:.2f})",
+        note=f"HR position M_G={mg:.2f}, Teff={teff:.0f} K ({'luminous giant' if is_evolved else 'not a luminous giant'}; "
+             f"giant limit M_G < {bright_lim:.2f} with Teff < {float(cfg.vetting['evolved_teff_max_k']):.0f} K)",
         metrics=metrics,
     )
 

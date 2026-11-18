@@ -53,7 +53,13 @@ Fixtures set explicit `w1_w2_neighbour_blend` / `scan_systematic` flags (present
   gives `not_evaluated` for this part. Since config 1.2.0 the cone is 600" (was 150", which held 0 or 1 usable stars for almost
   every target) and is filtered by the archive to the target's W1 +/- (`neowise_comparison_mag_window` + 0.25 mag). Since 1.2.0 a
   star whose NEOWISE light curve varies and whose NEOWISE part is `not_evaluated` cannot pass `systematics_window` on its TESS
-  part: the check is `not_evaluated`. Targets brighter than about W1 = 8 rarely have comparison stars and stay `not_evaluated`.
+  part: the check is `not_evaluated`. Since config 1.7.0 a star brighter than the NEOWISE saturation limits
+  (`neowise_saturation_w1_mag` 8.0, `neowise_saturation_w2_mag` 7.0; Explanatory Supplement II.1.c.iv) in every band that carries
+  its variation fails this check: saturated profile-fit fluxes carry a brightness- and temperature-dependent bias that the quoted
+  errors do not hold. Before 1.7.0 such stars had no comparison stars and stayed `not_evaluated`.
+- **`evolved`** (since config 1.7.0 also for this channel): M_G < `vetting.evolved_mg_bright_limit` with Teff <
+  `vetting.evolved_teff_max_k` (8000 K) fails: a luminous giant varies in the infrared by tenths of a magnitude (long-period and
+  semi-regular variables). No absolute magnitude, or a giant-bright star with a default temperature, is `not_evaluated`.
 - **`neighbour_signal`** (NEOWISE part): per-visit RA*cos(Dec)/Dec residuals from the Gaia PM track (`neowise.pm_residual_*_arcsec`)
   are fitted with offset + scan-direction parity + linear trend + W2 fractional flux. (a) A stationary blend makes the residual lag
   the PM track: the along-track trend gives a stationary flux share, failing when >= `vetting.neighbour_blend_flux_frac` at

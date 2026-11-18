@@ -1,4 +1,4 @@
-version: "1.6.0"
+version: "1.7.0"
 
 storage:
   max_cache_gb: 10.0
@@ -71,6 +71,10 @@ channels:
     systematics_ensemble_corr: 0.7
     systematics_ensemble_corr_min_amp_frac: 0.2
     systematics_ensemble_amp_frac: 0.5
+    # Vetting-only (since 1.7.0): NEOWISE single exposures saturate brighter than these magnitudes (Explanatory
+    # Supplement II.1.c.iv); a variation carried only by saturated bands fails systematics_window
+    neowise_saturation_w1_mag: 8.0
+    neowise_saturation_w2_mag: 7.0
     # Vetting-only (since 1.1.0): neighbour_signal NEOWISE PM-track residual tests
     neighbour_blend_sigma: 3.0
     neighbour_min_track_arcsec: 0.3
@@ -279,7 +283,7 @@ vetting:
   single_frame_coadd_floor_frac: 0.6
   single_frame_max_to_median: 2.2
   youth_nuv_default_err_mag: 0.3
-  evolved_teff_max_k: 5200.0
+  evolved_teff_max_k: 8000.0
   binary_rv_scatter_max_kms: 5.0
   lc_detrend_low_mask_sigma: 2.5
   lc_tess_contiguous_dt_factor: 1.5

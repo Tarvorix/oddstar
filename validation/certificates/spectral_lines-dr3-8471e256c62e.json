@@ -1,139 +1,146 @@
 {
-  "channel": "underluminous",
+  "channel": "spectral_lines",
   "gaia_release": "dr3",
   "split": "all",
-  "config_hash": "ee4eba39a792",
-  "git_commit": "df694b2b0d0043f899664193528ee8f71dade83a",
-  "timestamp_utc": "2026-11-18T07:13:29.751055+00:00",
+  "config_hash": "8471e256c62e",
+  "git_commit": "9502badb10bb080a8fc88b1b15b65fe1439bef57",
+  "timestamp_utc": "2026-11-18T15:16:34.973916+00:00",
   "passed": true,
   "blind_recovery_rate": 1.0,
-  "blind_total": 3,
-  "blind_recovered": 3,
+  "blind_total": 2,
+  "blind_recovered": 2,
   "impostor_pass": true,
   "impostor_max_tier": "Explained",
   "impostors_evaluated": 3,
-  "injection_completeness_design_point": 0.95,
+  "injection_completeness_design_point": 1.0,
   "completeness_grid": [
     {
-      "dimming_frac": 0.1,
-      "delta_mag": 0.1143937264016878,
-      "completeness": 0.05,
+      "wavelength_a": 6530.0,
+      "injected_snr": 5.0,
+      "completeness": 0.7,
       "n_trials": 20
     },
     {
-      "dimming_frac": 0.25,
-      "delta_mag": 0.3123468415207498,
-      "completeness": 0.25,
+      "wavelength_a": 6530.0,
+      "injected_snr": 12.0,
+      "completeness": 1.0,
       "n_trials": 20
     },
     {
-      "dimming_frac": 0.4,
-      "delta_mag": 0.5546218740408909,
-      "completeness": 0.95,
+      "wavelength_a": 6530.0,
+      "injected_snr": 22.0,
+      "completeness": 1.0,
       "n_trials": 20
     },
     {
-      "dimming_frac": 0.7,
-      "delta_mag": 1.3071968632008437,
+      "wavelength_a": 6615.0,
+      "injected_snr": 5.0,
+      "completeness": 0.65,
+      "n_trials": 20
+    },
+    {
+      "wavelength_a": 6615.0,
+      "injected_snr": 12.0,
+      "completeness": 1.0,
+      "n_trials": 20
+    },
+    {
+      "wavelength_a": 6615.0,
+      "injected_snr": 22.0,
       "completeness": 1.0,
       "n_trials": 20
     }
   ],
   "false_alarm_rate": 0.0,
   "false_alarm_ci_low": 0.0,
-  "false_alarm_ci_high": 0.012643429997735661,
-  "expected_false_positives": 3.333333333333333,
+  "false_alarm_ci_high": 0.02497113914571871,
+  "expected_false_positives": 6.666666666666666,
   "calibration_curve": [
     {
-      "stat": -0.16672390206626606,
+      "stat": 2.704598458857875,
       "fap": 0.5
     },
     {
-      "stat": 0.3622062746983885,
+      "stat": 2.905284741350482,
       "fap": 0.25
     },
     {
-      "stat": 0.707772483608045,
+      "stat": 3.0919355446974985,
       "fap": 0.09999999999999998
     },
     {
-      "stat": 0.9078492436380337,
+      "stat": 3.271646385432357,
       "fap": 0.050000000000000044
     },
     {
-      "stat": 1.248491663803918,
+      "stat": 3.5475606408976716,
       "fap": 0.010000000000000009
     },
     {
-      "stat": 2.846799085684207,
+      "stat": 5.11058441357504,
       "fap": 0.0001
     },
     {
-      "stat": 4.346799085684207,
+      "stat": 6.61058441357504,
       "fap": 1e-6
     },
     {
-      "stat": 7.346799085684207,
+      "stat": 9.61058441357504,
       "fap": 1e-9
     },
     {
-      "stat": 13.346799085684207,
+      "stat": 15.61058441357504,
       "fap": 1e-12
     }
   ],
   "details": {
     "blind_recovery": [
       {
-        "source_id": "733300000000000003",
+        "source_id": "744400000000000002",
         "flagged": true,
-        "raw_stat": 18.85879790055512
+        "raw_stat": 47.14605327971782
       },
       {
-        "source_id": "733300000000000001",
+        "source_id": "744400000000000001",
         "flagged": true,
-        "raw_stat": 19.389859616047886
-      },
-      {
-        "source_id": "733300000000000002",
-        "flagged": true,
-        "raw_stat": 20.83155200963521
+        "raw_stat": 52.972633179587234
       }
     ],
     "impostor_rejection": [
       {
-        "source_id": "733300000000000001",
+        "source_id": "744400000000000001",
         "tier": "Explained",
         "failed_checks": [
-          "extinction"
+          "stellar_emission"
         ],
         "expected_failed": [
-          "extinction"
+          "stellar_emission"
         ],
         "reason": "Not flagged above channel thresholds",
         "passed": true
       },
       {
-        "source_id": "733300000000000004",
+        "source_id": "744400000000000003",
         "tier": "Explained",
         "failed_checks": [
-          "metallicity"
+          "cosmic_ray",
+          "repeat"
         ],
         "expected_failed": [
-          "metallicity"
+          "cosmic_ray",
+          "repeat"
         ],
-        "reason": "Explained by 'metallicity': [Fe/H]=-1.85 dex (subdwarf below -1.0), SIMBAD type=Subdwarf (metal-poor subdwarf locus)",
+        "reason": "Not flagged above channel thresholds",
         "passed": true
       },
       {
-        "source_id": "733300000000000005",
+        "source_id": "744400000000000004",
         "tier": "Explained",
         "failed_checks": [
-          "astrometry",
-          "companion"
+          "sky_line"
         ],
         "expected_failed": [
-          "astrometry",
-          "companion"
+          "sky_line"
         ],
         "reason": "Not flagged above channel thresholds",
         "passed": true
@@ -142,8 +149,8 @@
     "code_fingerprint_files": {
       "oddstar/__init__.py": "2af7d8f7316e5196abd067dcdd82791314113df68b496c3611136877b193be1e",
       "oddstar/channels/__init__.py": "af613ea2e399e30d14d7eca150d9a3f4fa5e409e0976b773c95c9f752789212e",
-      "oddstar/channels/underluminous/__init__.py": "dffd6ffa53402d41fcf08eefee0e2cc2a4807f49be35e8cdb4ca458942ca4d3b",
-      "oddstar/channels/underluminous/channel.py": "c461f30402ccb2a3a59fbd58ef31111c9bebcfb190a7bb23ffab3acbbe28d1d6",
+      "oddstar/channels/spectral_lines/__init__.py": "4380e080ee02a361b9e75f562858e145a7a88221e5380218bc7e4c4a5eebb917",
+      "oddstar/channels/spectral_lines/channel.py": "24e151d628e08d4a171225c01cd94967003a105ce107cc321fad3877f2bcb77c",
       "oddstar/config.py": "46af545c91b0db22ac5d71dcec4529e1d1cebfe3b62cb3be2b5268481ef3df0c",
       "oddstar/dossier/plots.py": "d304dad52af137199576932c3562f600003172fbff1f4712ef4bdc8a2b472e4d",
       "oddstar/errors.py": "6e2757f307284892a5d69bf8967ee111d49bcd4c4100bf82316d02d7fb09ed30",
@@ -161,14 +168,14 @@
       "oddstar/validate/fingerprint.py": "94a922c6bd78f5ae3dbc606b482957a8a8f9cc8c522f695d88e814a8a7f81a91",
       "oddstar/validate/harness.py": "d63ed92087688d45acb51f58b4b68bd7f81a3ca298b9c8cf540bf1d656a46388",
       "oddstar/vet/common.py": "0107f4da0f5b310f759688785f0c9347c5785db6ca6129452441ced3cb96622e",
-      "oddstar/vet/engine.py": "06c8dbb115be221f6d5d0443120e57aba7b35bcca6108f2885a8ee9f06b70403",
-      "oddstar/vet/ir_checks.py": "a77c031b87845bc4bca5a4317bdb0d9107ede05a9e0db0de3c9f48222f36f688",
-      "oddstar/vet/lc_checks.py": "70a4323aca361ead440f139258a69cf7d196e1b040861704b6a730d504d41998",
+      "oddstar/vet/engine.py": "aeb74a5b12a2a16bff0a33aeeb6890fd758709200c40f49a3bdad131efc3d945",
+      "oddstar/vet/ir_checks.py": "224450e6d2cc1b554369a526083c412461c7f0a1e35e67d6ac2790637ff0d333",
+      "oddstar/vet/lc_checks.py": "f8c925d6553298f2cc2d28bf8d1976b8aaa450723702374ae0e40af2a8681138",
       "oddstar/vet/radio_checks.py": "4cb0f9a2a482f96245a4950ff64ff4d82071c6a4cbd9de55d49f56c14a659246",
       "oddstar/vet/spectral_checks.py": "f9d6171de7e05d89db987dedb1bd0521ebce4fe1cce2989aba078ea1a7a69c15",
       "oddstar/vet/underluminous_checks.py": "50f9093f9d224f15068f8b456ca535032df7e3f835bd2e5a6ab5d680f6ed74a0",
       "oddstar/vet/vanishing_checks.py": "9903ff429c6bc79c23ee19aad2f5f31444b897c85b945945fb7984a1050ae8e3"
     }
   },
-  "code_fingerprint": "e247b348ab4a509920d438431b5b6cd3906821059caef52a1f19dec9c283de63"
+  "code_fingerprint": "a3100e82de51c24086dceb10a76e32d89eb2b87525aa49995ed7dbccb050972b"
 }
