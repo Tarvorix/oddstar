@@ -603,9 +603,11 @@ def test_reference_star_regression(ref_star: dict[str, Any], cfg: Any, tmp_path:
     # The Gaia per-star reddening lives in ebv_star; ebv_sfd is reserved for true line-of-sight map values
     assert ref_star["ebv_sfd"] is None and ref_star["ebv_star"] == pytest.approx(0.07 / 1.31)
     assert ref_star["ebv_star_source"] == "gaia_gspphot"
-    # ROSAT non-detection at 232 pc cannot reach 1e29 erg/s; GALEX NUV 22.44+/-0.43 is photospheric
+    # ROSAT non-detection at 232 pc cannot reach 1e29 erg/s; GALEX NUV 22.44+/-0.43 is photospheric; and since
+    # 1.8.0 the star's motion counts: 115 km/s across the sky is thick-disc or halo motion, so it is not young
     y = res["youth"]
-    assert y.status == "not_evaluated"
+    assert y.status == "pass" and y.metrics["kinematics"]["verdict"] == "not_young"
+    assert y.metrics["kinematics"]["vtan_kms"] == pytest.approx(114.6, abs=0.3)
     ros = y.metrics["xray"]["surveys"]["rosat_2rxs"]
     assert ros["verdict"] == "non_constraining" and 6.0e29 < ros["lx_upper_limit_erg_s"] < 7.0e29
     assert y.metrics["xray"]["surveys"]["erass1"]["verdict"] == "no_coverage"
@@ -744,16 +746,48 @@ def test_chance_alignment_needs_excess(ref_star: dict[str, Any], cfg: Any, tmp_p
     assert r.status == "not_evaluated" and "excess" in r.note
 
 
-def test_youth_passes_only_when_both_constraining(ref_star: dict[str, Any], cfg: Any, tmp_path: Path) -> None:
+def test_youth_passes_only_when_two_subtests_are_constraining(ref_star: dict[str, Any], cfg: Any, tmp_path: Path) -> None:
     star = copy.deepcopy(ref_star)
     star["distance_pc"] = 60.0  # ROSAT limit 1e-13 -> 4.3e28 erg/s < 1e29
+    # A slow star: its motion says nothing about its age, and the check rests on UV and X-ray as before
+    star["pmra_mas_yr"], star["pmdec_mas_yr"] = 3.0, -4.0
     r = irc.check_youth(star, cfg, tmp_path)
     _assert_pass_with_evidence(r)
     assert r.metrics["xray"]["surveys"]["rosat_2rxs"]["verdict"] == "not_young"
+    assert r.metrics["kinematics"]["verdict"] == "unconstrained" and r.metrics["kinematics"]["vtan_kms"] < 10
     # A GALEX non-detection leaves the UV side unconstrained
     star["vetting_archive"]["youth"]["galex"]["match"] = None
     assert irc.check_youth(star, cfg, tmp_path).status == "not_evaluated"
     # A young-group membership fails on its own
+    star["vetting_archive"]["youth"]["association"]["young_groups"] = [{"main_id": "Test group", "otype": "MGr", "membership": 90}]
+    assert irc.check_youth(star, cfg, tmp_path).status == "fail"
+
+
+def test_youth_counts_thick_disc_motion_as_one_subtest(ref_star: dict[str, Any], cfg: Any, tmp_path: Path) -> None:
+    """A star moving at thick-disc or halo speed is old: that stands in for one missing sub-test, never for two."""
+    lim = float(cfg.vetting["youth_old_vtan_min_kms"])
+    star = copy.deepcopy(ref_star)  # at its real distance the ROSAT limit does not constrain; UV says not young
+    plx = float(star["parallax_mas"])
+    star["pmra_mas_yr"], star["pmdec_mas_yr"] = 0.0, -(lim + 20.0) * plx / 4.74047
+    r = irc.check_youth(star, cfg, tmp_path)
+    _assert_pass_with_evidence(r)
+    k = r.metrics["kinematics"]
+    assert k["verdict"] == "not_young" and k["vtan_kms"] == pytest.approx(lim + 20.0, abs=0.1) and "kinematics: not_young" in r.note
+    assert r.metrics["xray"]["verdict"] != "not_young" and r.metrics["uv"]["verdict"] == "not_young"
+    # Just under the limit: no verdict from the motion, and the check is open again
+    slow = copy.deepcopy(star)
+    slow["pmdec_mas_yr"] = -(lim - 5.0) * plx / 4.74047
+    assert irc.check_youth(slow, cfg, tmp_path).status == "not_evaluated"
+    # Motion alone is one sub-test, not two
+    alone = copy.deepcopy(star)
+    alone["vetting_archive"]["youth"]["galex"]["match"] = None
+    assert irc.check_youth(alone, cfg, tmp_path).status == "not_evaluated"
+    # A poor parallax gives no velocity
+    poor = copy.deepcopy(star)
+    poor["parallax_snr"] = 3.0
+    rp = irc.check_youth(poor, cfg, tmp_path)
+    assert rp.status == "not_evaluated" and rp.metrics["kinematics"]["verdict"] == "unconstrained"
+    # A positive youth indicator still fails, whatever the motion
     star["vetting_archive"]["youth"]["association"]["young_groups"] = [{"main_id": "Test group", "otype": "MGr", "membership": 90}]
     assert irc.check_youth(star, cfg, tmp_path).status == "fail"
 

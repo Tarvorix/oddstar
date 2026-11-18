@@ -265,8 +265,9 @@ def test_field_never_observed_by_galex_is_no_coverage_not_a_non_detection(tmp_pa
     assert star["vetting_archive"]["query_status"]["galex"] == "no_coverage"
     assert star["vetting_archive"]["youth"]["galex"]["status"] == "no_coverage"
     star["distance_pc"] = 60.0
+    star["pmra_mas_yr"], star["pmdec_mas_yr"] = 5.0, -5.0  # a slow star: its motion says nothing about its age (config 1.8.0)
     res = irc.check_youth(star, cfg, tmp_path / "ev")
-    assert res.status == "not_evaluated"
+    assert res.status == "not_evaluated" and res.metrics["kinematics"]["verdict"] == "unconstrained"
     assert res.metrics["uv"]["verdict"] == "non_constraining" and res.metrics["uv"]["status"] == "no_coverage"
 
 

@@ -196,7 +196,9 @@ def test_plate_units_statuses_matches_and_resume(cfg: Any, tmp_path: Path, monke
     flagged = [u["source_id"] for u in units if ps.plate_search_status(u) == "searched" and ch.score(ch.measure(u, {})).flagged]
     assert flagged == ["USNO-B1.0 B"]
     vet = {r.check: r.status for r in run_vanishing_vetting(by["B"], cfg, tmp_path / "vet")}
-    assert vet == {"proper_motion": "pass", "plate_defect": "pass", "depth": "pass", "known_variable": "not_evaluated",
+    # The catalogue row alone cannot show that a plate source is real, or that it did not move: without the plate
+    # images, no verdict on either
+    assert vet == {"proper_motion": "not_evaluated", "plate_defect": "not_evaluated", "depth": "pass", "known_variable": "not_evaluated",
                    "sso_plate": "not_evaluated", "blend_split": "not_evaluated"}
     assert {r.status for r in run_vanishing_vetting(by["S1"], cfg, tmp_path / "vet2")} == {"not_evaluated"}
 
@@ -244,9 +246,17 @@ def test_moving_stars_are_matched_along_their_path_and_bright_star_halos_are_not
     assert ps.plate_search_status(by["I"]) == "near_bright_star"
     assert by["I"]["plate_fetch"]["bright_star"] == {"source_id": "900", "g_mag": 10.02, "sep_arcsec": pytest.approx(28.0, abs=0.5), "halo_radius_arcsec": 50.0}
     assert ps.plate_search_status(by["J"]) == "searched" and ch.score(ch.measure(by["J"], {})).flagged
-    vet = {r.check: r for r in run_vanishing_vetting(by["J"], cfg, tmp_path / "vet")}
+    # With the plate images read: the source is on both first-epoch plates and no Pan-STARRS object could be it, moved
+    seen = {"status": "ok", "registered": True, "plate_epoch": 1954.0, "peak": {"snr": 25.0, "offset_arcsec": 0.4}}
+    j = json.loads(json.dumps(by["J"]))
+    j["vanishing_data"]["plate_images"] = {"rows": [dict(seen, survey="poss1_red"), dict(seen, survey="poss1_blue")], "errors": {}}
+    j["vanishing_data"]["plate_neighbours"] = {"radius_arcsec": 10.0, "inner_radius_arcsec": 3.0, "n_objects_in_radius": 0, "neighbours": []}
+    j["vetting_archive"]["query_status"].update({"plate_images": "ok", "plate_neighbours": "ok"})
+    vet = {r.check: r for r in run_vanishing_vetting(j, cfg, tmp_path / "vet")}
+    assert vet["plate_defect"].status == "pass"
     assert vet["proper_motion"].status == "pass" and vet["proper_motion"].metrics["nearest_track_sep_arcsec"] == pytest.approx(64.0, abs=1.5)
     assert "paths of 1 Gaia star(s) over 1949.0-2002.0" in vet["proper_motion"].note
+    assert run_vanishing_vetting(by["J"], cfg, tmp_path / "vet0")[0].status == "not_evaluated", "not without the plate images"
     # Without the record of the paths (a run made before config 1.6.0) the check cannot pass
     old = json.loads(json.dumps(by["J"]))
     del old["vanishing_data"]["nearest_gaia_track"]
@@ -322,7 +332,7 @@ def test_live_vanishing_search_end_to_end(tmp_path: Path, monkeypatch: pytest.Mo
         assert code == 0, payload
         vet = json.loads((run_dir / "vetting.json").read_text(encoding="utf-8"))["vetting"]["USNO-B1.0 B"]
         status = {v["check"]: v["status"] for v in vet}
-        assert status["depth"] == "pass" and status["plate_defect"] == "pass" and status["sso_plate"] == "not_evaluated"
+        assert status["depth"] == "pass" and status["plate_defect"] == "not_evaluated" and status["sso_plate"] == "not_evaluated"
 
         code, payload = dispatch(["null-report", "test-plate-survey", "--json"])
         assert code == 0, payload

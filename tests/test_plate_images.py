@@ -229,18 +229,69 @@ def test_enrich_unit_registers_on_gaia_stars_when_given_a_config(monkeypatch, tm
         rows = [{"ra_deg": r[0], "dec_deg": r[1], "pmra_mas_yr": 0.0, "pmdec_mas_yr": 0.0, "g_mag": 16.0} for r in (_ref(e, n) for e, n in FIELD)]
         return rows, "manifest", False
 
+    from oddstar.config import load_config
+
+    cfg = load_config()[0]
     monkeypatch.setattr(pi.ot, "_get_with_retries", lambda url, params, **kw: Resp())
     monkeypatch.setattr(plate_survey, "gaia_cone", fake_cone)
+    monkeypatch.setattr(plate_survey, "ps1_cone", lambda *a, **kw: ([], "m", False))
     cache = RawCache(tmp_path / "raw")
     unit = {"source_id": "USNO-B1.0 Y", "plate_source": True, "usno": {"ra_deg": RA0, "dec_deg": DEC0}}
-    out = pi.enrich_unit(json_copy(unit), cache, cfg=object(), min_interval_s=0.0, sleep=lambda s: None)
+    out = pi.enrich_unit(json_copy(unit), cache, cfg=cfg, min_interval_s=0.0, sleep=lambda s: None)
+    assert out["vanishing_data"]["plate_neighbours"]["n_objects_in_radius"] == 0
     res = out["vanishing_data"]["plate_images"]
     assert cones == [120.0] and res["n_reference_stars"] == 5 and out["vetting_archive"]["query_status"]["plate_images"] == "ok"
     assert all(r["registered"] and r["peak"]["offset_arcsec"] < 1.2 for r in res["rows"])
     # Without the reference stars nothing is measured, and the status says why
-    failed = pi.enrich_unit(json_copy(unit), cache, cfg=object(), min_interval_s=0.0, sleep=lambda s: None)
+    failed = pi.enrich_unit(json_copy(unit), cache, cfg=cfg, min_interval_s=0.0, sleep=lambda s: None)
     assert failed["vetting_archive"]["query_status"]["plate_images"].startswith("failed: reference stars: Gaia TAP failed")
     assert "plate_images" not in failed.get("vanishing_data", {})
+
+
+def test_neighbours_are_measured_on_the_first_epoch_plates(monkeypatch, tmp_path) -> None:
+    from oddstar.config import load_config
+    from oddstar.io import plate_survey
+
+    cfg = load_config()[0]
+    asked: list[str] = []
+
+    class Resp:
+        content = _cutout([(0.0, 0.0, 900.0)], n=141, seed=16)
+
+    def fake_get(url, params, **kw):
+        asked.append(url)
+        return Resp()
+
+    def obj(objid, east, north, r_mag, n_det=30):
+        ra, dec, _, _ = _ref(east, north)
+        return {"objID": objid, "raMean": ra, "decMean": dec, "nDetections": n_det, "rMeanPSFMag": r_mag}
+
+    cones: list[float] = []
+
+    def fake_ps1(ra, dec, radius_arcsec, min_detections, cache, **kw):
+        cones.append(radius_arcsec)
+        # one inside the match radius (the source itself would be there), two in the ring, one without an r magnitude
+        return [obj(11, 1.0, 0.5, 18.0), obj(12, 6.0, 0.0, 18.2), obj(13, 0.0, -8.0, -999.0), obj(14, 30.0, 0.0, 17.0)], "m", False
+
+    monkeypatch.setattr(pi.ot, "_get_with_retries", fake_get)
+    monkeypatch.setattr(plate_survey, "ps1_cone", fake_ps1)
+    cache = RawCache(tmp_path / "raw")
+    unit = {"source_id": "USNO-B1.0 Z", "plate_source": True, "usno": {"ra_deg": RA0, "dec_deg": DEC0, "plate_ra_deg": RA0, "plate_dec_deg": DEC0}}
+    out = pi.attach_neighbours(unit, cfg, cache, (), min_interval_s=0.0, sleep=lambda s: None)
+    nb = out["vanishing_data"]["plate_neighbours"]
+    assert cones == [float(cfg.channels["vanishing"]["plate_moved_radius_arcsec"])] and nb["n_objects_in_radius"] == 2
+    assert [(n["objID"], n["sep_arcsec"], n["r_mag"]) for n in nb["neighbours"]] == [("12", 6.0, 18.2), ("13", 8.0, None)]
+    assert all([r["survey"] for r in n["rows"]] == list(pi.FIRST_EPOCH_SURVEYS) for n in nb["neighbours"]) and len(asked) == 4
+    assert out["vetting_archive"]["query_status"]["plate_neighbours"] == "ok"
+    south = pi.attach_neighbours({"usno": {"ra_deg": RA0, "dec_deg": -45.0}}, cfg, cache, ())
+    assert south["vetting_archive"]["query_status"]["plate_neighbours"] == "no_coverage"
+
+    def down(*a, **kw):
+        raise ArchiveAccessError("HTTP 503", retryable=True)
+
+    monkeypatch.setattr(plate_survey, "ps1_cone", down)
+    failed = pi.attach_neighbours({"usno": {"ra_deg": RA0, "dec_deg": DEC0}}, cfg, cache, ())
+    assert failed["vetting_archive"]["query_status"]["plate_neighbours"].startswith("failed: Pan-STARRS: HTTP 503")
 
 
 def json_copy(obj):

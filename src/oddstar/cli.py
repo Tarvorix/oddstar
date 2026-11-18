@@ -585,6 +585,11 @@ def _cmd_vet(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, roo
         for sid in sdata.get("flagged_ids", []):
             if sid in live_stars_map:
                 star = dict(live_stars_map[sid])
+                if args.live and cache is not None and star.get("plate_source"):
+                    # What the digitized plates show at a plate source's position: about five small cutouts, stored rows
+                    from oddstar.io.plate_images import enrich_unit
+
+                    star = enrich_unit(json.loads(json.dumps(star)), cache, cfg=cfg)
             elif args.live and cache is not None and sid not in RADIO_CADENCES:
                 star, _ = fetch_single_star_live(sid, cfg, cache)
             elif sid in RADIO_CADENCES:

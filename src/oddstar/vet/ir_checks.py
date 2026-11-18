@@ -776,11 +776,38 @@ def _youth_association(assoc: dict[str, Any]) -> dict[str, Any]:
     return {"verdict": "none_listed", "reason": "no SIMBAD-listed young group membership (catalogue incompleteness: not evidence of age)"}
 
 
-def check_youth(star: dict[str, Any], cfg: PipelineConfig, out_dir: Path) -> VettingResult:
-    """Youth indicators (UV excess, X-ray luminosity, young-group membership).
+def _youth_kinematics(star: dict[str, Any], cfg: PipelineConfig) -> dict[str, Any]:
+    """Is the star's motion that of an old population? "not_young" above the tangential-velocity limit, else no verdict.
 
-    `fail` on any positive indicator. `pass` only when BOTH the UV and the X-ray sub-tests are constraining and clean
-    (a non-detection whose survey limit is above the youth threshold is not a pass). Association membership can only
+    Stars younger than about a billion years still share the motion of the gas they formed from, to a few tens of
+    km/s. A tangential velocity of `youth_old_vtan_min_kms` or more belongs to the thick disc or the halo. A slow
+    star says nothing about age, so this can only ever say "not_young"; it needs a parallax measured to
+    `youth_old_vtan_min_parallax_snr`.
+    """
+    lim = float(cfg.vetting["youth_old_vtan_min_kms"])
+    snr_min = float(cfg.vetting["youth_old_vtan_min_parallax_snr"])
+    plx, pmra, pmdec = star.get("parallax_mas"), star.get("pmra_mas_yr"), star.get("pmdec_mas_yr")
+    out: dict[str, Any] = {"verdict": "unconstrained", "vtan_min_kms": lim, "parallax_mas": plx, "pmra_mas_yr": pmra, "pmdec_mas_yr": pmdec}
+    if plx is None or pmra is None or pmdec is None or float(plx) <= 0:
+        return dict(out, reason="parallax or proper motion missing")
+    snr = star.get("parallax_snr")
+    if snr is None and star.get("parallax_err_mas"):
+        snr = float(plx) / float(star["parallax_err_mas"])
+    if snr is None or float(snr) < snr_min:
+        return dict(out, reason=f"parallax signal-to-noise below {snr_min:g}", parallax_snr=snr)
+    vtan = 4.74047 * math.hypot(float(pmra), float(pmdec)) / float(plx)
+    out.update(vtan_kms=round(vtan, 1), parallax_snr=round(float(snr), 1))
+    if vtan >= lim:
+        out["verdict"] = "not_young"
+    return out
+
+
+def check_youth(star: dict[str, Any], cfg: PipelineConfig, out_dir: Path) -> VettingResult:
+    """Youth indicators (UV excess, X-ray luminosity, young-group membership) and, against youth, the star's motion.
+
+    `fail` on any positive indicator. `pass` only when two independent sub-tests say "not young" at constraining
+    depth: UV, X-ray, and since 1.8.0 the kinematics (a tangential velocity of the thick disc or halo). A
+    non-detection whose survey limit is above the youth threshold is not a pass. Association membership can only
     add a `fail`; the absence of a catalogued membership is never used as evidence of age.
     """
     lx_min = float(cfg.vetting["youth_xray_lx_min_erg_s"])
@@ -794,7 +821,8 @@ def check_youth(star: dict[str, Any], cfg: PipelineConfig, out_dir: Path) -> Vet
         uv = _youth_uv(star, youth.get("galex") or {}, cfg)
         xr = _youth_xray(star, youth, cfg)
         assoc = _youth_association(youth.get("association") or {})
-        metrics = {"uv": uv, "xray": xr, "association": assoc}
+        kin = _youth_kinematics(star, cfg)
+        metrics = {"uv": uv, "xray": xr, "association": assoc, "kinematics": kin}
         summary = f"UV: {uv['verdict']}" + (f" (NUV excess {uv['nuv_excess_mag']:+.2f}+/-{uv['excess_sigma_mag']:.2f} mag)" if "nuv_excess_mag" in uv else "")
         xs = []
         for name, s in xr.get("surveys", {}).items():
@@ -805,9 +833,11 @@ def check_youth(star: dict[str, Any], cfg: PipelineConfig, out_dir: Path) -> Vet
             else:
                 xs.append(f"{name} {s['verdict']}")
         summary += f"; X-ray: {xr['verdict']} ({', '.join(xs)} vs {lx_min:.0e} erg/s); association: {assoc['verdict']}"
+        summary += f"; kinematics: {kin['verdict']}" + (
+            f" (tangential velocity {kin['vtan_kms']:.1f} km/s, old-population limit {kin['vtan_min_kms']:g})" if "vtan_kms" in kin else "")
         if "young" in (uv["verdict"], xr["verdict"], assoc["verdict"]):
             return make_vet_result(out_dir, check="youth", status="fail", note=f"Youth indicator present: {summary}", metrics=metrics)
-        if uv["verdict"] == "not_young" and xr["verdict"] == "not_young":
+        if [uv["verdict"], xr["verdict"], kin["verdict"]].count("not_young") >= 2:
             return make_vet_result(out_dir, check="youth", status="pass", note=f"No youth indicators at constraining depth: {summary}", metrics=metrics)
         return _not_evaluated(out_dir, "youth", f"Youth not constrained: {summary}", star, queries, metrics)
 

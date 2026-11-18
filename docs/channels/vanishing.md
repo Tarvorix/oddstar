@@ -48,10 +48,26 @@ A field whose USNO-B query failed yields no plate sources at all. It is counted 
 listed in `failed_field_ids`, and the search prints a warning, because its sources are in no count.
 
 Flagged plate sources are written to `live_stars.json` as searched; the per-star archive enrichment does not apply to
-an object that is not a Gaia star. Vetting evaluates `proper_motion`, `plate_defect` and `depth` from the survey record.
-For a plate source without a Gaia counterpart, `proper_motion` passes only on the recorded distance of the nearest
-Gaia path (`vanishing_data.nearest_gaia_track`); a unit of a run made before 1.6.0 has no such record and is
-`not_evaluated`.
+an object that is not a Gaia star. Vetting evaluates `proper_motion`, `plate_defect` and `depth` from the survey record
+and, since 1.8.0, from the digitized plates (`oddstar/io/plate_images.py`): `vet --live` fetches a 4 arcmin cutout of
+each of the five Digitized Sky Survey plates at the source, registers it on the Gaia stars it holds, and stores what it
+shows at the position (about five cutouts and four seconds per source; only the measured rows are kept).
+
+- `plate_defect` passes when both first-epoch images show a point of light within `plate_image_max_offset_arcsec` at
+  `plate_image_min_snr` or more. It fails (tier Rejected) when two first-epoch images could say, neither shows it, and
+  the source is no fainter than `plate_image_judge_max_r_mag`. It is `not_evaluated` when the images disagree, when
+  fewer than two could say (not delivered, or not registered and empty), or when the source is fainter than that.
+  On controls: 0 of 69 blank positions pass and 57 fail; of 190 ordinary sources brighter than 19.5, 148 pass, 2 fail.
+- `proper_motion`, for a plate source without a Gaia counterpart, fails when a Gaia star's path over the plate era
+  passes within the match radius (`vanishing_data.nearest_gaia_track`; a unit of a run made before 1.6.0 has no such
+  record and is `not_evaluated`). Since 1.8.0 it also reads the Pan-STARRS objects between the match radius and
+  `plate_moved_radius_arcsec` whose r magnitude is within `plate_moved_max_dmag` of the plate magnitude. One that a
+  first-epoch plate shows where it is now is another star. For any other, the later plates decide: the check fails
+  ("the same star, moved") when `plate_track_min_images` later images show the source within
+  `plate_track_max_residual_arcsec` of where a star travelling from the first-epoch place to the object would be at
+  the plate's date; the object is ruled out when they show the source still in place; otherwise the check is
+  `not_evaluated`. On controls: 43 of 57 known moving stars fail and none is ruled out; 73 of 79 still stars with a
+  neighbour are ruled out and none fails (see `configs/CHANGELOG.md`, 1.8.0).
 `sso_plate`, `blend_split` and `known_variable` stay `not_evaluated`: no plate-epoch ephemeris, high-resolution imaging
 or variable-star lookup is made.
 
@@ -78,6 +94,9 @@ Defined in `configs/default.yaml` under `channels.vanishing`:
 - Live plate-source search: `plate_field_radius_arcsec: 60.0`, `plate_ps1_min_detections: 2`, `plate_depth_percentile: 90.0`,
   `plate_depth_min_objects: 10`, `plate_bright_star_halo: [[10.0, 90.0], [11.0, 50.0], [12.0, 20.0]]`, and the operational keys `plate_max_attempts: 3`, `plate_backoff_s: 2.0`,
   `plate_rate_limit_rps: 2.0`
+- Plate images in vetting (since 1.8.0): `plate_image_min_snr: 5.0`, `plate_image_max_offset_arcsec: 2.0`,
+  `plate_image_first_epoch_before: 1960.0`, `plate_image_judge_max_r_mag: 19.5`, `plate_moved_radius_arcsec: 10.0`,
+  `plate_moved_max_dmag: 1.5`, `plate_track_max_residual_arcsec: 1.0`, `plate_track_min_images: 2`
 
 ## Known Impostors
 - High-proper-motion stars that moved beyond the static cross-match radius, plate emulsion flaws/scratches, large-amplitude Mira/LPV variables, asteroids, and blended sources resolved into multiple modern stars.
