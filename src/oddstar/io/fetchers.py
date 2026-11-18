@@ -108,9 +108,9 @@ ARCHIVE_SPECS: dict[str, ArchiveSpec] = {
     ),
     "spherex": ArchiveSpec(
         "spherex",
-        "0.75-5 um weekly quick-release spectrophotometric images",
-        "IRSA SPHEREx TAP/SIA",
-        "spherex_qr",
+        "0.75-5 um Level 2 spectral images (data release 1 and later quick releases); forced photometry in io/spherex.py",
+        "IRSA TAP image list + one cutout per exposure",
+        "spherex.artifact / spherex.plane / spherex.observation",
     ),
     "dustmaps": ArchiveSpec("dustmaps", "SFD, Planck, and 3D Bayestar extinction maps", "dustmaps / IRSA", "sfd_planck"),
     "ephemeris": ArchiveSpec(

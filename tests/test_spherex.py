@@ -322,3 +322,78 @@ def test_summary_gives_window_means_per_visit() -> None:
     assert second["w1_w2"] == pytest.approx(0.2) and second["k"] is None and second["k_w1"] is None
     assert first["w2"]["mag_err"] == pytest.approx(2.5 / np.log(10) * 0.01)
     assert sx.summarize([]) == {"all": {"n": 0, "k": None, "w1": None, "w2": None, "k_w1": None, "w1_w2": None, "k_w2": None}, "visits": []}
+
+
+def test_command_measures_chosen_stars_and_writes_one_file_per_star(monkeypatch, tmp_path) -> None:
+    """`oddstar spherex photometry`: stars at Tier C or better by default, `--ids` for any star of the sample."""
+    import json
+    import shutil
+
+    from oddstar import cli
+    from oddstar.cli import dispatch
+    from oddstar.io.cache import RawCache
+    from oddstar.config import repo_root
+
+    rows = [_row("a.fits", 4, 60882.0), _row("c.fits", 6, 61080.0, "spherex_qr3")]
+    calls: list[str] = []
+    _archive(monkeypatch, tmp_path, rows, {"a.fits": _cutout(seed=1), "c.fits": _cutout(flux_mjy=60.0, seed=3)}, calls)
+    monkeypatch.setattr(cli, "RawCache", lambda *a, **kw: RawCache(tmp_path / "raw"))
+    asked: list[str] = []
+
+    def fake_neighbours(sid, ra, dec, g_mag, cache, *, release, **kw):
+        asked.append(f"{sid}:{g_mag}")
+        return ()
+
+    monkeypatch.setattr(sx, "gaia_neighbours", fake_neighbours)
+    stars = [{"source_id": "1", "ra_deg": RA0, "dec_deg": DEC0, "pmra_mas_yr": 0.0, "pmdec_mas_yr": 0.0, "mags": {"G": 10.6}},
+             {"source_id": "2", "ra_deg": RA0, "dec_deg": DEC0, "mags": {}}]
+    runs = repo_root() / "runs"
+    src, out_dir = runs / "test-spherex-src", runs / "spherex-test-spherex-src"
+    try:
+        src.mkdir(parents=True)
+        score = {"source_id": "2", "channel": "ir_excess", "raw_statistic": 9.0, "false_alarm_prob": 1e-4, "flagged": True, "rank_score": 9.0,
+                 "summary": "x"}
+        (src / "search_ir_excess.json").write_text(json.dumps({
+            "channel": "ir_excess", "sample_stars": stars, "flagged_ids": ["2"], "scores": [score]}), encoding="utf-8")
+        code, payload = dispatch(["spherex", "photometry", "--from-run", "test-spherex-src", "--dry-run", "--json"])
+        assert code == 0 and payload["data"]["source_ids"] == ["2"] and payload["data"]["selection"] == "tier C or better", payload
+        assert not out_dir.exists() and calls == [], "a dry run fetches and writes nothing"
+        code, payload = dispatch(["spherex", "photometry", "--from-run", "test-spherex-src", "--ids", "1", "--as-of", "2026-11-18",
+                                  "--workers", "1", "--json"])
+        assert code == 0, payload
+        d = payload["data"]
+        assert d["status_counts"] == {"measured": 1} and d["photometry_version"] == sx.PHOTOMETRY_VERSION and asked == ["1:10.6"]
+        assert d["stars"][0]["n_measured"] == 2 and d["stars"][0]["summary"]["all"]["n"] == 2 and "points" not in d["stars"][0]
+        saved = json.loads((out_dir / "spherex" / "1.json").read_text(encoding="utf-8"))
+        assert len(saved["points"]) == 2 and saved["points"][0]["flux_mjy"] == pytest.approx(95.0, rel=0.02) and saved["as_of"] == "2026-11-18"
+        assert json.loads((out_dir / "spherex_photometry.json").read_text(encoding="utf-8"))["n_selected"] == 1
+        code, payload = dispatch(["spherex", "photometry", "--from-run", "test-spherex-src", "--ids", "1", "--detectors", "7", "--json"])
+        assert code != 0 and "1 to 6" in json.dumps(payload)
+        code, payload = dispatch(["spherex", "photometry", "--from-run", "test-spherex-src", "--ids", "99", "--json"])
+        assert code != 0 and "No position" in json.dumps(payload)
+    finally:
+        shutil.rmtree(src, ignore_errors=True)
+        shutil.rmtree(out_dir, ignore_errors=True)
+
+
+def test_neighbour_list_keeps_stars_bright_enough_to_matter(monkeypatch, tmp_path) -> None:
+    from oddstar.io import live_survey
+    from oddstar.io.cache import RawCache
+
+    rows = [{"source_id": 1, "ra": RA0, "dec": DEC0, "pmra": 0.0, "pmdec": 0.0, "phot_g_mean_mag": 10.6},      # the star itself
+            {"source_id": 2, "ra": RA0 + 0.004, "dec": DEC0, "pmra": None, "pmdec": None, "phot_g_mean_mag": 13.0},
+            {"source_id": 3, "ra": RA0, "dec": DEC0 + 0.004, "pmra": 0.0, "pmdec": 3600.0, "phot_g_mean_mag": 15.5},
+            {"source_id": 4, "ra": RA0 - 0.004, "dec": DEC0, "pmra": 0.0, "pmdec": 0.0, "phot_g_mean_mag": 19.0},  # more than 5 mag fainter
+            {"source_id": 5, "ra": RA0, "dec": DEC0 - 0.004, "pmra": 0.0, "pmdec": 0.0, "phot_g_mean_mag": None}]
+    seen: list[str] = []
+
+    def fake_tap(*, urls, query, **kw):
+        seen.append(query)
+        return rows, None, False
+
+    monkeypatch.setattr(live_survey, "_tap_query_cached", fake_tap)
+    cache = RawCache(tmp_path / "raw")
+    out = sx.gaia_neighbours("1", RA0, DEC0, 10.6, cache, release="dr3")
+    assert "CIRCLE('ICRS', 45.165009, 0.200053, 0.008333)" in seen[0] and len(out) == 2
+    assert (RA0 + 0.004, DEC0) in out and any(d == pytest.approx(DEC0 + 0.004 + 0.01) for _, d in out), "moved by its proper motion to 2026"
+    assert len(sx.gaia_neighbours("1", RA0, DEC0, None, cache, release="dr3")) == 4, "with no magnitude for the star, every source counts"

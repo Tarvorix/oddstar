@@ -29,6 +29,7 @@
 | `oddstar search <channel>` | Score the sample (blocked unless a matching certificate exists) |
 | `oddstar vet <run>` | Run all applicable artifact/impostor checks on flagged targets |
 | `oddstar radio followup --from-run <run>` | Fetch and search the Breakthrough Listen recordings of chosen stars (Tier C or better by default, `--ids`, or `--all-covered`), one file at a time; `search radio_narrowband` itself downloads nothing |
+| `oddstar spherex photometry --from-run <run>` | Measure chosen stars (Tier C or better by default, or `--ids`) on every SPHEREx 0.75 to 5 micron image that holds them: one cutout per exposure, a stored row per measurement, one file per star under `runs/<run>/spherex/` |
 | `oddstar fuse <runs...>` | Join channel scores on `source_id`, calibrate FAP, assign tiers and rank |
 | `oddstar dossier <source_id>` | Generate `dossier.json`, `dossier.md`, and evidence plots |
 | `oddstar inspect <source_id>` | One-star mode: run all channels, vetting, fusion, and dossier for one ID |

@@ -74,8 +74,12 @@ SED_WINDOWS_UM = {"k": (2.0, 2.4), "w1": (3.0, 3.8), "w2": (4.1, 5.0)}
 # of a few hundredths of a magnitude; compare stars with stars measured the same way.
 WINDOW_ZERO_POINT_JY = {"k": 666.7, "w1": 309.54, "w2": 171.787}
 
-# Date at which a moving star's position is tested against the image footprints
+# Date at which a moving star's position is tested against the image footprints, and to which neighbours are moved
 LIST_EPOCH = 2026.0
+# Neighbours given to the fit: Gaia sources within this distance of the star (the fit stamp reaches 28 arcsec) that
+# are no more than this many G magnitudes fainter than it (a hundredth of its optical flux). Extraction geometry.
+NEIGHBOUR_RADIUS_ARCSEC = 30.0
+NEIGHBOUR_MAX_DELTA_G = 5.0
 
 Sleeper = Callable[[float], None]
 
@@ -337,6 +341,29 @@ def list_images(ra: float, dec: float, cache: RawCache, *, as_of: str, timeout_s
     return out
 
 
+def gaia_neighbours(source_id: str, ra: float, dec: float, g_mag: float | None, cache: RawCache, *, release: str,
+                    sleep: Sleeper = time.sleep) -> tuple[tuple[float, float], ...]:
+    """(ra, dec) at `LIST_EPOCH` of the Gaia sources near the star that the fit should know about.
+
+    `ra`, `dec` are the star's Gaia position (2016.0). With no G magnitude for the star, every source in the
+    radius is returned.
+    """
+    from oddstar.io.live_survey import GAIA_TAP_URLS, _tap_query_cached
+
+    query = ("SELECT source_id, ra, dec, pmra, pmdec, phot_g_mean_mag FROM gaiadr3.gaia_source WHERE 1=CONTAINS(POINT('ICRS', ra, dec), "
+             f"CIRCLE('ICRS', {ra:.6f}, {dec:.6f}, {NEIGHBOUR_RADIUS_ARCSEC / 3600.0:.6f}))")
+    rows, _, _ = _tap_query_cached(urls=GAIA_TAP_URLS, query=query, archive="gaia", release=release, cache=cache, timeout_s=30, sleep=sleep)
+    out = []
+    for r in rows:
+        if str(r["source_id"]) == str(source_id):
+            continue
+        g = r.get("phot_g_mean_mag")
+        if g_mag is not None and (g is None or float(g) > float(g_mag) + NEIGHBOUR_MAX_DELTA_G):
+            continue
+        out.append(propagate_position(float(r["ra"]), float(r["dec"]), float(r.get("pmra") or 0.0), float(r.get("pmdec") or 0.0), 2016.0, LIST_EPOCH))
+    return tuple(sorted(out))
+
+
 def cutout_url(uri: str, ra: float, dec: float, size_deg: float = CUTOUT_SIZE_DEG) -> str:
     return f"{IRSA_BASE_URL}{uri}?center={ra:.7f},{dec:.7f}d&size={size_deg}"
 
@@ -460,5 +487,5 @@ def summarize(points: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 __all__ = ["ARCHIVE", "BAD_FLAG_NAMES", "CUTOUT_SIZE_DEG", "PHOTOMETRY_VERSION", "SED_WINDOWS_UM", "band_average", "cutout_url",
-           "fit_point_source", "flag_bits", "forced_photometry", "image_query", "list_images", "measure_cutout", "measure_image",
+           "fit_point_source", "flag_bits", "forced_photometry", "gaia_neighbours", "image_query", "list_images", "measure_cutout", "measure_image",
            "render_epsf", "summarize"]

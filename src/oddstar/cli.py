@@ -1328,6 +1328,103 @@ def _cmd_radio_followup(args: argparse.Namespace, cfg: PipelineConfig, short_has
     )
 
 
+def _cmd_spherex_photometry(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, root: Path) -> CLIResponse:
+    """Measure chosen stars on every SPHEREx spectral image that holds them (0.75 to 5 micron, 2025 on).
+
+    For the stars of the given runs that vetting left at `--min-tier` or better (default), or the stars named with
+    `--ids`. Each exposure is one cutout of about 4 MB (not kept) and one stored row; a star has a few hundred.
+    Writes one file per star with every measurement, and a summary of all stars.
+    """
+    from oddstar.fuse.engine import assign_tier
+    from oddstar.io import spherex as sx
+
+    stars: dict[str, dict[str, Any]] = {}
+    tiers: dict[str, str] = {}
+    for run_id in args.from_run:
+        run_dir = root / cfg.storage.runs_dir / run_id
+        search_files = sorted(run_dir.glob("search_*.json"))
+        if not search_files:
+            raise ArtifactNotFoundError(f"No search outputs found in {run_dir}")
+        vf = run_dir / "vetting.json"
+        vdata = json.loads(vf.read_text(encoding="utf-8")).get("vetting", {}) if vf.exists() else None
+        for sf in search_files:
+            sdata = json.loads(sf.read_text(encoding="utf-8"))
+            for star in sdata.get("sample_stars", []):
+                if star.get("ra_deg") is not None and star.get("dec_deg") is not None:
+                    stars.setdefault(str(star["source_id"]), star)
+            scores_by_id = {r["source_id"]: ChannelScore.model_validate(r) for r in sdata["scores"]}
+            for sid in sdata.get("flagged_ids", []):
+                if vdata is None:
+                    tier = "C"
+                else:
+                    tier, _ = assign_tier([scores_by_id[sid]], [VettingResult.model_validate(v) for v in vdata.get(sid, [])], cfg)
+                if _TIER_RANK.get(tier, 0) > _TIER_RANK.get(tiers.get(str(sid), ""), 0):
+                    tiers[str(sid)] = tier
+    if args.ids:
+        chosen = [i.strip() for i in args.ids.split(",") if i.strip()]
+        selection = "ids"
+    else:
+        chosen = sorted(sid for sid, tier in tiers.items() if _TIER_RANK[tier] >= _TIER_RANK[args.min_tier])
+        selection = f"tier {args.min_tier} or better"
+    unknown = [sid for sid in chosen if sid not in stars]
+    if unknown:
+        raise ArtifactNotFoundError(f"No position for {unknown[:5]} in the samples of {args.from_run}",
+                                    hint="Name a run whose search sample contains the star")
+    detectors = None
+    if args.detectors:
+        parts = [d.strip() for d in args.detectors.split(",") if d.strip()]
+        if not parts or any(not d.isdigit() or not 1 <= int(d) <= 6 for d in parts):
+            raise OddstarError(f"--detectors takes numbers 1 to 6, got {args.detectors!r}", code="USAGE_ERROR",
+                               hint="Example: --detectors 3,4,5,6")
+        detectors = tuple(sorted({int(d) for d in parts}))
+    as_of = args.as_of or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    run_name = args.run_id or f"spherex-{args.from_run[0]}"
+    if args.dry_run:
+        return CLIResponse(ok=True, summary=f"[dry-run] Would measure {len(chosen)} star(s) ({selection}) on SPHEREx images as of {as_of}",
+                           data={"run_id": run_name, "selection": selection, "source_ids": chosen, "as_of": as_of})
+
+    cache = RawCache(root / cfg.storage.raw_dir, max_cache_gb=cfg.storage.max_cache_gb)
+    out_dir = root / cfg.storage.runs_dir / run_name
+    (out_dir / "spherex").mkdir(parents=True, exist_ok=True)
+    records, artifacts = [], []
+    for n, sid in enumerate(chosen, 1):
+        star = stars[sid]
+        ra, dec = float(star["ra_deg"]), float(star["dec_deg"])
+        rec: dict[str, Any] = {"source_id": sid, "tier_before": tiers.get(sid)}
+        try:
+            neighbours = () if args.no_neighbours else sx.gaia_neighbours(
+                sid, ra, dec, (star.get("mags") or {}).get("G"), cache, release=cfg.gaia.release)
+            res = sx.forced_photometry(
+                sid, ra, dec, cache, as_of=as_of, pmra_mas_yr=float(star.get("pmra_mas_yr") or 0.0),
+                pmdec_mas_yr=float(star.get("pmdec_mas_yr") or 0.0), neighbours=neighbours, detectors=detectors, workers=args.workers,
+                log=lambda msg: print(f"  {msg}", file=sys.stderr, flush=True))
+            path = out_dir / "spherex" / f"{sid}.json"
+            path.write_text(json.dumps(res, indent=1, sort_keys=True) + "\n", encoding="utf-8")
+            artifacts.append(str(path))
+            rec.update({k: res[k] for k in ("n_images", "n_measured", "n_failed", "complete", "status_counts", "errors", "collections",
+                                            "n_neighbours", "summary")})
+            rec["status"] = "no_coverage" if res["n_images"] == 0 else ("measured" if res["complete"] else "incomplete")
+        except Exception as exc:  # one star's archive failure must not stop the others; it is recorded with its cause
+            rec["status"] = f"failed: {type(exc).__name__}: {exc}"[:400]
+        records.append(rec)
+        print(f"  SPHEREx {n}/{len(chosen)}: {sid}: {rec['status'].split(':')[0]}", file=sys.stderr, flush=True)
+    counts: dict[str, int] = {}
+    for rec in records:
+        key = rec["status"].split(":")[0]
+        counts[key] = counts.get(key, 0) + 1
+    payload = {"run_id": run_name, "from_runs": list(args.from_run), "selection": selection, "as_of": as_of, "detectors": detectors,
+               "photometry_version": sx.PHOTOMETRY_VERSION, "config_hash": short_hash, "git_commit": current_git_commit(root),
+               "n_selected": len(chosen), "status_counts": counts, "stars": records}
+    out = out_dir / "spherex_photometry.json"
+    out.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return CLIResponse(
+        ok=True,
+        summary=f"SPHEREx photometry of {len(chosen)} star(s) ({selection}): " + (", ".join(f"{v} {k}" for k, v in sorted(counts.items())) or "nothing selected"),
+        artifacts=[str(out)] + artifacts,
+        data=payload,
+    )
+
+
 def _cmd_status(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, root: Path) -> CLIResponse:
     # A channel counts as certified only when its certificate passed for the current config hash and the code it
     # validated is the code that would run a search now (the same condition `search` enforces).
@@ -1607,6 +1704,22 @@ def build_parser() -> argparse.ArgumentParser:
     p_rf.add_argument("--radio-data-dir", type=str, default=None, help="where scan files pass through (default: data/breakthrough_listen_scans)")
     p_rf.add_argument("--run-id", type=str, default=None, help="name of the output folder under runs/ (default radio-followup-<first run>)")
 
+    p_sx = sub.add_parser("spherex", parents=[common], help="SPHEREx 0.75 to 5 micron spectral images")
+    sx_sub = p_sx.add_subparsers(dest="spherex_cmd", required=True)
+    p_sxp = sx_sub.add_parser("photometry", parents=[common],
+                              help="Measure chosen stars on every SPHEREx image that holds them (one small cutout per exposure)")
+    p_sxp.add_argument("--from-run", action="append", required=True, metavar="RUN_ID",
+                       help="search run whose sample holds the stars (repeatable); its flagged stars and vetting give the tiers")
+    p_sxp.add_argument("--min-tier", choices=["A", "B", "C"], default="C", help="measure stars at this tier or better (default C)")
+    p_sxp.add_argument("--ids", type=str, default=None, help="comma-separated source ids to measure instead of the tier selection")
+    p_sxp.add_argument("--detectors", type=str, default=None,
+                       help="comma-separated detectors 1 to 6 (0.75-1.1, 1.1-1.6, 1.6-2.4, 2.4-3.8, 3.8-4.4, 4.4-5.0 micron); default all")
+    p_sxp.add_argument("--as-of", type=str, default=None,
+                       help="label of the image list (default: today's date, UTC); the same label reads the stored list again")
+    p_sxp.add_argument("--workers", type=int, default=2, help="cutouts fetched at a time (default 2; the archive answers 503 when pushed)")
+    p_sxp.add_argument("--no-neighbours", action="store_true", help="do not fit Gaia neighbours in the stamp with the star")
+    p_sxp.add_argument("--run-id", type=str, default=None, help="name of the output folder under runs/ (default spherex-<first run>)")
+
     p_null = sub.add_parser("null-report", parents=[common], help="Emit sensitivity and null-result report")
     p_null.add_argument("run_id")
     p_null.add_argument("--channel", default=None)
@@ -1681,6 +1794,8 @@ def dispatch(argv: list[str] | None = None, *, root: Path | None = None) -> tupl
             resp = _cmd_runs_verify(args, cfg, short_hash, base)
         elif cmd == "radio" and args.radio_cmd == "followup":
             resp = _cmd_radio_followup(args, cfg, short_hash, base)
+        elif cmd == "spherex" and args.spherex_cmd == "photometry":
+            resp = _cmd_spherex_photometry(args, cfg, short_hash, base)
         elif cmd == "null-report":
             resp = _cmd_null_report(args, cfg, short_hash, base)
         elif cmd == "status":
