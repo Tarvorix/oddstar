@@ -267,15 +267,22 @@ def test_a_cadence_requires_the_line_in_every_on_scan(tmp_path: Path, cfg: Any) 
 def test_allocations_and_beam_edge() -> None:
     assert "GPS L1" in (br.rfi_allocation(1575.42) or "") and "Iridium" in (br.rfi_allocation(1621.0) or "")
     assert br.rfi_allocation(1420.4) is None and br.rfi_allocation(1700.0) is not None and br.rfi_allocation(6000.0) is None
-    # search version 2: radar, GPS L3, air telemetry, satellite and telephone uplinks; the protected bands stay clear
-    for freq, word in ((1340.0, "radar"), (1381.05, "GPS L3"), (1440.0, "telemetry"), (1627.5, "Inmarsat"), (1750.0, "AWS"), (1906.0, "PCS")):
+    for freq, word in ((1340.0, "radar"), (1381.05, "GPS L3"), (1440.0, "telemetry"), (1627.5, "Inmarsat"), (1750.0, "AWS"), (1906.0, "PCS"),
+                       (751.5, "700 MHz"), (868.9, "800 MHz"), (915.0, "industrial"), (953.6, "paging"),
+                       (1922.9, "cordless"), (1960.0, "PCS"), (2250.0, "telemetry"), (2440.0, "wireless networks"), (2800.0, "radar")):
         assert word in (br.rfi_allocation(freq) or ""), freq
-    assert br.rfi_allocation(1410.0) is None and br.rfi_allocation(1665.0) is None and br.rfi_allocation(1800.0) is None
-    assert br.SEARCH_VERSION == "bl_local_search_v2"
-    # 698 to 960 MHz is allocated to transmitters without a gap; the protected band 608 to 614 MHz and 680 MHz are not listed
-    for freq, word in ((751.5, "700 MHz"), (868.9, "800 MHz"), (915.0, "industrial"), (953.6, "paging")):
-        assert word in (br.rfi_allocation(freq) or ""), freq
-    assert br.rfi_allocation(611.0) is None and br.rfi_allocation(680.0) is None
+    assert br.SEARCH_VERSION == "bl_local_search_v3"
+    # From 698 to 2900 MHz the table is complete: a frequency is in a listed band or in one of the three passive bands
+    rows = sorted(br.RFI_ALLOCATIONS_MHZ)
+    assert list(br.RFI_ALLOCATIONS_MHZ) == rows and all(lo < hi for lo, hi, _ in rows)
+    assert all(a[1] <= b[0] for a, b in zip(rows, rows[1:], strict=False)), "bands do not overlap"
+    lo_c, hi_c = br.ALLOCATIONS_COMPLETE_MHZ
+    edges = sorted([(lo, hi) for lo, hi, _ in rows if lo_c <= lo < hi_c] + list(br.PASSIVE_BANDS_MHZ))
+    assert edges[0][0] == lo_c and edges[-1][1] == hi_c and all(a[1] == b[0] for a, b in zip(edges, edges[1:], strict=False)), "no gap"
+    for lo, hi in br.PASSIVE_BANDS_MHZ:
+        assert br.rfi_allocation((lo + hi) / 2.0) is None
+    assert br.rfi_allocation(1420.4057) is None and br.rfi_allocation(1665.4) is None and br.rfi_allocation(2695.0) is None
+    assert br.rfi_allocation(611.0) is None and br.rfi_allocation(680.0) is None and br.rfi_allocation(3000.0) is None
     f_edge = br.max_in_beam_freq_mhz("GBT", 209.3)
     assert f_edge == pytest.approx(1773.0, abs=3.0)
     assert bl.half_power_radius_arcsec("GBT", f_edge) == pytest.approx(209.3, rel=1e-6)

@@ -44,41 +44,60 @@ from oddstar.errors import ArchiveAccessError
 from oddstar.io import bl_opendata as bl
 from oddstar.io.cache import RawCache
 
-SEARCH_VERSION = "bl_local_search_v2"
+SEARCH_VERSION = "bl_local_search_v3"
 # Version of the cutting phases (candidate windows of the ON scan, the same windows of the other scans). The windows
 # saved under `<data_dir>/_work` are keyed by it, not by SEARCH_VERSION, so a change that only touches the scoring
 # (the allocation table, the listing) scores the saved windows again without fetching a scan.
 CUT_VERSION = "bl_cut_v1"
 # Trial drift rates per search; must equal the grid inside `channels.radio_narrowband.dedoppler_search_scan`
 N_DRIFT_TRIALS = 161
-# Bands allocated to satellite downlinks, radionavigation satellites, aeronautical radionavigation and, since search
-# version 2, airborne, radar and handset transmitters (ITU Radio Regulations Article 5, Region 2, and the United
-# States table of frequency allocations, 47 CFR 2.106), where a narrowband line toward any sky position is expected
-# from transmitters. The six bands marked "v2" were added after the first real search (HIP 3026, Green Bank L band)
-# put every one of its 89 flags outside the version 1 table inside them. The four bands marked "v2b" (698 to 960
-# MHz, allocated without a gap to mobile, fixed and land mobile transmitters) were added after the first search
-# below 960 MHz (the NGC4168 field) put all 906 of its flags outside the table there. See configs/CHANGELOG.md.
+# Bands allocated to transmitters, where a narrowband line toward any sky position is expected from them.
+# From 698 to 2900 MHz the table is complete: every band the United States table of frequency allocations (47 CFR
+# 2.106, federal and non-federal columns) gives to a transmitting service is listed, so the only frequencies in that
+# range that are not listed are the passive bands 1400 to 1427, 1660.5 to 1668.4 and 2690 to 2700 MHz (radio
+# astronomy, passive sensing). Above 2900 MHz only the satellite downlink bands are listed; the table is not
+# complete there and must be completed before scans of those receivers are searched. History of the table and the
+# reason for the rule: configs/CHANGELOG.md.
 # (low MHz, high MHz, service)
+ALLOCATIONS_COMPLETE_MHZ = (698.0, 2900.0)
+PASSIVE_BANDS_MHZ: tuple[tuple[float, float], ...] = ((1400.0, 1427.0), (1660.5, 1668.4), (2690.0, 2700.0))
 RFI_ALLOCATIONS_MHZ: tuple[tuple[float, float, str], ...] = (
-    (698.0, 806.0, "mobile telephone and public safety (700 MHz band)"),  # v2b
-    (806.0, 902.0, "land mobile, mobile telephone and air-ground (800 MHz bands)"),  # v2b
-    (902.0, 928.0, "industrial, scientific and medical band; radiolocation"),  # v2b
-    (928.0, 960.0, "paging, fixed and land mobile"),  # v2b
+    (698.0, 806.0, "mobile telephone and public safety (700 MHz band)"),
+    (806.0, 902.0, "land mobile, mobile telephone and air-ground (800 MHz bands)"),
+    (902.0, 928.0, "industrial, scientific and medical band; radiolocation"),
+    (928.0, 960.0, "paging, fixed and land mobile"),
     (960.0, 1164.0, "aeronautical radionavigation (DME, TACAN, ADS-B)"),
     (1164.0, 1300.0, "radionavigation satellites (GPS L5/L2, GLONASS L3/L2, Galileo E5/E6)"),
-    (1300.0, 1350.0, "aeronautical radionavigation (air route surveillance radar)"),  # v2
-    (1350.0, 1390.0, "radiolocation and GPS L3 (1381.05 MHz)"),  # v2
-    (1435.0, 1525.0, "aeronautical mobile telemetry"),  # v2
+    (1300.0, 1350.0, "aeronautical radionavigation (air route surveillance radar)"),
+    (1350.0, 1390.0, "radiolocation and GPS L3 (1381.05 MHz)"),
+    (1390.0, 1400.0, "fixed, mobile and medical telemetry"),
+    (1427.0, 1435.0, "telemetry, fixed and mobile"),
+    (1435.0, 1525.0, "aeronautical mobile telemetry"),
     (1525.0, 1559.0, "mobile satellite downlinks (Inmarsat)"),
     (1559.0, 1610.0, "radionavigation satellites (GPS L1, GLONASS L1, Galileo E1, BeiDou B1)"),
     (1610.0, 1626.5, "mobile satellites (Iridium, Globalstar)"),
-    (1626.5, 1660.5, "mobile satellite uplinks (Inmarsat)"),  # v2
+    (1626.5, 1660.5, "mobile satellite uplinks (Inmarsat)"),
+    (1668.4, 1670.0, "meteorological aids (radiosondes)"),
     (1670.0, 1710.0, "meteorological satellite downlinks (GOES)"),
-    (1710.0, 1780.0, "mobile telephone uplinks (AWS)"),  # v2
-    (1850.0, 1915.0, "mobile telephone uplinks (PCS)"),  # v2
+    (1710.0, 1780.0, "mobile telephone uplinks (AWS)"),
+    (1780.0, 1850.0, "fixed, mobile and space operation uplinks"),
+    (1850.0, 1915.0, "mobile telephone uplinks (PCS)"),
+    (1915.0, 1930.0, "unlicensed personal communications (cordless telephones)"),
+    (1930.0, 2000.0, "mobile telephone downlinks (PCS)"),
+    (2000.0, 2025.0, "mobile and mobile satellite uplinks"),
+    (2025.0, 2110.0, "space operation uplinks and television auxiliary links"),
+    (2110.0, 2180.0, "mobile telephone downlinks (AWS)"),
     (2180.0, 2200.0, "mobile satellite downlinks"),
+    (2200.0, 2290.0, "space operation and satellite telemetry downlinks"),
+    (2290.0, 2300.0, "deep space downlinks; fixed and mobile"),
+    (2300.0, 2320.0, "amateur and wireless communications"),
     (2320.0, 2345.0, "satellite radio downlinks"),
+    (2345.0, 2360.0, "wireless communications"),
+    (2360.0, 2400.0, "aeronautical telemetry, medical devices and amateur"),
+    (2400.0, 2483.5, "industrial, scientific and medical band (wireless networks)"),
     (2483.5, 2500.0, "mobile satellite downlinks (Globalstar)"),
+    (2500.0, 2690.0, "broadband radio service (mobile)"),
+    (2700.0, 2900.0, "airport surveillance and weather radar"),
     (3700.0, 4200.0, "fixed satellite downlinks (C band)"),
     (7250.0, 7750.0, "fixed satellite downlinks (X band)"),
     (10700.0, 12750.0, "fixed and broadcasting satellite downlinks (Ku band)"),
