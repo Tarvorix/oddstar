@@ -73,7 +73,9 @@ shows at the position (about five cutouts and four seconds per source; only the 
   position is then several arcsec from an object that never left. The check fails ("the object the plates recorded
   is still there") when a Gaia star, moved back to the plate's date, or a Pan-STARRS object is within
   `match_radius_arcsec` of that place, and it passes only when this comparison and the moved-star test could both be
-  made and found nothing (see `configs/CHANGELOG.md`, 1.9.0).
+  made and found nothing. On controls: the counterpart is found for 328 of 328 sources known to be there, and 9.4%
+  of 5,640 places without a source have an unrelated object within the match radius (see `configs/CHANGELOG.md`,
+  1.9.0).
 `sso_plate`, `blend_split` and `known_variable` stay `not_evaluated`: no plate-epoch ephemeris, high-resolution imaging
 or variable-star lookup is made.
 

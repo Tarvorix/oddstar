@@ -25,9 +25,19 @@ limit: it is the survey's own comparison, with the survey's own `match_radius_ar
   first-epoch images that show the source. It passes only when that comparison and the moved-star test of 1.8.0
   could both be made and found nothing; when the catalogues at that place could not be read it is `not_evaluated`.
   A source that no first-epoch image shows has no measured place, and the comparison does not apply to it.
+- **Measured on controls (2026-11-18, before the version was applied to any flagged source).** Sources that are
+  known to be there, among those that at least one first-epoch image shows and whose images were all read: the
+  comparison finds the counterpart for 186 of 186 ordinary plate sources (nearest counterpart from Gaia 152, from
+  Pan-STARRS 34; separation median 0.24, 95th percentile 0.79, largest 1.55 arcsec), for 57 of 57 known moving
+  stars (all from Gaia; 0.41, 0.99, 1.57 arcsec) and for 85 of 85 still stars with a neighbour (0.29, 1.19, 2.22
+  arcsec). None is missed. Eleven further sources have no verdict because one first-epoch survey holds no plate at
+  the position and `plate_images` is then not "ok".
 - **What the rule costs.** A source that did vanish is wrongly explained when an unrelated object lies within the
-  match radius of its place. The survey's comparison at the catalogue position has the same cost. Both rates are
-  measured on control positions before this version is applied to a flagged source: see the control numbers below.
+  match radius of its place. Measured at 5,640 places with no source (8 positions on a ring 30 arcsec from the
+  centre of each of 705 halo fields with Gaia and Pan-STARRS cones): 9.4% have an object within 3.0 arcsec (531;
+  Pan-STARRS 526, a Gaia star moved back to 1953.0 91). Of the Pan-STARRS matches, 242 are objects with exactly two
+  detections, 60 with three to five, 224 with more. The survey's comparison at the catalogue position has the same
+  cost, with the same `match_radius_arcsec` and `plate_ps1_min_detections`; neither is changed here.
 - **Not changed.** The search, its flags and `plate_defect`. The later-plate measurement still uses the catalogue
   motion; it is reported, and no check reads it except through the track test of 1.8.0, which works from the peaks'
   sky places.
