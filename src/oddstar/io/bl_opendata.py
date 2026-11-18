@@ -314,7 +314,8 @@ def plan_star_scans(
     from the position, holding a file at the frequency of every ON file (to 1 MHz). Two kinds are listed: the nearest
     scan before and after within `OFF_SCAN_WINDOW_DAYS`, and beams recorded at the same instant (Parkes multibeam).
     `comparison` names the set a search should use: "simultaneous_beams" when at least
-    `MIN_SIMULTANEOUS_OFF_BEAMS` exist, else "before_after" when both exist, else "incomplete".
+    `MIN_SIMULTANEOUS_OFF_BEAMS` exist, else "before_after" when both exist, else "incomplete"; ON scans of one
+    target that follow each other are then joined into one "cadence" plan (`_merge_cadences`).
     `bytes_on_plus_offs` is what that comparison downloads.
     """
     in_beam: list[dict[str, Any]] = []
@@ -363,7 +364,49 @@ def plan_star_scans(
             "comparison": comparison, "complete": comparison != "incomplete",
             "bytes_on_plus_offs": bytes_on + sum(e["bytes"] for e in used),
         })
-    return plans
+    return _merge_cadences(plans)
+
+
+def _merge_cadences(plans: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Replace ON scans of one target that follow each other (A, B, A, C, A) by one plan that holds them all.
+
+    ON scans of the same target, telescope and frequencies whose starts lie within `OFF_SCAN_WINDOW_DAYS` of the
+    next one form a chain. A chain of two or more becomes one plan with `comparison` "cadence": `on_files` are the
+    files of the middle ON scan (the reference, searched for candidates), `on_other` the other ON scans and
+    `off_cadence` every OFF scan that is the nearest before or after one of the ON scans. A signal then has to be
+    in every ON scan and in no OFF scan. Scans compared with simultaneous beams are left as they are.
+    """
+    out: list[dict[str, Any]] = []
+    chains: list[list[dict[str, Any]]] = []
+    for p in sorted(plans, key=lambda x: x["mjd"]):
+        if p["comparison"] == "simultaneous_beams":
+            out.append(p)
+            continue
+        chain = next((c for c in chains if (c[-1]["target"], c[-1]["telescope"], c[-1]["center_freqs_mhz"]) ==
+                      (p["target"], p["telescope"], p["center_freqs_mhz"]) and p["mjd"] - c[-1]["mjd"] <= OFF_SCAN_WINDOW_DAYS), None)
+        if chain is None:
+            chains.append([p])
+        else:
+            chain.append(p)
+    for chain in chains:
+        if len(chain) == 1:
+            out.append(chain[0])
+            continue
+        ref = chain[(len(chain) - 1) // 2]
+        offs: dict[tuple[str, float], dict[str, Any]] = {}
+        for p in chain:
+            for e in (p["off_before"], p["off_after"]):
+                if e is not None:
+                    offs.setdefault((e["target"], e["mjd"]), dict(e, minutes_from_on=round((e["mjd"] - ref["mjd"]) * 1440.0, 1)))
+        off_cadence = sorted(offs.values(), key=lambda e: e["mjd"])
+        on_other = [{"target": p["target"], "mjd": p["mjd"], "minutes_from_on": round((p["mjd"] - ref["mjd"]) * 1440.0, 1),
+                     "sep_arcsec": p["sep_arcsec"], "files": p["on_files"], "bytes": p["bytes_on"]} for p in chain if p is not ref]
+        out.append(dict(
+            ref, sep_arcsec=max(p["sep_arcsec"] for p in chain), on_other=on_other, off_cadence=off_cadence, off_before=None, off_after=None,
+            comparison="cadence" if off_cadence else "incomplete", complete=bool(off_cadence), n_on_scans=len(chain),
+            bytes_on_plus_offs=ref["bytes_on"] + sum(e["bytes"] for e in [*on_other, *off_cadence]),
+        ))
+    return sorted(out, key=lambda x: x["mjd"])
 
 
 def beam_coverage(ra: float, dec: float, rows: list[dict[str, Any]]) -> dict[str, Any]:
@@ -504,7 +547,7 @@ def main(argv: list[str] | None = None) -> int:
                           "n_complete_scans": len(complete),
                           "smallest_complete_bytes": min((s["bytes_on_plus_offs"] for s in complete), default=None)})
             stars_out.append(entry)
-            print(f"  plan {rec['source_id']}: {entry['n_on_scans']} ON scan(s), {entry['n_complete_scans']} with a full comparison", file=sys.stderr)
+            print(f"  plan {rec['source_id']}: {entry['n_on_scans']} scan set(s), {entry['n_complete_scans']} with a full comparison", file=sys.stderr)
         plan_path = census_path.with_name("bl_scan_plan.json")
         plan_path.write_text(json.dumps({"census": str(census_path), "stars": stars_out}, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         print(json.dumps({"out": str(plan_path), "stars": [{k: e[k] for k in ("source_id", "status", "n_on_scans", "n_complete_scans",

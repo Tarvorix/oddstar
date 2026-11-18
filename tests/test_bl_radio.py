@@ -151,7 +151,9 @@ def test_search_flags_a_line_present_only_in_the_on_scan(tmp_path: Path, cfg: An
     assert sel["hit"]["flagged"] and on.channel_of_freq(sel["hit"]["freq_mhz"]) == 700
     cad = sel["cadence"]
     assert [s["kind"] for s in cad["scans"]] == ["OFF", "ON", "OFF"] and [s["t_start_s"] for s in cad["scans"]] == pytest.approx([0.0, 342.0, 684.0], abs=0.01)
-    assert np.asarray(cad["scans"][1]["power"]).shape == (N_T, 1024) and cad["dt_s"] == pytest.approx(DT)
+    # The small test window (1024 channels = 2.9 kHz) cannot hold 4 Hz/s over the 634 s of this scan set: the cut is doubled
+    assert res["window_channels"] == 2048 and br.cut_channels(1024, 4.0, 342.0 + N_T * DT, DF_MHZ * 1e6) == 2048
+    assert np.asarray(cad["scans"][1]["power"]).shape == (N_T, 2048) and cad["dt_s"] == pytest.approx(DT)
     # The selected cadence is an ordinary cadence: the channel alone reproduces the flag from it
     m = channel.measure(json.loads(json.dumps(cad)), {})
     assert channel.score(m).flagged and m.values["off_scan_hits"] == 0.0
@@ -175,8 +177,8 @@ def test_a_quiet_scan_still_gets_a_measured_window_and_offs_are_matched_by_frequ
     assert res["n_candidate_windows"] == 0 and res["n_windows_evaluated"] == 1 and res["n_windows_flagged"] == 0
     hit = res["selected"]["hit"]
     assert not hit["flagged"] and 3.0 < hit["max_on_snr"] < 10.0
-    lo = on.channel_of_freq(res["selected"]["cadence"]["center_freq_mhz"] - 512 * DF_MHZ)
-    np.testing.assert_allclose(np.asarray(res["selected"]["cadence"]["scans"][1]["power"]), wide[:, lo + 1024:lo + 2048], rtol=1e-6)
+    lo = on.channel_of_freq(res["selected"]["cadence"]["center_freq_mhz"] - 1024 * DF_MHZ)
+    np.testing.assert_allclose(np.asarray(res["selected"]["cadence"]["scans"][1]["power"]), wide[:, lo + 1024:lo + 3072], rtol=1e-6)
 
     # An OFF scan that does not hold the ON frequencies compares nothing, and says so
     short = br.ScanFile(write_fil(tmp_path / "short.fil", _noise(22, 4096), tstart=T_ON + 0.004))
@@ -191,6 +193,67 @@ def test_a_quiet_scan_still_gets_a_measured_window_and_offs_are_matched_by_frequ
         sf.close()
 
 
+def test_a_cadence_requires_the_line_in_every_on_scan(tmp_path: Path, cfg: Any) -> None:
+    """A, B, A, C, A: a line has to be in all three ON scans; one that shows in a single ON scan is interference."""
+    channel = build_channel("radio_narrowband", cfg, repo_root())
+    c = cfg.model_copy(deep=True)
+    c.channels["radio_narrowband"].update({"live_block_channels": 8192, "live_window_channels": 2048})
+    df_hz, step = DF_MHZ * 1e6, 640.0
+
+    def shifted(ch: int, drift: float, dt: float) -> int:
+        return ch + int(round(drift * dt / df_hz))
+
+    n_f = 16384
+    ons = [_noise(30, n_f), _noise(31, n_f), _noise(32, n_f)]
+    for k, data in enumerate(ons):                   # ON scans start at -640 s, 0 s, +640 s
+        _tone(data, shifted(3000, 0.5, (k - 1) * step), 0.5)     # in every ON scan, where its drift carries it
+        _tone(data, shifted(11000, 3.5, (k - 1) * step), 3.5)    # the same at a drift that leaves a 2048-channel window
+    _tone(ons[1], 7000, 0.5)                         # in the middle ON scan only
+    scans = [br.ScanFile(write_fil(tmp_path / f"on{k}.fil", data, tstart=T_ON + (k - 1) * step / 86400.0, source="NGCX")) for k, data in enumerate(ons)]
+    offs = [br.ScanFile(write_fil(tmp_path / f"off{k}.fil", _noise(40 + k, n_f), tstart=T_ON + (k - 0.5) * step / 86400.0, source=f"OFF{k}"))
+            for k in range(3)]
+    assert br.cut_channels(2048, 4.0, step + N_T * DT, df_hz) == 4096 and br.cut_channels(2048, 4.0, 342.0 + N_T * DT, df_hz) == 2048
+    assert br.cut_channels(2048, 4.0, None, df_hz) == 2048
+
+    alone = br.search_scan_set("9", scans[1], offs[:2], channel, c)
+    assert alone["n_windows_flagged"] == 3 and "on_other_files" not in alone and alone["window_channels"] == 2048
+    res = br.search_scan_set("9", scans[1], offs, channel, c, other_ons=[scans[0], scans[2]])
+    by_ch = {scans[1].channel_of_freq(w["freq_mhz"]): w for w in res["windows"]}
+    assert res["n_on_scans"] == 3 and res["on_other_files"] == ["on0.fil", "on2.fil"] and res["off_files"] == ["off0.fil", "off1.fil", "off2.fil"]
+    assert res["window_channels"] == 4096 and res["n_windows_evaluated"] == 3 and res["n_windows_flagged"] == 2
+    assert by_ch[3000]["flagged"] and by_ch[3000]["on_persistence"] == 1.0 and by_ch[3000]["min_on_snr"] > 20
+    assert by_ch[11000]["flagged"], "a fast line stays inside the wider cut"
+    assert not by_ch[7000]["flagged"] and by_ch[7000]["min_on_snr"] < 10, "seen in one ON scan of three"
+    cad = res["selected"]["cadence"]
+    assert [sc["kind"] for sc in cad["scans"]] == ["ON", "OFF", "ON", "OFF", "ON", "OFF"]
+    assert np.asarray(cad["scans"][0]["power"]).shape == (N_T, 4096)
+    m = channel.measure(json.loads(json.dumps(cad)), {})
+    assert channel.score(m).flagged and m.values["on_persistence"] == 1.0
+    with pytest.raises(ArchiveAccessError, match="at least one OFF"):
+        br.search_scan_set("9", scans[1], [], channel, c, other_ons=[scans[0]])
+    for sf in (*scans, *offs):
+        sf.close()
+
+    # The plan of a cadence: files, kinds and the key of the stored result
+    def entry(name: str, minutes: float) -> dict[str, Any]:
+        return {"target": name, "mjd": T_ON + minutes / 1440.0, "files": [{"url": f"http://x/{name}.fil", "size_bytes": 5, "md5sum": "-", "center_freq_mhz": 1400.0}]}
+
+    single = {"telescope": "GBT", "sep_arcsec": 10.0, "mjd": T_ON, "comparison": "before_after", "on_files": entry("on1", 0.0)["files"],
+              "off_before": entry("offa", -5.3), "off_after": entry("offb", 5.3), "off_simultaneous": []}
+    cadence = dict(single, comparison="cadence", off_before=None, off_after=None, on_other=[entry("on0", -10.6), entry("on2", 10.6)],
+                   off_cadence=[entry("offa", -5.3), entry("offb", 5.3)])
+    assert [k for k, _ in br.plan_other_scans(single)] == ["OFF", "OFF"] and br.plan_offset_s(single) == pytest.approx(318.0, abs=0.1)
+    assert [(k, e["target"]) for k, e in br.plan_other_scans(cadence)] == [("ON", "on0"), ("OFF", "offa"), ("OFF", "offb"), ("ON", "on2")]
+    assert br.plan_offset_s(cadence) == pytest.approx(636.0, abs=0.1) and len(br.plan_files(cadence)[1]) == 4
+    (on_f, other_fs, kinds), = br._band_sets(cadence)
+    assert kinds == ["ON", "OFF", "OFF", "ON"]
+    sig_c, desc_c, _ = br._band_signature("9", cadence, on_f, other_fs, c, kinds)
+    (on_s, other_s, kinds_s), = br._band_sets(single)
+    sig_s, desc_s, _ = br._band_signature("9", single, on_s, other_s, c, kinds_s)
+    assert sig_c != sig_s and "on_other" in desc_c and "on_other" not in desc_s
+    assert br._band_signature("9", single, on_s, other_s, c)[0] == sig_s, "a plan without other ON scans keeps its key"
+
+
 def test_allocations_and_beam_edge() -> None:
     assert "GPS L1" in (br.rfi_allocation(1575.42) or "") and "Iridium" in (br.rfi_allocation(1621.0) or "")
     assert br.rfi_allocation(1420.4) is None and br.rfi_allocation(1700.0) is not None and br.rfi_allocation(6000.0) is None
@@ -199,6 +262,10 @@ def test_allocations_and_beam_edge() -> None:
         assert word in (br.rfi_allocation(freq) or ""), freq
     assert br.rfi_allocation(1410.0) is None and br.rfi_allocation(1665.0) is None and br.rfi_allocation(1800.0) is None
     assert br.SEARCH_VERSION == "bl_local_search_v2"
+    # 698 to 960 MHz is allocated to transmitters without a gap; the protected band 608 to 614 MHz and 680 MHz are not listed
+    for freq, word in ((751.5, "700 MHz"), (868.9, "800 MHz"), (915.0, "industrial"), (953.6, "paging")):
+        assert word in (br.rfi_allocation(freq) or ""), freq
+    assert br.rfi_allocation(611.0) is None and br.rfi_allocation(680.0) is None
     f_edge = br.max_in_beam_freq_mhz("GBT", 209.3)
     assert f_edge == pytest.approx(1773.0, abs=3.0)
     assert bl.half_power_radius_arcsec("GBT", f_edge) == pytest.approx(209.3, rel=1e-6)

@@ -43,9 +43,18 @@ decides anything, and it is the channel code above.
    half-power beam are not searched. The star's record keeps the cadence of one window (flagged outside the
    allocated transmitter bands first, then flagged, then the strongest ON-only excess) and the list of evaluated
    windows; `in_rfi_band` is set from the allocation table in `bl_radio.RFI_ALLOCATIONS_MHZ`.
-   The table lists satellite downlinks, navigation bands and, since search version 2, radar, air telemetry and
-   satellite and telephone uplink bands (basis in `configs/CHANGELOG.md`). Stored results are keyed by
-   `bl_radio.SEARCH_VERSION`; a change of the table or of the search changes that version.
+   The table lists satellite downlinks, navigation bands and, since search version 2, radar, air telemetry,
+   satellite and telephone uplink bands and the mobile bands from 698 to 960 MHz (basis in `configs/CHANGELOG.md`).
+   Stored results are keyed by `bl_radio.SEARCH_VERSION`; a change of the search, or of the table inside the
+   frequency range of a stored result, changes that version.
+
+   **Cadences.** When the archive holds several ON scans of one target that follow each other (A, B, A, C, A), the
+   plan joins them (`comparison: "cadence"`): candidates are found in the middle ON scan, the same sky frequencies
+   are cut from the other ON scans and from every OFF scan between and around them, and the channel then requires
+   the signal in every ON scan and in no OFF scan (`require_all_on_scans`). A lone ON scan is compared with the
+   OFF scans before and after it. The cut around a hit is `live_window_channels` wide, or the next power-of-two
+   multiple when a signal at `max_abs_drift_hz_s` would leave that between the start of the reference scan and
+   the end of the farthest scan (three 5-minute ON scans 10.6 minutes apart: 4096 channels).
 
 Not-searched reasons, each counted separately: `n_no_coverage` (inside no beam), `n_not_downloaded` (inside a beam
 with a full scan set in the archive, files not on disk), `n_no_comparison` (inside a beam, no OFF scan in the
