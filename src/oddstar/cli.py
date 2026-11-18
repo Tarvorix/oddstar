@@ -1238,6 +1238,96 @@ def _cmd_null_report(args: argparse.Namespace, cfg: PipelineConfig, short_hash: 
     )
 
 
+_TIER_RANK = {"A": 3, "B": 2, "C": 1}
+
+
+def _cmd_radio_followup(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, root: Path) -> CLIResponse:
+    """Search the Breakthrough Listen recordings of chosen stars: the expensive half of the radio channel, on request.
+
+    `search radio_narrowband --live` only records which stars lie in a telescope beam and reads results that are
+    already stored. This command fetches and searches the recordings, one file at a time, for: the stars of the
+    given runs that vetting left at `--min-tier` or better (default), the stars named with `--ids`, or every star
+    of the runs' samples (`--all-covered`). A star outside every beam is recorded as "no_coverage".
+    """
+    from oddstar.fuse.engine import assign_tier
+    from oddstar.io.bl_radio import default_data_dir, followup_star
+
+    positions: dict[str, tuple[float, float]] = {}
+    tiers: dict[str, str] = {}
+    for run_id in args.from_run:
+        run_dir = root / cfg.storage.runs_dir / run_id
+        search_files = sorted(run_dir.glob("search_*.json"))
+        if not search_files:
+            raise ArtifactNotFoundError(f"No search outputs found in {run_dir}")
+        vf = run_dir / "vetting.json"
+        vdata = json.loads(vf.read_text(encoding="utf-8")).get("vetting", {}) if vf.exists() else None
+        for sf in search_files:
+            sdata = json.loads(sf.read_text(encoding="utf-8"))
+            for star in sdata.get("sample_stars", []):
+                if star.get("ra_deg") is not None and star.get("dec_deg") is not None:
+                    positions.setdefault(str(star["source_id"]), (float(star["ra_deg"]), float(star["dec_deg"])))
+            scores_by_id = {r["source_id"]: ChannelScore.model_validate(r) for r in sdata["scores"]}
+            for sid in sdata.get("flagged_ids", []):
+                if vdata is None:
+                    tier = "C"  # flagged and not vetted yet: nothing has explained it
+                else:
+                    tier, _ = assign_tier([scores_by_id[sid]], [VettingResult.model_validate(v) for v in vdata.get(sid, [])], cfg)
+                if _TIER_RANK.get(tier, 0) > _TIER_RANK.get(tiers.get(str(sid), ""), 0):
+                    tiers[str(sid)] = tier
+    if args.ids:
+        chosen = [i.strip() for i in args.ids.split(",") if i.strip()]
+        selection = "ids"
+    elif args.all_covered:
+        chosen = sorted(positions)
+        selection = "all_covered"
+    else:
+        chosen = sorted(sid for sid, tier in tiers.items() if _TIER_RANK[tier] >= _TIER_RANK[args.min_tier])
+        selection = f"tier {args.min_tier} or better"
+    unknown = [sid for sid in chosen if sid not in positions]
+    if unknown:
+        raise ArtifactNotFoundError(f"No position for {unknown[:5]} in the samples of {args.from_run}",
+                                    hint="Name a run whose search sample contains the star")
+
+    cache = RawCache(root / cfg.storage.raw_dir, max_cache_gb=cfg.storage.max_cache_gb)
+    channel = build_channel("radio_narrowband", cfg, root)
+    data_dir = Path(args.radio_data_dir) if args.radio_data_dir else default_data_dir(root, cfg)
+    records = []
+    for n, sid in enumerate(chosen, 1):
+        ra, dec = positions[sid]
+        rec = followup_star(sid, ra, dec, cfg, cache, channel, data_dir, all_scan_sets=args.scan_sets == "all",
+                            keep_windows=args.keep_windows, min_free_bytes=int(args.min_free_gb * 1e9), dry_run=args.dry_run,
+                            log=lambda msg: print(f"  {msg}", file=sys.stderr, flush=True))
+        rec["tier_before"] = tiers.get(sid)
+        records.append(rec)
+        print(f"  radio follow-up {n}/{len(chosen)}: {sid}: {rec['status'].split(':')[0]}", file=sys.stderr, flush=True)
+    counts: dict[str, int] = {}
+    for rec in records:
+        key = rec["status"].split(":")[0]
+        counts[key] = counts.get(key, 0) + 1
+    payload = {
+        "run_id": args.run_id or f"radio-followup-{args.from_run[0]}", "from_runs": list(args.from_run), "selection": selection,
+        "config_hash": short_hash, "git_commit": current_git_commit(root), "dry_run": bool(args.dry_run),
+        "n_selected": len(chosen), "status_counts": counts,
+        "n_windows_flagged_outside_rfi_bands": sum(r.get("n_windows_flagged_outside_rfi_bands", 0) for r in records),
+        "stars": records,
+    }
+    artifacts: list[str] = []
+    if not args.dry_run:
+        out_dir = root / cfg.storage.runs_dir / payload["run_id"]
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out = out_dir / "radio_followup.json"
+        out.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        artifacts.append(str(out))
+    return CLIResponse(
+        ok=True,
+        summary=(("[dry-run] " if args.dry_run else "") + f"Radio follow-up of {len(chosen)} star(s) ({selection}): "
+                 + (", ".join(f"{v} {k}" for k, v in sorted(counts.items())) or "nothing selected")),
+        artifacts=artifacts,
+        data=payload,
+        next="oddstar search radio_narrowband --live --json" if counts.get("searched") else "",
+    )
+
+
 def _cmd_status(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, root: Path) -> CLIResponse:
     # A channel counts as certified only when its certificate passed for the current config hash and the code it
     # validated is the code that would run a search now (the same condition `search` enforces).
@@ -1501,6 +1591,22 @@ def build_parser() -> argparse.ArgumentParser:
     p_lm.add_argument("--md-note", default=None)
     les_sub.add_parser("record-sha", parents=[common], help="Set commit_sha to the commit that introduced each lesson")
 
+    p_radio = sub.add_parser("radio", parents=[common], help="Radio recordings, searched on request")
+    radio_sub = p_radio.add_subparsers(dest="radio_cmd", required=True)
+    p_rf = radio_sub.add_parser("followup", parents=[common],
+                                help="Fetch and search the Breakthrough Listen recordings of chosen stars, one file at a time")
+    p_rf.add_argument("--from-run", action="append", required=True, metavar="RUN_ID",
+                      help="search run whose sample holds the stars (repeatable); its flagged stars and vetting give the tiers")
+    p_rf.add_argument("--min-tier", choices=["A", "B", "C"], default="C", help="follow up stars at this tier or better (default C)")
+    p_rf.add_argument("--ids", type=str, default=None, help="comma-separated source ids to follow up instead of the tier selection")
+    p_rf.add_argument("--all-covered", action="store_true", help="follow up every star of the runs' samples that lies in a beam")
+    p_rf.add_argument("--scan-sets", choices=["smallest", "all"], default="smallest",
+                      help="per star: the complete scan set with the fewest bytes (default) or every complete scan set")
+    p_rf.add_argument("--keep-windows", action="store_true", help="keep the windows cut from the scans (for re-scoring without a download)")
+    p_rf.add_argument("--min-free-gb", type=float, default=15.0, help="do not fetch a scan set with less free disk than this (default 15)")
+    p_rf.add_argument("--radio-data-dir", type=str, default=None, help="where scan files pass through (default: data/breakthrough_listen_scans)")
+    p_rf.add_argument("--run-id", type=str, default=None, help="name of the output folder under runs/ (default radio-followup-<first run>)")
+
     p_null = sub.add_parser("null-report", parents=[common], help="Emit sensitivity and null-result report")
     p_null.add_argument("run_id")
     p_null.add_argument("--channel", default=None)
@@ -1573,6 +1679,8 @@ def dispatch(argv: list[str] | None = None, *, root: Path | None = None) -> tupl
             resp = _cmd_runs_export(args, cfg, short_hash, base)
         elif cmd == "runs" and args.runs_cmd == "verify":
             resp = _cmd_runs_verify(args, cfg, short_hash, base)
+        elif cmd == "radio" and args.radio_cmd == "followup":
+            resp = _cmd_radio_followup(args, cfg, short_hash, base)
         elif cmd == "null-report":
             resp = _cmd_null_report(args, cfg, short_hash, base)
         elif cmd == "status":

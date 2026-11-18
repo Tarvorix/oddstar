@@ -31,6 +31,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import shutil
 import struct
 import sys
 import time
@@ -762,6 +763,109 @@ def search_plan_one_file_at_a_time(
     return results
 
 
+def plan_work_dirs(source_id: str, plan: dict[str, Any], data_dir: Path, cfg: PipelineConfig) -> list[Path]:
+    """The folders under `<data_dir>/_work` that hold the windows cut for a plan (one per frequency band)."""
+    return [Path(data_dir) / "_work" / f"{source_id}_{_work_key(_band_signature(source_id, plan, on_f, other_fs, cfg, kinds)[1])}"
+            for on_f, other_fs, kinds in _band_sets(plan)]
+
+
+def _band_summary(res: dict[str, Any]) -> dict[str, Any]:
+    keep = ("version", "on_file", "on_target", "off_targets", "freq_lo_mhz", "freq_hi_mhz", "max_in_beam_freq_mhz", "n_on_scans",
+            "n_channels_searched", "n_windows_evaluated", "n_windows_flagged", "n_windows_flagged_outside_rfi_bands", "elapsed_s")
+    return {k: res[k] for k in keep if k in res} | {"selected_hit": (res.get("selected") or {}).get("hit")}
+
+
+def followup_star(
+    source_id: str, ra: float, dec: float, cfg: PipelineConfig, cache: RawCache, channel: Any, data_dir: Path, *,
+    all_scan_sets: bool = False, keep_windows: bool = False, min_free_bytes: int = 15_000_000_000, dry_run: bool = False,
+    attempts: int = 3, retry_wait_s: float = 60.0, sleep: Callable[[float], Any] = time.sleep,
+    log: Callable[[str], None] = lambda msg: None,
+) -> dict[str, Any]:
+    """The recordings of one star, searched on request (`oddstar radio followup`).
+
+    The index is asked whether the star lies in a beam; if it does, the complete scan set with the fewest bytes
+    (or every complete scan set) is fetched and searched one file at a time. A scan set that already has a stored
+    result is not fetched again. Before a scan set is fetched the disk must have `min_free_bytes` free. The windows
+    cut from the scans are deleted once the result is stored, unless `keep_windows`. With `dry_run` nothing is
+    fetched: the record lists what would be. The stored results are the ones `search radio_narrowband --live` reads.
+
+    Status: "no_coverage", "no_comparison", "searched", "would_search" (dry run), "disk_full" or "failed: <error>".
+    """
+    sid = str(source_id)
+    rec: dict[str, Any] = {"source_id": sid, "ra_deg": ra, "dec_deg": dec, "scan_sets": []}
+    try:
+        rows, _, _ = bl.query_star_rows(ra, dec, cache, sleep=sleep)
+        cov = bl.beam_coverage(ra, dec, rows)
+        rec["index_status"] = cov["status"]
+        if cov["status"] != "in_beam":
+            return rec | {"status": "no_coverage"}
+        plans = [p for p in bl.plan_star_scans(ra, dec, rows, cache, sleep=sleep) if p["complete"]]
+    except ArchiveAccessError as exc:
+        return rec | {"status": f"failed: {str(exc)[:300]}"}
+    rec["n_complete_scan_sets"] = len(plans)
+    if not plans:
+        return rec | {"status": "no_comparison"}
+    chosen = sorted(plans, key=lambda p: p["mjd"]) if all_scan_sets else [min(plans, key=lambda p: p["bytes_on_plus_offs"])]
+    statuses: list[str] = []
+    for plan in chosen:
+        entry: dict[str, Any] = {"target": plan["target"], "telescope": plan["telescope"], "mjd": plan["mjd"], "sep_arcsec": plan["sep_arcsec"],
+                                 "comparison": plan["comparison"], "bytes": plan["bytes_on_plus_offs"]}
+        rec["scan_sets"].append(entry)
+        stored = plan_searched(sid, plan, cfg, cache)
+        if dry_run and not stored:
+            entry["status"] = "would_search"
+            statuses.append("would_search")
+            continue
+        if not stored:
+            free = shutil.disk_usage(Path(data_dir) if Path(data_dir).exists() else Path(data_dir).parent).free
+            if free < min_free_bytes:
+                entry["status"] = "disk_full"
+                entry["free_bytes"] = free
+                statuses.append("disk_full")
+                log(f"{sid}: {free / 1e9:.1f} GB free, {min_free_bytes / 1e9:.1f} GB wanted; scan set not fetched")
+                continue
+        error, retryable = "", True
+        results: list[dict[str, Any]] | None = None
+        for attempt in range(1, max(1, attempts) + 1):
+            try:
+                results = search_plan_one_file_at_a_time(sid, plan, data_dir, channel, cfg, cache, log=log)
+                break
+            except ArchiveAccessError as exc:
+                error, retryable = str(exc)[:300], bool(exc.retryable)
+                log(f"{sid}: attempt {attempt} failed: {error}")
+                if not retryable or attempt >= max(1, attempts):
+                    break
+                sleep(retry_wait_s)
+        if results is None:
+            entry["status"] = f"failed: {error}"
+            statuses.append("failed")
+            # No scan file stays behind; a partial download stays only where a repeat could resume it
+            on_files, off_sets = plan_files(plan)
+            for f in [*on_files, *[x for fs in off_sets for x in fs]]:
+                dest = local_path(data_dir, f["url"])
+                dest.unlink(missing_ok=True)
+                if not retryable:
+                    dest.with_name(dest.name + ".part").unlink(missing_ok=True)
+            continue
+        entry.update({"status": "searched", "already_stored": stored, "bands": [_band_summary(r) for r in results]})
+        statuses.append("searched")
+        if not keep_windows:
+            for work in plan_work_dirs(sid, plan, data_dir, cfg):
+                if work.is_dir():
+                    shutil.rmtree(work)
+    if "searched" in statuses:
+        rec["status"] = "searched"
+    elif "would_search" in statuses:
+        rec["status"] = "would_search"
+    elif "disk_full" in statuses:
+        rec["status"] = "disk_full"
+    else:
+        rec["status"] = next(e["status"] for e in rec["scan_sets"] if str(e["status"]).startswith("failed"))
+    rec["n_windows_flagged"] = sum(b["n_windows_flagged"] for e in rec["scan_sets"] for b in e.get("bands", []))
+    rec["n_windows_flagged_outside_rfi_bands"] = sum(b["n_windows_flagged_outside_rfi_bands"] for e in rec["scan_sets"] for b in e.get("bands", []))
+    return rec
+
+
 def enrich_sample_radio(
     stars: list[dict[str, Any]],
     cfg: PipelineConfig,
@@ -1005,7 +1109,7 @@ def default_data_dir(root: Path, cfg: PipelineConfig) -> Path:
 
 __all__ = [
     "COVERAGE_CATEGORIES", "RFI_ALLOCATIONS_MHZ", "ScanFile", "default_data_dir", "download_file", "enrich_sample_radio", "local_path",
-    "evaluate_windows", "extract_windows", "find_candidate_windows", "max_in_beam_freq_mhz", "plan_files", "plan_offset_s", "plan_on_disk", "plan_other_scans", "plan_searched", "cut_channels",
+    "evaluate_windows", "extract_windows", "find_candidate_windows", "followup_star", "plan_work_dirs", "max_in_beam_freq_mhz", "plan_files", "plan_offset_s", "plan_on_disk", "plan_other_scans", "plan_searched", "cut_channels",
     "prefilter_block", "radio_search_status", "read_sigproc_header", "rfi_allocation", "search_coverage_summary", "search_plan_one_file_at_a_time",
     "search_scan_set",
 ]

@@ -16,6 +16,25 @@ Narrowband, non-zero Doppler-drifting radio signals persistent across every ON-t
 Defined in `configs/default.yaml` under `channels.radio_narrowband`:
 - `max_abs_drift_hz_s: 4.0`, `min_drift_abs_hz_s: 0.05`, `min_snr: 10.0`, `freq_match_tol_hz: 500.0`
 
+## Standard search and follow-up
+The radio channel has a cheap half and an expensive half, and they are run separately.
+
+- **Standard search** (`oddstar search radio_narrowband --live`): asks the archive's index which sample stars lie
+  inside a telescope beam and reads search results that are already stored. It downloads no recording. A covered
+  star without a stored result is reported as `not_downloaded`, never as searched.
+- **Follow-up** (`oddstar radio followup --from-run <run> ...`): fetches and searches the recordings of chosen
+  stars, one file at a time, and stores the results where the standard search reads them. By default it takes
+  the flagged stars of the named runs that vetting left at Tier C or better (`--min-tier`); `--ids a,b` names
+  stars; `--all-covered` takes every star of the runs' samples that lies in a beam (a radio-only pass). Per star
+  it searches the complete scan set with the fewest bytes, or every complete set with `--scan-sets all`.
+  `--dry-run` lists what would be fetched. A scan set is not fetched with less than `--min-free-gb` of free disk,
+  and the windows cut from the scans are deleted once the result is stored unless `--keep-windows`. The record is
+  written to `runs/radio-followup-<run>/radio_followup.json`.
+
+A recording was pointed at some other target; the star only lies in its beam. A radio result therefore supports
+or fails to support a star that is odd for another reason, and on its own it cannot rise above Tier C: none of
+these recordings has a second observation (`reobservation` stays `not_evaluated`).
+
 ## Live survey search (config 1.5.0)
 `oddstar search radio_narrowband --live` works on real Breakthrough Listen data in three steps. Only the last one
 decides anything, and it is the channel code above.
