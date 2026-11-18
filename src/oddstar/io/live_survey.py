@@ -1292,7 +1292,7 @@ def enrich_star_live_for_vetting(
             try:
                 q_aw_dl = (
                     f"SELECT ra, dec, w4rchi2, w4m, w4nm, w4snr, cc_flags, ext_flg, ph_qual "
-                    f"FROM allwise.source WHERE q3c_radial_query(ra, dec, {ra:.6f}, {dec:.6f}, 0.0015)"
+                    f"FROM allwise.source WHERE 't' = q3c_radial_query(ra, dec, {ra:.6f}, {dec:.6f}, 0.0015)"
                 )
                 aw_rows, m_aw, _ = _tap_query_cached(url=NOIRLAB_TAP_URL, query=q_aw_dl, archive="allwise", release="datalab", cache=cache, timeout_s=20)
                 manifests.append(m_aw)
@@ -1521,11 +1521,13 @@ def enrich_star_live_for_vetting(
         qs["deep_optical_ps1"] = "no_coverage"
 
     try:
-        # q3c_radial_query uses the Data Lab positional index; an RA/Dec BETWEEN box does not and timed out live
+        # q3c_radial_query uses the Data Lab positional index; an RA/Dec BETWEEN box does not and timed out live.
+        # Data Lab's ADQL parser rejects a bare boolean function as a predicate, so it is compared with 't'
+        # (verified live: the bare form is a syntax error, CONTAINS/POINT is not accepted there either).
         q_ls = (
             f"SELECT ls_id, ra, dec, type, flux_g, flux_r, flux_z, flux_w3, flux_w4, flux_ivar_w4 "
             f"FROM ls_dr10.tractor "
-            f"WHERE q3c_radial_query(ra, dec, {ra:.6f}, {dec:.6f}, {LS_DR10_CONE_ARCSEC / 3600.0:.6f})"
+            f"WHERE 't' = q3c_radial_query(ra, dec, {ra:.6f}, {dec:.6f}, {LS_DR10_CONE_ARCSEC / 3600.0:.6f})"
         )
         ls_rows, m_ls, _ = _tap_csv_query_cached(url=NOIRLAB_TAP_URL, query=q_ls, archive="deep_optical", release="ls_dr10", cache=cache, timeout_s=60)
         manifests.append(m_ls)

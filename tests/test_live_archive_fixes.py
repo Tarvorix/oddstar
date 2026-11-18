@@ -153,7 +153,14 @@ def test_legacy_survey_uses_the_positional_index(tmp_path: Path) -> None:
     fake = FakeArchives()
     _enrich(tmp_path, fake)
     q = next(p["QUERY"] for svc, p in fake.calls if svc == "ls")
-    assert "q3c_radial_query(ra, dec," in q and " BETWEEN " not in q
+    assert "WHERE 't' = q3c_radial_query(ra, dec," in q and " BETWEEN " not in q
+
+
+def test_datalab_allwise_fallback_uses_the_accepted_predicate() -> None:
+    """Data Lab's parser rejects a bare `WHERE q3c_radial_query(...)`; both Data Lab queries must compare with 't'."""
+    src = Path(ls.__file__).read_text(encoding="utf-8")
+    bare = [ln for ln in src.splitlines() if "q3c_radial_query(" in ln and "WHERE" in ln and "'t' = q3c_radial_query(" not in ln]
+    assert bare == []
 
 
 # ------------------------------------------------------------------------------- GALEX and X-ray catalogues
