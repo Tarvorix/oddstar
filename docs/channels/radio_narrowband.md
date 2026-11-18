@@ -43,6 +43,9 @@ decides anything, and it is the channel code above.
    half-power beam are not searched. The star's record keeps the cadence of one window (flagged outside the
    allocated transmitter bands first, then flagged, then the strongest ON-only excess) and the list of evaluated
    windows; `in_rfi_band` is set from the allocation table in `bl_radio.RFI_ALLOCATIONS_MHZ`.
+   The table lists satellite downlinks, navigation bands and, since search version 2, radar, air telemetry and
+   satellite and telephone uplink bands (basis in `configs/CHANGELOG.md`). Stored results are keyed by
+   `bl_radio.SEARCH_VERSION`; a change of the table or of the search changes that version.
 
 Not-searched reasons, each counted separately: `n_no_coverage` (inside no beam), `n_not_downloaded` (inside a beam
 with a full scan set in the archive, files not on disk), `n_no_comparison` (inside a beam, no OFF scan in the

@@ -44,19 +44,28 @@ from oddstar.errors import ArchiveAccessError
 from oddstar.io import bl_opendata as bl
 from oddstar.io.cache import RawCache
 
-SEARCH_VERSION = "bl_local_search_v1"
+SEARCH_VERSION = "bl_local_search_v2"
 # Trial drift rates per search; must equal the grid inside `channels.radio_narrowband.dedoppler_search_scan`
 N_DRIFT_TRIALS = 161
-# Bands allocated to satellite downlinks, radionavigation satellites and aeronautical radionavigation (ITU Radio
-# Regulations Article 5, Region 2), where a narrowband line toward any sky position is expected from transmitters.
+# Bands allocated to satellite downlinks, radionavigation satellites, aeronautical radionavigation and, since search
+# version 2, airborne, radar and handset transmitters (ITU Radio Regulations Article 5, Region 2, and the United
+# States table of frequency allocations, 47 CFR 2.106), where a narrowband line toward any sky position is expected
+# from transmitters. The six bands marked "v2" were added after the first real search (HIP 3026, Green Bank L band)
+# put every one of its 89 flags outside the version 1 table inside them; see configs/CHANGELOG.md.
 # (low MHz, high MHz, service)
 RFI_ALLOCATIONS_MHZ: tuple[tuple[float, float, str], ...] = (
     (960.0, 1164.0, "aeronautical radionavigation (DME, TACAN, ADS-B)"),
     (1164.0, 1300.0, "radionavigation satellites (GPS L5/L2, GLONASS L3/L2, Galileo E5/E6)"),
+    (1300.0, 1350.0, "aeronautical radionavigation (air route surveillance radar)"),  # v2
+    (1350.0, 1390.0, "radiolocation and GPS L3 (1381.05 MHz)"),  # v2
+    (1435.0, 1525.0, "aeronautical mobile telemetry"),  # v2
     (1525.0, 1559.0, "mobile satellite downlinks (Inmarsat)"),
     (1559.0, 1610.0, "radionavigation satellites (GPS L1, GLONASS L1, Galileo E1, BeiDou B1)"),
     (1610.0, 1626.5, "mobile satellites (Iridium, Globalstar)"),
+    (1626.5, 1660.5, "mobile satellite uplinks (Inmarsat)"),  # v2
     (1670.0, 1710.0, "meteorological satellite downlinks (GOES)"),
+    (1710.0, 1780.0, "mobile telephone uplinks (AWS)"),  # v2
+    (1850.0, 1915.0, "mobile telephone uplinks (PCS)"),  # v2
     (2180.0, 2200.0, "mobile satellite downlinks"),
     (2320.0, 2345.0, "satellite radio downlinks"),
     (2483.5, 2500.0, "mobile satellite downlinks (Globalstar)"),
@@ -369,8 +378,12 @@ def extract_windows(scan: ScanFile, found: dict[str, Any], store_path: Path, *, 
 
 def evaluate_windows(
     source_id: str, found: dict[str, Any], on_store: Path, offs: list[tuple[dict[str, Any], Path]], channel: Any, cfg: PipelineConfig,
+    *, progress: Callable[[int, int], None] | None = None,
 ) -> dict[str, Any]:
-    """Phase 3: measure and score every candidate window with the channel. Needs only the stored windows."""
+    """Phase 3: measure and score every candidate window with the channel. Needs only the stored windows.
+
+    `progress(done, total)` is called after each scored window.
+    """
     st = _settings(cfg)
     if not offs:
         raise ArchiveAccessError("a search needs at least one OFF scan", retryable=False)
@@ -416,9 +429,11 @@ def evaluate_windows(
             best = (key, hit, cadence)
 
     comparable = [k for k, e in enumerate(entries) if block_ok[int(e["block"])] and all(meta["covered"][k] for meta, _ in offs)]
-    for k in comparable:
-        if entries[k]["candidate"]:
-            _evaluate(k)
+    todo = [k for k in comparable if entries[k]["candidate"]]
+    for i, k in enumerate(todo, start=1):
+        _evaluate(k)
+        if progress is not None:
+            progress(i, len(todo))
     if best is None and comparable:
         # Nothing reached the prefilter level: measure the strongest window anyway so the star has a real number
         _evaluate(max(comparable, key=lambda k: entries[k]["prefilter_snr"]))
@@ -528,10 +543,15 @@ def _band_sets(plan: dict[str, Any]) -> list[tuple[dict[str, Any], list[dict[str
     return [(on_f, [next(f for f in s if abs(f["center_freq_mhz"] - on_f["center_freq_mhz"]) <= 1.0) for s in off_sets]) for on_f in on_files]
 
 
+def _file_key(url: str) -> str:
+    """A file's address without the scheme: the index lists the same host as http and as https."""
+    return url.split("://", 1)[-1]
+
+
 def _band_signature(source_id: str, plan: dict[str, Any], on_f: dict[str, Any], off_fs: list[dict[str, Any]], cfg: PipelineConfig) -> tuple[str, str, float | None]:
     max_freq = max_in_beam_freq_mhz(plan["telescope"], plan["sep_arcsec"])
-    desc = json.dumps({"version": SEARCH_VERSION, "source_id": source_id, "on": [on_f["url"], on_f["size_bytes"]],
-                       "offs": [[f["url"], f["size_bytes"]] for f in off_fs], "max_freq_mhz": max_freq, "settings": _settings(cfg)},
+    desc = json.dumps({"version": SEARCH_VERSION, "source_id": source_id, "on": [_file_key(on_f["url"]), on_f["size_bytes"]],
+                       "offs": [[_file_key(f["url"]), f["size_bytes"]] for f in off_fs], "max_freq_mhz": max_freq, "settings": _settings(cfg)},
                       sort_keys=True)
     return hashlib.sha256(desc.encode("utf-8")).hexdigest()[:24], desc, max_freq
 
@@ -630,7 +650,8 @@ def search_plan_one_file_at_a_time(
         found = _phase("on", on_f, lambda scan, store: find_candidate_windows(scan, cfg, store, max_freq_mhz=max_freq, progress=_blocks("on")))
         off_recs = [(_phase(f"off{k}", f, lambda scan, store, _k=k: extract_windows(scan, found, store, progress=_blocks(f"off{_k}"))), work / f"off{k}.f32")
                     for k, f in enumerate(off_fs)]
-        res = evaluate_windows(source_id, found, work / "on.f32", off_recs, channel, cfg)
+        res = evaluate_windows(source_id, found, work / "on.f32", off_recs, channel, cfg,
+                               progress=lambda d, t: log(f"scoring: window {d}/{t}") if d == t or d % 2000 == 0 else None)
         res["elapsed_s"] = round(time.monotonic() - t_start, 1)
         results.append(_store_band(res, plan, sig, desc, cache))
         log(f"evaluated {res['n_windows_evaluated']} windows, {res['n_windows_flagged']} flagged")
@@ -731,6 +752,21 @@ def enrich_sample_radio(
 # ---------------------------------------------------------------------------------------------------- download
 
 
+HTTPS_HOSTS = ("bldata.berkeley.edu",)
+
+
+def secure_url(url: str) -> str:
+    """The https address of a file the index lists as http on a host known to serve both."""
+    scheme, _, rest = url.partition("://")
+    return f"https://{rest}" if scheme == "http" and rest.split("/", 1)[0] in HTTPS_HOSTS else url
+
+
+def has_md5(md5sum: str) -> bool:
+    """The index gives a real MD5 (32 hex digits, not all zero); it also writes "-" or zeros for none."""
+    m = str(md5sum or "").strip().lower()
+    return len(m) == 32 and all(c in "0123456789abcdef" for c in m) and set(m) != {"0"}
+
+
 def download_file(url: str, dest: Path, size_bytes: int, md5sum: str, *, chunk_bytes: int = 8 << 20,
                   progress: Callable[[int, int], None] | None = None, timeout_s: float = 60.0, attempts: int = 6,
                   sleep: Callable[[float], Any] = time.sleep) -> str:
@@ -745,6 +781,7 @@ def download_file(url: str, dest: Path, size_bytes: int, md5sum: str, *, chunk_b
     dest = Path(dest)
     if dest.is_file() and (not size_bytes or dest.stat().st_size == size_bytes):
         return "present"
+    url = secure_url(url)
     part = dest.with_name(dest.name + ".part")
     dest.parent.mkdir(parents=True, exist_ok=True)
     if size_bytes and part.is_file() and part.stat().st_size > size_bytes:
@@ -779,7 +816,7 @@ def download_file(url: str, dest: Path, size_bytes: int, md5sum: str, *, chunk_b
                                      retryable=True)
         if now != size_bytes:
             sleep(min(60.0, 5.0 * (idle + 1)))
-    if md5sum and set(md5sum) != {"0"}:
+    if has_md5(md5sum):
         h = hashlib.md5()  # noqa: S324  (the archive publishes MD5; this is a transfer check, not security)
         with open(part, "rb") as fh:
             for chunk in iter(lambda: fh.read(chunk_bytes), b""):
