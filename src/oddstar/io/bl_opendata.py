@@ -11,6 +11,11 @@ Statuses of one star (`radio_coverage.status`):
 - "no_coverage": the index holds no radio file within the query radius;
 - "failed: ...": the index could not be read (not cached, retried next run).
 A star is covered only when "in_beam". Everything else must be reported as not searched by the radio channel.
+
+`plan_star_scans` goes one step further for a covered star, still from the index alone: which fine-resolution scans
+contain it (ON), and which scans the telescope took just before and after on other targets with the same receiver
+(OFF). A narrowband signal from the star's direction must be in the ON scan and in neither OFF scan. The plan gives
+the files and their sizes, so the download can be decided before any of it is made.
 """
 
 from __future__ import annotations
@@ -19,6 +24,7 @@ import argparse
 import hashlib
 import json
 import math
+import re
 import sys
 import time
 from collections.abc import Callable
@@ -42,6 +48,14 @@ DISH_DIAMETER_M = {"GBT": 100.0, "PARKES": 64.0}
 BEAM_FACTOR = 1.2
 SPEED_OF_LIGHT_M_S = 299_792_458.0
 MIN_REQUEST_INTERVAL_S = 0.5
+# Finest spectral product of a scan (about 3 Hz channels): the only one a narrowband drift search can use
+FINE_RESOLUTION_URL = re.compile(r"\.0000\.(h5|fil)$")
+# Scans of one observing block follow each other within minutes; an OFF scan must start within this of the ON scan
+OFF_SCAN_WINDOW_DAYS = 0.02
+# An OFF pointing must be at least this many half-power radii from the star, so the star is far outside its beam
+OFF_MIN_SEPARATION_BEAM_RADII = 6.0
+# Files of one scan (one per recorder node or product) share a start time to within this
+SAME_SCAN_MJD_TOL = 2.0 / 86400.0
 
 ProgressCallback = Callable[[int, int, str, str], None]
 
@@ -83,6 +97,107 @@ def query_bl_files(
     man = cache.put(archive="breakthrough_listen", release="opendata_api", request_signature=sig, query_text=desc,
                     payload=json.dumps(rows, sort_keys=True).encode("utf-8"), row_count=len(rows), offline_fixture=False)
     return rows, man, False
+
+
+def query_bl_time_window(
+    telescope: str, mjd_start: float, mjd_end: float, cache: RawCache, *, sleep: ot.Sleeper = time.sleep,
+) -> tuple[list[dict[str, Any]], ManifestRecord | None, bool]:
+    """Every file record of one telescope that starts inside a time window. Returns (rows, manifest, from_cache)."""
+    params = {"target": "", "telescopes": str(telescope).lower(), "time-start": f"{mjd_start:.5f}", "time-end": f"{mjd_end:.5f}",
+              "limit": str(BL_ROW_LIMIT)}
+    desc = f"GET {BL_QUERY_URL} {json.dumps(params, sort_keys=True)}"
+    sig = hashlib.sha256(desc.encode("utf-8")).hexdigest()[:24]
+    cached = cache.lookup("breakthrough_listen", "opendata_api", sig)
+    if cached is not None and not cached.offline_fixture:
+        try:
+            return json.loads(cache.read_bytes(cached).decode("utf-8")), cached, True
+        except (FileNotFoundError, OSError, ValueError):
+            pass
+    resp = ot._get_with_retries(BL_QUERY_URL, params, timeout_s=30.0, attempts=3, sleep=sleep)
+    try:
+        body = json.loads(resp.content.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError) as exc:
+        raise ArchiveAccessError(f"Breakthrough Listen index answer is not JSON: {str(exc)[:120]}", retryable=True) from exc
+    if not isinstance(body, dict) or body.get("result") != "success" or not isinstance(body.get("data"), list):
+        raise ArchiveAccessError(f"Breakthrough Listen index did not answer 'success': {str(body)[:160]}", retryable=True)
+    rows = body["data"]
+    if len(rows) >= BL_ROW_LIMIT:
+        raise ArchiveAccessError(f"{len(rows)} rows reach the index row limit; the time window answer may be cut short", retryable=False)
+    man = cache.put(archive="breakthrough_listen", release="opendata_api", request_signature=sig, query_text=desc,
+                    payload=json.dumps(rows, sort_keys=True).encode("utf-8"), row_count=len(rows), offline_fixture=False)
+    return rows, man, False
+
+
+def _fine_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Fine-resolution radio files with a usable position, time and frequency."""
+    out = []
+    for r in rows:
+        try:
+            rec = {"url": str(r["url"]), "target": str(r.get("target", "")), "telescope": str(r.get("telescope", "")).upper(),
+                   "center_freq_mhz": float(r["center_freq"]), "ra_deg": float(r["ra"]), "dec_deg": float(r["decl"]), "mjd": float(r["mjd"]),
+                   "size_bytes": int(r.get("size") or 0), "md5sum": str(r.get("md5sum") or "")}
+        except (KeyError, TypeError, ValueError):
+            continue
+        if FINE_RESOLUTION_URL.search(rec["url"]) and half_power_radius_arcsec(rec["telescope"], rec["center_freq_mhz"]) is not None:
+            out.append(rec)
+    return out
+
+
+def _file_entry(r: dict[str, Any]) -> dict[str, Any]:
+    return {"url": r["url"], "size_bytes": r["size_bytes"], "md5sum": r["md5sum"], "center_freq_mhz": r["center_freq_mhz"]}
+
+
+def plan_star_scans(
+    ra: float, dec: float, rows: list[dict[str, Any]], cache: RawCache, *, sleep: ot.Sleeper = time.sleep,
+) -> list[dict[str, Any]]:
+    """ON scans that contain the position, each with the nearest earlier and later OFF scan of the same receiver.
+
+    `rows` is the index answer around the position (`query_bl_files`). A scan is the set of fine-resolution files of
+    one target that start together; only files whose half-power beam contains the position are ON files. An OFF
+    scan is another target observed by the same telescope within `OFF_SCAN_WINDOW_DAYS`, at least
+    `OFF_MIN_SEPARATION_BEAM_RADII` half-power radii from the position, holding a file at the frequency of every ON
+    file (to 1 MHz). `complete` says both OFF scans exist; `bytes_on_plus_offs` is what a full comparison downloads.
+    """
+    scans: dict[tuple[str, str, int], list[dict[str, Any]]] = {}
+    for r in _fine_rows(rows):
+        radius = half_power_radius_arcsec(r["telescope"], r["center_freq_mhz"])
+        sep = angular_separation_arcsec(ra, dec, r["ra_deg"], r["dec_deg"])
+        if radius is not None and sep <= radius:
+            scans.setdefault((r["target"], r["telescope"], int(round(r["mjd"] / SAME_SCAN_MJD_TOL))), []).append(dict(r, sep_arcsec=sep))
+    plans: list[dict[str, Any]] = []
+    for (target, tel, _), on_files in sorted(scans.items(), key=lambda kv: min(f["mjd"] for f in kv[1])):
+        mjd = min(f["mjd"] for f in on_files)
+        freqs = sorted({round(f["center_freq_mhz"], 1) for f in on_files})
+        max_radius = max(half_power_radius_arcsec(tel, f["center_freq_mhz"]) or 0.0 for f in on_files)
+        window, _, _ = query_bl_time_window(tel, mjd - OFF_SCAN_WINDOW_DAYS, mjd + OFF_SCAN_WINDOW_DAYS, cache, sleep=sleep)
+        others: dict[tuple[str, int], list[dict[str, Any]]] = {}
+        for r in _fine_rows(window):
+            if r["telescope"] != tel or r["target"] == target or abs(r["mjd"] - mjd) <= SAME_SCAN_MJD_TOL:
+                continue
+            if angular_separation_arcsec(ra, dec, r["ra_deg"], r["dec_deg"]) < OFF_MIN_SEPARATION_BEAM_RADII * max_radius:
+                continue
+            others.setdefault((r["target"], int(round(r["mjd"] / SAME_SCAN_MJD_TOL))), []).append(r)
+        offs = {"before": None, "after": None}
+        for (o_target, _), o_files in others.items():
+            matched = [next((o for o in o_files if abs(o["center_freq_mhz"] - f) <= 1.0), None) for f in freqs]
+            if any(m is None for m in matched):
+                continue  # this scan does not cover every ON frequency
+            o_mjd = min(o["mjd"] for o in o_files)
+            side = "before" if o_mjd < mjd else "after"
+            best = offs[side]
+            if best is None or abs(o_mjd - mjd) < abs(best["mjd"] - mjd):
+                offs[side] = {"target": o_target, "mjd": o_mjd, "minutes_from_on": round((o_mjd - mjd) * 1440.0, 1),
+                              "files": [_file_entry(m) for m in matched if m is not None],
+                              "bytes": sum(m["size_bytes"] for m in matched if m is not None)}
+        bytes_on = sum(f["size_bytes"] for f in on_files)
+        complete = offs["before"] is not None and offs["after"] is not None
+        plans.append({
+            "target": target, "telescope": tel, "mjd": mjd, "sep_arcsec": round(min(f["sep_arcsec"] for f in on_files), 1),
+            "center_freqs_mhz": freqs, "on_files": [_file_entry(f) for f in sorted(on_files, key=lambda x: x["center_freq_mhz"])],
+            "bytes_on": bytes_on, "off_before": offs["before"], "off_after": offs["after"], "complete": complete,
+            "bytes_on_plus_offs": bytes_on + sum(o["bytes"] for o in offs.values() if o is not None),
+        })
+    return plans
 
 
 def beam_coverage(ra: float, dec: float, rows: list[dict[str, Any]]) -> dict[str, Any]:
@@ -186,10 +301,37 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--limit", type=int, default=1000)
     ap.add_argument("--after-random-index", type=int, default=None)
     ap.add_argument("--out", default=None, help="output JSON (default runs/radio-coverage-<region>-<limit>/bl_coverage.json)")
+    ap.add_argument("--plan", action="store_true",
+                    help="read the census written earlier and list, for each star in a beam, its ON scans with their OFF scans (index only)")
     args = ap.parse_args(argv)
     root = repo_root()
     cfg, short_hash, _ = load_config(root=root)
     cache = RawCache(root / cfg.storage.raw_dir, max_cache_gb=cfg.storage.max_cache_gb)
+    if args.plan:
+        census_path = Path(args.out) if args.out else root / cfg.storage.runs_dir / f"radio-coverage-{args.region}-{args.limit}" / "bl_coverage.json"
+        census = json.loads(census_path.read_text(encoding="utf-8"))
+        stars_out = []
+        for rec in census["stars"]:
+            if rec.get("status") != "in_beam":
+                continue
+            ra, dec = float(rec["ra_deg"]), float(rec["dec_deg"])
+            try:
+                rows, _, _ = query_bl_files(ra, dec, cache)
+                scans = plan_star_scans(ra, dec, rows, cache)
+                entry: dict[str, Any] = {"status": "ok", "scans": scans}
+            except ArchiveAccessError as exc:
+                entry = {"status": f"failed: {str(exc)[:200]}", "scans": []}
+            complete = [s for s in entry["scans"] if s["complete"]]
+            entry.update({"source_id": rec["source_id"], "ra_deg": ra, "dec_deg": dec, "n_on_scans": len(entry["scans"]),
+                          "n_complete_scans": len(complete),
+                          "smallest_complete_bytes": min((s["bytes_on_plus_offs"] for s in complete), default=None)})
+            stars_out.append(entry)
+            print(f"  plan {rec['source_id']}: {entry['n_on_scans']} ON scan(s), {entry['n_complete_scans']} with both OFF scans", file=sys.stderr)
+        plan_path = census_path.with_name("bl_scan_plan.json")
+        plan_path.write_text(json.dumps({"census": str(census_path), "stars": stars_out}, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        print(json.dumps({"out": str(plan_path), "stars": [{k: e[k] for k in ("source_id", "status", "n_on_scans", "n_complete_scans",
+                                                                             "smallest_complete_bytes")} for e in stars_out]}, indent=2))
+        return 0
     stars, _ = fetch_live_halo_bulge_sample(cfg, cache, limit=args.limit, region=args.region, after_random_index=args.after_random_index)
 
     def _progress(done: int, total: int, sid: str, status: str) -> None:

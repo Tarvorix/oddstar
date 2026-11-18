@@ -112,3 +112,60 @@ def test_census_counts_each_status_and_resumes(tmp_path: Path, monkeypatch: pyte
     recs2, _ = bl.sample_radio_coverage(stars, RawCache(tmp_path / "raw"), sleep=slept.append)
     assert len(idx.calls) == n + 1 and len(slept) == 1, "only the failed star is asked for again"
     assert [r["status"].split(":")[0] for r in recs2] == ["in_beam", "near_pointing", "no_coverage", "failed"]
+
+
+def _scan(target: str, ra: float, dec: float, mjd: float, freq: float = 1500.0, tel: str = "GBT", product: str = "0000",
+          size: int = 15_000_000_000) -> dict[str, Any]:
+    return {"target": target, "ra": ra, "decl": dec, "center_freq": freq, "telescope": tel, "size": size, "mjd": mjd,
+            "file_type": "HDF5", "md5sum": "a" * 32,
+            "url": f"https://bldata.berkeley.edu/x/blc00_guppi_{int(mjd)}_{int((mjd % 1) * 86400)}_{target}_{int(freq)}.gpuspec.{product}.h5"}
+
+
+class _TimeIndex(_Index):
+    """Answers both position queries and time-window queries."""
+
+    def get(self, url: str, params: Any, **kw: Any) -> _Resp:
+        if "time-start" not in params:
+            return super().get(url, params, **kw)
+        self.calls.append(dict(params))
+        t0, t1 = float(params["time-start"]), float(params["time-end"])
+        hits = [f for f in self.files if t0 <= f["mjd"] <= t1 and f["telescope"].lower() == params["telescopes"]]
+        return _Resp({"data": hits, "result": "success"})
+
+
+def test_scan_plan_pairs_each_on_scan_with_the_off_scans_around_it(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    ra, dec, t = 9.7, -13.4, 57585.508
+    step = 5.5 / 1440.0
+    files = [
+        _scan("HIPON", ra, dec + 200.0 / 3600.0, t), _scan("HIPON", ra, dec + 200.0 / 3600.0, t, product="0002", size=90_000_000),
+        _scan("HIPB1", ra + 3.0, dec, t - step), _scan("HIPB2", ra - 4.0, dec + 1.0, t - 2 * step),
+        _scan("HIPA1", ra + 5.0, dec - 2.0, t + step), _scan("HIPA2", ra + 6.0, dec, t + 2 * step),
+        _scan("HIPCBAND", ra + 2.0, dec, t + step / 2, freq=6000.0),          # nearer in time but another receiver
+        _scan("HIPCLOSE", ra, dec + 400.0 / 3600.0, t - step / 2),            # the star is too near this pointing to be an OFF
+        _scan("HIPPKS", ra + 3.0, dec, t + step / 3, tel="Parkes"),
+        _scan("HIPLATE", ra + 3.0, dec, t + 0.5),                              # hours later: not part of the block
+    ]
+    idx = _TimeIndex(files)
+    monkeypatch.setattr(ot, "_get_with_retries", idx.get)
+    cache = RawCache(tmp_path / "raw")
+    rows, _, _ = bl.query_bl_files(ra, dec, cache)
+    plans = bl.plan_star_scans(ra, dec, rows, cache)
+    assert len(plans) == 1
+    p = plans[0]
+    assert p["target"] == "HIPON" and p["complete"] and p["center_freqs_mhz"] == [1500.0] and p["sep_arcsec"] == pytest.approx(200.0, abs=0.5)
+    assert len(p["on_files"]) == 1 and p["bytes_on"] == 15_000_000_000, "only the fine-resolution product is planned"
+    assert p["off_before"]["target"] == "HIPB1" and p["off_before"]["minutes_from_on"] == pytest.approx(-5.5, abs=0.1)
+    assert p["off_after"]["target"] == "HIPA1" and p["off_after"]["minutes_from_on"] == pytest.approx(5.5, abs=0.1)
+    assert p["bytes_on_plus_offs"] == 45_000_000_000
+    n = len(idx.calls)
+    assert bl.plan_star_scans(ra, dec, rows, cache)[0] == p and len(idx.calls) == n, "the time-window answer is cached"
+
+    # without a later scan on another target the plan says so instead of inventing a comparison
+    idx2 = _TimeIndex([f for f in files if f["target"] not in ("HIPA1", "HIPA2")])
+    monkeypatch.setattr(ot, "_get_with_retries", idx2.get)
+    cache2 = RawCache(tmp_path / "raw2")
+    rows2, _, _ = bl.query_bl_files(ra, dec, cache2)
+    p2 = bl.plan_star_scans(ra, dec, rows2, cache2)[0]
+    assert not p2["complete"] and p2["off_after"] is None and p2["off_before"]["target"] == "HIPB1"
+    assert p2["bytes_on_plus_offs"] == 30_000_000_000
+    assert bl.plan_star_scans(200.0, 45.0, [], cache2) == []
