@@ -650,6 +650,7 @@ def test_radio_followup_searches_chosen_stars_on_request(tmp_path: Path, monkeyp
 
     # The command: by default the stars vetting left at Tier C or better; --ids and --all-covered choose otherwise
     monkeypatch.setattr(cli, "RawCache", lambda *a, **kw: RawCache(tmp_path / "raw"))
+    monkeypatch.setattr(cli, "fetch_gaia_astrometry", lambda ids, cfg, cache, **kw: {})  # Gaia holds none of the test ids
     runs = repo_root() / "runs"
     src, out_dir = runs / "test-followup-src", runs / "radio-followup-test-followup-src"
     try:

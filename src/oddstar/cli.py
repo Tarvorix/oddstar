@@ -22,6 +22,7 @@ from oddstar.io import (
     RawCache,
     TableStore,
     enrich_star_live_for_vetting,
+    fetch_gaia_astrometry,
     fetch_live_halo_bulge_sample,
     fetch_single_star_live,
     generate_field_sample,
@@ -503,8 +504,12 @@ def _cmd_search(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, 
             payload["radio_search"] = {str(s["source_id"]): s["radio_search"] for s in stars if s.get("radio_search")}
     if is_live or coverage is not None:
         # The real searched sample, so the null report is built from these stars and not from regenerated fixtures
+        # With the position, so that a follow-up command (radio recordings, SPHEREx images) can find any star of the sample
         payload["sample_stars"] = [
-            {"source_id": str(s["source_id"]), "distance_pc": s.get("distance_pc"), "teff_k": s.get("teff_k")} for s in stars
+            {"source_id": str(s["source_id"]), "distance_pc": s.get("distance_pc"), "teff_k": s.get("teff_k"),
+             **{k: s[k] for k in ("ra_deg", "dec_deg", "pmra_mas_yr", "pmdec_mas_yr") if s.get(k) is not None},
+             **({"g_mag": s["mags"]["G"]} if (s.get("mags") or {}).get("G") is not None else {})}
+            for s in stars
         ]
     search_out.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
@@ -1241,6 +1246,71 @@ def _cmd_null_report(args: argparse.Namespace, cfg: PipelineConfig, short_hash: 
 _TIER_RANK = {"A": 3, "B": 2, "C": 1}
 
 
+def _stars_and_tiers_of_runs(run_ids: list[str], cfg: PipelineConfig, root: Path) -> tuple[dict[str, dict[str, Any]], dict[str, str], list[str]]:
+    """What earlier runs hold about their stars, for a follow-up command.
+
+    Returns the records that carry a position (from `sample_stars` of the search outputs and from `live_stars.json`,
+    which holds the flagged stars in full), the best tier of each flagged star (C when the run was not vetted), and
+    the ids of every star of the samples, with or without a position.
+    """
+    from oddstar.fuse.engine import assign_tier
+
+    stars: dict[str, dict[str, Any]] = {}
+    tiers: dict[str, str] = {}
+    all_ids: dict[str, None] = {}
+
+    def _keep(record: dict[str, Any], sid: str) -> None:
+        if record.get("ra_deg") is None or record.get("dec_deg") is None:
+            return
+        rec = {k: record[k] for k in ("ra_deg", "dec_deg", "pmra_mas_yr", "pmdec_mas_yr") if record.get(k) is not None}
+        g = record.get("g_mag") if record.get("g_mag") is not None else (record.get("mags") or {}).get("G")
+        stars.setdefault(sid, {"source_id": sid, **rec, "g_mag": g})
+
+    for run_id in run_ids:
+        run_dir = root / cfg.storage.runs_dir / run_id
+        search_files = sorted(run_dir.glob("search_*.json"))
+        if not search_files:
+            raise ArtifactNotFoundError(f"No search outputs found in {run_dir}")
+        vf = run_dir / "vetting.json"
+        vdata = json.loads(vf.read_text(encoding="utf-8")).get("vetting", {}) if vf.exists() else None
+        lf = run_dir / "live_stars.json"
+        if lf.exists():
+            for sid, record in json.loads(lf.read_text(encoding="utf-8")).items():
+                _keep(record, str(sid))
+        for sf in search_files:
+            sdata = json.loads(sf.read_text(encoding="utf-8"))
+            for star in sdata.get("sample_stars", []):
+                all_ids[str(star["source_id"])] = None
+                _keep(star, str(star["source_id"]))
+            scores_by_id = {r["source_id"]: ChannelScore.model_validate(r) for r in sdata["scores"]}
+            for sid in sdata.get("flagged_ids", []):
+                all_ids[str(sid)] = None
+                if vdata is None:
+                    tier = "C"  # flagged and not vetted yet: nothing has explained it
+                else:
+                    tier, _ = assign_tier([scores_by_id[sid]], [VettingResult.model_validate(v) for v in vdata.get(sid, [])], cfg)
+                if _TIER_RANK.get(tier, 0) > _TIER_RANK.get(tiers.get(str(sid), ""), 0):
+                    tiers[str(sid)] = tier
+    return stars, tiers, list(all_ids)
+
+
+def _positions_for(chosen: list[str], stars: dict[str, dict[str, Any]], run_ids: list[str], cfg: PipelineConfig,
+                   cache: RawCache) -> list[str]:
+    """Fill `stars` for the chosen ids the runs hold no position for, from Gaia by source id. Returns the ids looked up.
+
+    Search outputs written before positions were recorded hold a position for flagged stars only.
+    """
+    missing = [sid for sid in chosen if sid not in stars]
+    looked_up = [sid for sid in missing if sid.isdigit()]
+    if looked_up:
+        stars.update(fetch_gaia_astrometry(looked_up, cfg, cache))
+    unknown = [sid for sid in chosen if sid not in stars]
+    if unknown:
+        raise ArtifactNotFoundError(f"No position for {unknown[:5]} in the samples of {run_ids} or in Gaia",
+                                    hint="Name a Gaia source id, or a run whose search sample contains the star")
+    return looked_up
+
+
 def _cmd_radio_followup(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, root: Path) -> CLIResponse:
     """Search the Breakthrough Listen recordings of chosen stars: the expensive half of the radio channel, on request.
 
@@ -1249,46 +1319,22 @@ def _cmd_radio_followup(args: argparse.Namespace, cfg: PipelineConfig, short_has
     given runs that vetting left at `--min-tier` or better (default), the stars named with `--ids`, or every star
     of the runs' samples (`--all-covered`). A star outside every beam is recorded as "no_coverage".
     """
-    from oddstar.fuse.engine import assign_tier
     from oddstar.io.bl_radio import default_data_dir, followup_star
 
-    positions: dict[str, tuple[float, float]] = {}
-    tiers: dict[str, str] = {}
-    for run_id in args.from_run:
-        run_dir = root / cfg.storage.runs_dir / run_id
-        search_files = sorted(run_dir.glob("search_*.json"))
-        if not search_files:
-            raise ArtifactNotFoundError(f"No search outputs found in {run_dir}")
-        vf = run_dir / "vetting.json"
-        vdata = json.loads(vf.read_text(encoding="utf-8")).get("vetting", {}) if vf.exists() else None
-        for sf in search_files:
-            sdata = json.loads(sf.read_text(encoding="utf-8"))
-            for star in sdata.get("sample_stars", []):
-                if star.get("ra_deg") is not None and star.get("dec_deg") is not None:
-                    positions.setdefault(str(star["source_id"]), (float(star["ra_deg"]), float(star["dec_deg"])))
-            scores_by_id = {r["source_id"]: ChannelScore.model_validate(r) for r in sdata["scores"]}
-            for sid in sdata.get("flagged_ids", []):
-                if vdata is None:
-                    tier = "C"  # flagged and not vetted yet: nothing has explained it
-                else:
-                    tier, _ = assign_tier([scores_by_id[sid]], [VettingResult.model_validate(v) for v in vdata.get(sid, [])], cfg)
-                if _TIER_RANK.get(tier, 0) > _TIER_RANK.get(tiers.get(str(sid), ""), 0):
-                    tiers[str(sid)] = tier
+    stars, tiers, all_ids = _stars_and_tiers_of_runs(args.from_run, cfg, root)
     if args.ids:
         chosen = [i.strip() for i in args.ids.split(",") if i.strip()]
         selection = "ids"
     elif args.all_covered:
-        chosen = sorted(positions)
+        chosen = sorted(all_ids)
         selection = "all_covered"
     else:
         chosen = sorted(sid for sid, tier in tiers.items() if _TIER_RANK[tier] >= _TIER_RANK[args.min_tier])
         selection = f"tier {args.min_tier} or better"
-    unknown = [sid for sid in chosen if sid not in positions]
-    if unknown:
-        raise ArtifactNotFoundError(f"No position for {unknown[:5]} in the samples of {args.from_run}",
-                                    hint="Name a run whose search sample contains the star")
 
     cache = RawCache(root / cfg.storage.raw_dir, max_cache_gb=cfg.storage.max_cache_gb)
+    _positions_for(chosen, stars, args.from_run, cfg, cache)
+    positions = {sid: (float(stars[sid]["ra_deg"]), float(stars[sid]["dec_deg"])) for sid in chosen}
     channel = build_channel("radio_narrowband", cfg, root)
     data_dir = Path(args.radio_data_dir) if args.radio_data_dir else default_data_dir(root, cfg)
     records = []
@@ -1335,41 +1381,15 @@ def _cmd_spherex_photometry(args: argparse.Namespace, cfg: PipelineConfig, short
     `--ids`. Each exposure is one cutout of about 4 MB (not kept) and one stored row; a star has a few hundred.
     Writes one file per star with every measurement, and a summary of all stars.
     """
-    from oddstar.fuse.engine import assign_tier
     from oddstar.io import spherex as sx
 
-    stars: dict[str, dict[str, Any]] = {}
-    tiers: dict[str, str] = {}
-    for run_id in args.from_run:
-        run_dir = root / cfg.storage.runs_dir / run_id
-        search_files = sorted(run_dir.glob("search_*.json"))
-        if not search_files:
-            raise ArtifactNotFoundError(f"No search outputs found in {run_dir}")
-        vf = run_dir / "vetting.json"
-        vdata = json.loads(vf.read_text(encoding="utf-8")).get("vetting", {}) if vf.exists() else None
-        for sf in search_files:
-            sdata = json.loads(sf.read_text(encoding="utf-8"))
-            for star in sdata.get("sample_stars", []):
-                if star.get("ra_deg") is not None and star.get("dec_deg") is not None:
-                    stars.setdefault(str(star["source_id"]), star)
-            scores_by_id = {r["source_id"]: ChannelScore.model_validate(r) for r in sdata["scores"]}
-            for sid in sdata.get("flagged_ids", []):
-                if vdata is None:
-                    tier = "C"
-                else:
-                    tier, _ = assign_tier([scores_by_id[sid]], [VettingResult.model_validate(v) for v in vdata.get(sid, [])], cfg)
-                if _TIER_RANK.get(tier, 0) > _TIER_RANK.get(tiers.get(str(sid), ""), 0):
-                    tiers[str(sid)] = tier
+    stars, tiers, _ = _stars_and_tiers_of_runs(args.from_run, cfg, root)
     if args.ids:
         chosen = [i.strip() for i in args.ids.split(",") if i.strip()]
         selection = "ids"
     else:
         chosen = sorted(sid for sid, tier in tiers.items() if _TIER_RANK[tier] >= _TIER_RANK[args.min_tier])
         selection = f"tier {args.min_tier} or better"
-    unknown = [sid for sid in chosen if sid not in stars]
-    if unknown:
-        raise ArtifactNotFoundError(f"No position for {unknown[:5]} in the samples of {args.from_run}",
-                                    hint="Name a run whose search sample contains the star")
     detectors = None
     if args.detectors:
         parts = [d.strip() for d in args.detectors.split(",") if d.strip()]
@@ -1384,16 +1404,17 @@ def _cmd_spherex_photometry(args: argparse.Namespace, cfg: PipelineConfig, short
                            data={"run_id": run_name, "selection": selection, "source_ids": chosen, "as_of": as_of})
 
     cache = RawCache(root / cfg.storage.raw_dir, max_cache_gb=cfg.storage.max_cache_gb)
+    from_gaia = _positions_for(chosen, stars, args.from_run, cfg, cache)
     out_dir = root / cfg.storage.runs_dir / run_name
     (out_dir / "spherex").mkdir(parents=True, exist_ok=True)
     records, artifacts = [], []
     for n, sid in enumerate(chosen, 1):
         star = stars[sid]
         ra, dec = float(star["ra_deg"]), float(star["dec_deg"])
-        rec: dict[str, Any] = {"source_id": sid, "tier_before": tiers.get(sid)}
+        rec: dict[str, Any] = {"source_id": sid, "tier_before": tiers.get(sid), "position_from": "gaia" if sid in from_gaia else "run"}
         try:
             neighbours = () if args.no_neighbours else sx.gaia_neighbours(
-                sid, ra, dec, (star.get("mags") or {}).get("G"), cache, release=cfg.gaia.release)
+                sid, ra, dec, star.get("g_mag"), cache, release=cfg.gaia.release)
             res = sx.forced_photometry(
                 sid, ra, dec, cache, as_of=as_of, pmra_mas_yr=float(star.get("pmra_mas_yr") or 0.0),
                 pmdec_mas_yr=float(star.get("pmdec_mas_yr") or 0.0), neighbours=neighbours, detectors=detectors, workers=args.workers,

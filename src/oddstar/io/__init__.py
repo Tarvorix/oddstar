@@ -11,6 +11,7 @@ from oddstar.io.fixtures_data import (
 )
 from oddstar.io.live_survey import (
     enrich_star_live_for_vetting,
+    fetch_gaia_astrometry,
     fetch_live_halo_bulge_sample,
     fetch_single_star_live,
 )
@@ -26,6 +27,7 @@ __all__ = [
     "TableStore",
     "enrich_star_live_for_vetting",
     "equatorial_to_galactic",
+    "fetch_gaia_astrometry",
     "fetch_live_halo_bulge_sample",
     "fetch_single_star_live",
     "generate_field_sample",

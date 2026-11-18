@@ -372,8 +372,18 @@ def test_command_measures_chosen_stars_and_writes_one_file_per_star(monkeypatch,
         return ()
 
     monkeypatch.setattr(sx, "gaia_neighbours", fake_neighbours)
-    stars = [{"source_id": "1", "ra_deg": RA0, "dec_deg": DEC0, "pmra_mas_yr": 0.0, "pmdec_mas_yr": 0.0, "mags": {"G": 10.6}},
-             {"source_id": "2", "ra_deg": RA0, "dec_deg": DEC0, "mags": {}}]
+    looked_up: list[list[str]] = []
+
+    def fake_astrometry(ids, cfg, cache, **kw):
+        looked_up.append(list(ids))
+        return {i: {"source_id": i, "ra_deg": RA0, "dec_deg": DEC0, "pmra_mas_yr": 0.0, "pmdec_mas_yr": 0.0, "g_mag": 12.5}
+                for i in ids if i == "3"}
+
+    monkeypatch.setattr(cli, "fetch_gaia_astrometry", fake_astrometry)
+    # As a search writes them: star 1 with its position (outputs since this command), stars 2 and 3 without (older
+    # outputs). Star 2 is flagged, so `live_stars.json` holds it in full; star 3 is in no file with a position.
+    stars = [{"source_id": "1", "ra_deg": RA0, "dec_deg": DEC0, "pmra_mas_yr": 0.0, "pmdec_mas_yr": 0.0, "g_mag": 10.6},
+             {"source_id": "2", "distance_pc": 50.0, "teff_k": 5000.0}, {"source_id": "3", "distance_pc": 60.0, "teff_k": 4500.0}]
     runs = repo_root() / "runs"
     src, out_dir = runs / "test-spherex-src", runs / "spherex-test-spherex-src"
     try:
@@ -382,6 +392,8 @@ def test_command_measures_chosen_stars_and_writes_one_file_per_star(monkeypatch,
                  "summary": "x"}
         (src / "search_ir_excess.json").write_text(json.dumps({
             "channel": "ir_excess", "sample_stars": stars, "flagged_ids": ["2"], "scores": [score]}), encoding="utf-8")
+        (src / "live_stars.json").write_text(json.dumps({"2": {"source_id": "2", "ra_deg": RA0, "dec_deg": DEC0, "mags": {"G": 11.0}}}),
+                                             encoding="utf-8")
         code, payload = dispatch(["spherex", "photometry", "--from-run", "test-spherex-src", "--dry-run", "--json"])
         assert code == 0 and payload["data"]["source_ids"] == ["2"] and payload["data"]["selection"] == "tier C or better", payload
         assert not out_dir.exists() and calls == [], "a dry run fetches and writes nothing"
@@ -394,6 +406,14 @@ def test_command_measures_chosen_stars_and_writes_one_file_per_star(monkeypatch,
         saved = json.loads((out_dir / "spherex" / "1.json").read_text(encoding="utf-8"))
         assert len(saved["points"]) == 2 and saved["points"][0]["flux_mjy"] == pytest.approx(95.0, rel=0.02) and saved["as_of"] == "2026-11-18"
         assert json.loads((out_dir / "spherex_photometry.json").read_text(encoding="utf-8"))["n_selected"] == 1
+        assert d["stars"][0]["position_from"] == "run" and looked_up == [], "a position the run holds is not asked of Gaia"
+        # The flagged star's position comes from live_stars.json; an unflagged star of an older output is looked up in Gaia
+        code, payload = dispatch(["spherex", "photometry", "--from-run", "test-spherex-src", "--ids", "2,3", "--as-of", "2026-11-18",
+                                  "--workers", "1", "--json"])
+        assert code == 0, payload
+        d = payload["data"]
+        assert d["status_counts"] == {"measured": 2} and looked_up == [["3"]] and asked[1:] == ["2:11.0", "3:12.5"]
+        assert [(s["source_id"], s["position_from"], s["tier_before"]) for s in d["stars"]] == [("2", "run", "C"), ("3", "gaia", None)]
         code, payload = dispatch(["spherex", "photometry", "--from-run", "test-spherex-src", "--ids", "1", "--detectors", "7", "--json"])
         assert code != 0 and "1 to 6" in json.dumps(payload)
         code, payload = dispatch(["spherex", "photometry", "--from-run", "test-spherex-src", "--ids", "99", "--json"])
@@ -424,3 +444,27 @@ def test_neighbour_list_keeps_stars_bright_enough_to_matter(monkeypatch, tmp_pat
     assert "CIRCLE('ICRS', 45.165009, 0.200053, 0.008333)" in seen[0] and len(out) == 2
     assert (RA0 + 0.004, DEC0) in out and any(d == pytest.approx(DEC0 + 0.004 + 0.01) for _, d in out), "moved by its proper motion to 2026"
     assert len(sx.gaia_neighbours("1", RA0, DEC0, None, cache, release="dr3")) == 4, "with no magnitude for the star, every source counts"
+
+
+def test_gaia_astrometry_by_source_id(monkeypatch, tmp_path) -> None:
+    """Positions for a follow-up of stars whose run recorded none: asked of Gaia by id, in chunks, numbers only."""
+    from oddstar.config import load_config
+    from oddstar.io import live_survey as ls
+    from oddstar.io.cache import RawCache
+
+    queries: list[str] = []
+
+    def fake_tap(*, urls, query, archive, release, cache, **kw):
+        queries.append(query)
+        rows = [{"source_id": 11, "ra": 10.5, "dec": -3.25, "pmra": 4.0, "pmdec": None, "phot_g_mean_mag": 12.5},
+                {"source_id": 12, "ra": 11.5, "dec": 2.0, "pmra": None, "pmdec": None, "phot_g_mean_mag": None},
+                {"source_id": 13, "ra": None, "dec": None, "pmra": None, "pmdec": None, "phot_g_mean_mag": 9.0}]
+        return [r for r in rows if str(r["source_id"]) in query], None, False
+
+    monkeypatch.setattr(ls, "_tap_query_cached", fake_tap)
+    cfg, _, _ = load_config()
+    out = ls.fetch_gaia_astrometry(["Gaia DR3 11", "12", "13", "14", "0698-0868765"], cfg, RawCache(tmp_path / "raw"), chunk=2)
+    assert len(queries) == 2 and "source_id IN (11, 12)" in queries[0] and "source_id IN (13, 14)" in queries[1]
+    assert not any("0698" in q for q in queries), "a plate-catalogue id is not a Gaia id"
+    assert out == {"11": {"source_id": "11", "ra_deg": 10.5, "dec_deg": -3.25, "pmra_mas_yr": 4.0, "pmdec_mas_yr": 0.0, "g_mag": 12.5},
+                   "12": {"source_id": "12", "ra_deg": 11.5, "dec_deg": 2.0, "pmra_mas_yr": 0.0, "pmdec_mas_yr": 0.0, "g_mag": None}}

@@ -1076,6 +1076,33 @@ def fetch_live_halo_bulge_sample(
         return stars, mans
 
 
+def fetch_gaia_astrometry(source_ids: list[str], cfg: PipelineConfig, cache: RawCache, *, sleep: Any = None,
+                          chunk: int = 200) -> dict[str, dict[str, Any]]:
+    """Position, proper motion and G magnitude of Gaia sources by id: {id: {ra_deg, dec_deg, pmra_mas_yr, pmdec_mas_yr, g_mag}}.
+
+    For commands that follow up a star of an earlier run whose search output did not record positions. An id Gaia
+    does not hold is absent from the answer; an id that is not a number is not asked.
+    """
+    ids = sorted({str(s).replace("Gaia DR3 ", "").replace("Gaia DR4 ", "").strip() for s in source_ids})
+    ids = [i for i in ids if i.isdigit()]
+    out: dict[str, dict[str, Any]] = {}
+    for start in range(0, len(ids), chunk):
+        part = ids[start:start + chunk]
+        query = ("SELECT source_id, ra, dec, pmra, pmdec, phot_g_mean_mag FROM gaiadr3.gaia_source "
+                 f"WHERE source_id IN ({', '.join(part)})")
+        rows, _, _ = _tap_query_cached(urls=GAIA_TAP_URLS, query=query, archive="gaia", release=cfg.gaia.release, cache=cache,
+                                       timeout_s=45, sleep=sleep)
+        for r in rows:
+            if r.get("ra") is None or r.get("dec") is None:
+                continue
+            out[str(r["source_id"])] = {
+                "source_id": str(r["source_id"]), "ra_deg": float(r["ra"]), "dec_deg": float(r["dec"]),
+                "pmra_mas_yr": float(r.get("pmra") or 0.0), "pmdec_mas_yr": float(r.get("pmdec") or 0.0),
+                "g_mag": _safe_float(r.get("phot_g_mean_mag")),
+            }
+    return out
+
+
 def fetch_single_star_live(
     source_id: str,
     cfg: PipelineConfig,

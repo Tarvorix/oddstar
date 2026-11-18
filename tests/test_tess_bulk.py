@@ -316,6 +316,8 @@ def test_live_dip_search_records_coverage_end_to_end(tmp_path: Path, monkeypatch
         saved = json.loads((run_dir / "search_optical_dips.json").read_text(encoding="utf-8"))
         assert saved["n_searched"] == 2 and saved["not_searched_ids"] == {"no_coverage": ["3", "5", "6"], "failed": ["4"]}
         assert saved["tess_fetch"]["failed_ids"] == ["4"] and len(saved["sample_stars"]) == 6
+        # Every star of the sample with its position, so that a follow-up command can find a star that was not flagged
+        assert all(isinstance(s.get("ra_deg"), float) and isinstance(s.get("dec_deg"), float) for s in saved["sample_stars"])
 
         code, payload = dispatch(["null-report", "test-tess-survey", "--json"])
         assert code == 0, payload
