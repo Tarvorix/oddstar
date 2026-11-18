@@ -1,170 +1,156 @@
 {
-  "channel": "generic_outlier",
-  "gaia_release": "dr3",
+  "channel": "spectral_lines",
+  "gaia_release": "dr4",
   "split": "all",
-  "config_hash": "879da9d5e07a",
-  "git_commit": "de9fc91daa1534a69fff2fbe95a746fdf54aeaea",
-  "timestamp_utc": "2026-11-18T06:10:14.943935+00:00",
+  "config_hash": "5b176074c90d",
+  "git_commit": "df694b2b0d0043f899664193528ee8f71dade83a",
+  "timestamp_utc": "2026-11-18T07:13:48.944199+00:00",
   "passed": true,
   "blind_recovery_rate": 1.0,
-  "blind_total": 6,
-  "blind_recovered": 6,
+  "blind_total": 2,
+  "blind_recovered": 2,
   "impostor_pass": true,
   "impostor_max_tier": "Explained",
-  "impostors_evaluated": 4,
+  "impostors_evaluated": 3,
   "injection_completeness_design_point": 1.0,
   "completeness_grid": [
     {
-      "injected_z": 2.5,
+      "wavelength_a": 6530.0,
+      "injected_snr": 5.0,
+      "completeness": 0.7,
+      "n_trials": 20
+    },
+    {
+      "wavelength_a": 6530.0,
+      "injected_snr": 12.0,
       "completeness": 1.0,
       "n_trials": 20
     },
     {
-      "injected_z": 4.5,
+      "wavelength_a": 6530.0,
+      "injected_snr": 22.0,
       "completeness": 1.0,
       "n_trials": 20
     },
     {
-      "injected_z": 7.0,
+      "wavelength_a": 6615.0,
+      "injected_snr": 5.0,
+      "completeness": 0.65,
+      "n_trials": 20
+    },
+    {
+      "wavelength_a": 6615.0,
+      "injected_snr": 12.0,
+      "completeness": 1.0,
+      "n_trials": 20
+    },
+    {
+      "wavelength_a": 6615.0,
+      "injected_snr": 22.0,
       "completeness": 1.0,
       "n_trials": 20
     }
   ],
   "false_alarm_rate": 0.0,
   "false_alarm_ci_low": 0.0,
-  "false_alarm_ci_high": 0.012643429997735661,
-  "expected_false_positives": 3.333333333333333,
+  "false_alarm_ci_high": 0.02497113914571871,
+  "expected_false_positives": 6.666666666666666,
   "calibration_curve": [
     {
-      "stat": 0.0,
+      "stat": 2.704598458857875,
       "fap": 0.5
     },
     {
-      "stat": 0.0001,
+      "stat": 2.905284741350482,
       "fap": 0.25
     },
     {
-      "stat": 0.0002,
+      "stat": 3.0919355446974985,
       "fap": 0.09999999999999998
     },
     {
-      "stat": 2.3874951909987314,
+      "stat": 3.271646385432357,
       "fap": 0.050000000000000044
     },
     {
-      "stat": 3.618828085913141,
+      "stat": 3.5475606408976716,
       "fap": 0.010000000000000009
     },
     {
-      "stat": 5.382041664512851,
+      "stat": 5.11058441357504,
       "fap": 0.0001
     },
     {
-      "stat": 6.882041664512851,
+      "stat": 6.61058441357504,
       "fap": 1e-6
     },
     {
-      "stat": 9.882041664512851,
+      "stat": 9.61058441357504,
       "fap": 1e-9
     },
     {
-      "stat": 15.882041664512851,
+      "stat": 15.61058441357504,
       "fap": 1e-12
     }
   ],
   "details": {
     "blind_recovery": [
       {
-        "source_id": "2081900940499099136",
+        "source_id": "744400000000000002",
         "flagged": true,
-        "raw_stat": 124.9562188358518
+        "raw_stat": 47.14605327971782
       },
       {
-        "source_id": "755500000000000003",
+        "source_id": "744400000000000001",
         "flagged": true,
-        "raw_stat": 18.454964125260766
-      },
-      {
-        "source_id": "5548511859528971520",
-        "flagged": true,
-        "raw_stat": 171.80721636950057
-      },
-      {
-        "source_id": "1638028353993041792",
-        "flagged": true,
-        "raw_stat": 17.14375704163009
-      },
-      {
-        "source_id": "6049824505359595776",
-        "flagged": true,
-        "raw_stat": 352.7529843704053
-      },
-      {
-        "source_id": "115725517896200320",
-        "flagged": true,
-        "raw_stat": 17.747804024362253
+        "raw_stat": 52.972633179587234
       }
     ],
     "impostor_rejection": [
       {
-        "source_id": "4418120359123456128",
-        "tier": "Rejected",
-        "failed_checks": [
-          "centroid_offset",
-          "deep_imaging",
-          "radio_counterpart",
-          "vision_rubric"
-        ],
-        "expected_failed": [
-          "radio_counterpart"
-        ],
-        "reason": "Failed integrity/artifact check 'centroid_offset': WISE W4 centroid offset=4.90 arcsec (0.408 of 12.0\" beam) [synthetic fixture value]",
-        "passed": true
-      },
-      {
-        "source_id": "722200000000000001",
+        "source_id": "744400000000000001",
         "tier": "Explained",
         "failed_checks": [
-          "known_variable"
+          "stellar_emission"
         ],
         "expected_failed": [
-          "known_variable"
+          "stellar_emission"
         ],
-        "reason": "Explained by 'known_variable': SIMBAD type=EB*, periodic_EB_detected=True",
+        "reason": "Not flagged above channel thresholds",
         "passed": true
       },
       {
         "source_id": "744400000000000003",
-        "tier": "Rejected",
+        "tier": "Explained",
         "failed_checks": [
           "cosmic_ray",
           "repeat"
         ],
         "expected_failed": [
-          "cosmic_ray"
+          "cosmic_ray",
+          "repeat"
         ],
-        "reason": "Failed integrity/artifact check 'cosmic_ray': Single-exposure spike: |exp1 - exp2| reaches 67.8 x MAD (> 8.0)",
+        "reason": "Not flagged above channel thresholds",
         "passed": true
       },
       {
-        "source_id": "755500000000000006",
-        "tier": "Rejected",
+        "source_id": "744400000000000004",
+        "tier": "Explained",
         "failed_checks": [
-          "plate_defect"
+          "sky_line"
         ],
         "expected_failed": [
-          "plate_defect"
+          "sky_line"
         ],
-        "reason": "Failed integrity/artifact check 'plate_defect': Early-epoch detections on 1 independent plates/bands (min 2)",
+        "reason": "Not flagged above channel thresholds",
         "passed": true
       }
     ],
     "code_fingerprint_files": {
       "oddstar/__init__.py": "2af7d8f7316e5196abd067dcdd82791314113df68b496c3611136877b193be1e",
       "oddstar/channels/__init__.py": "af613ea2e399e30d14d7eca150d9a3f4fa5e409e0976b773c95c9f752789212e",
-      "oddstar/channels/generic_outlier/__init__.py": "e249ba22b84b5bcc0745003c64d012ed7201bcb9e372b539c23e6ec485655fba",
-      "oddstar/channels/generic_outlier/channel.py": "ad4fdf8f4e3bf43bc1eb68777098c247be8fdac9d22e1d0b882a3bb7589264ba",
-      "oddstar/channels/underluminous/channel.py": "c461f30402ccb2a3a59fbd58ef31111c9bebcfb190a7bb23ffab3acbbe28d1d6",
+      "oddstar/channels/spectral_lines/__init__.py": "4380e080ee02a361b9e75f562858e145a7a88221e5380218bc7e4c4a5eebb917",
+      "oddstar/channels/spectral_lines/channel.py": "24e151d628e08d4a171225c01cd94967003a105ce107cc321fad3877f2bcb77c",
       "oddstar/config.py": "46af545c91b0db22ac5d71dcec4529e1d1cebfe3b62cb3be2b5268481ef3df0c",
       "oddstar/dossier/plots.py": "d304dad52af137199576932c3562f600003172fbff1f4712ef4bdc8a2b472e4d",
       "oddstar/errors.py": "6e2757f307284892a5d69bf8967ee111d49bcd4c4100bf82316d02d7fb09ed30",
@@ -188,8 +174,8 @@
       "oddstar/vet/radio_checks.py": "4cb0f9a2a482f96245a4950ff64ff4d82071c6a4cbd9de55d49f56c14a659246",
       "oddstar/vet/spectral_checks.py": "f9d6171de7e05d89db987dedb1bd0521ebce4fe1cce2989aba078ea1a7a69c15",
       "oddstar/vet/underluminous_checks.py": "50f9093f9d224f15068f8b456ca535032df7e3f835bd2e5a6ab5d680f6ed74a0",
-      "oddstar/vet/vanishing_checks.py": "6ae056277d8a80c2ac2e06ffa63771770afd48b0da8e3c509cde1a043692fc2b"
+      "oddstar/vet/vanishing_checks.py": "9903ff429c6bc79c23ee19aad2f5f31444b897c85b945945fb7984a1050ae8e3"
     }
   },
-  "code_fingerprint": "b22e82a551afe1e1d46e1ea65faa9dadd43dc9d31b96bd46315c37017dbe4628"
+  "code_fingerprint": "86ac8544e40c15838a8e810e003777aa6e991af82037d9bee1c0a97a6899ef4f"
 }

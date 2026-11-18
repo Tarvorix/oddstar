@@ -2,6 +2,38 @@
 
 All threshold, sample-cut, and prompt changes must be logged here under Ground Rule R4 before running validation or search.
 
+## [1.6.0] - 2026-11-18
+
+### Vanishing: moving stars and bright-star halos in the plate-source search
+The first full run of `search vanishing --live` on the 1,000-star halo sample (run `v140-halo-vanishing`, config
+1.4.0) searched 3,012 plate sources and flagged 207. Read-only analysis of that run's cached answers showed two
+classes of false flags, and this version removes them. The halo radii below were fitted to that same run, so the
+next run on this sample is not an independent test of them.
+
+- **Moving stars.** A Gaia star now also counts as the counterpart of a plate source when its path from 1949 to
+  2002 (Gaia proper motion) passes within `match_radius_arcsec` of the plate-epoch position of the source. Before,
+  the comparison was made only at the catalogue's position epoch, which is wrong when USNO-B1.0 lists a wrong proper
+  motion. In `v140-halo-vanishing`, 18 of the 207 flagged sources have a Gaia path within 3.0", among them the
+  sample star HIP 59490 (0.49"/yr) and seven more of the ten brightest flags. No threshold changed
+  (`match_radius_arcsec: 3.0` is reused), so the other two of those ten, the sample stars Gaia DR3
+  2665857750766417536 and 1744837439030364416, whose paths pass 3.45" and 4.02" from their plate positions, stay
+  flagged; the `proper_motion` note of such a flag names the star and the distance. Cost: a plate source that truly vanished on the path of a moving star is
+  matched to that star; a star at 0.5"/yr sweeps about 1.4% of a field.
+- **Bright-star halos.** New key `channels.vanishing.plate_bright_star_halo: [[10.0, 90.0], [11.0, 50.0], [12.0, 20.0]]`
+  ([G limit, radius in arcsec]). A plate source within the radius of a Gaia star brighter than the limit, and not
+  that star itself, is not searched (`near_bright_star`, counted in `n_near_bright_star`). Basis: flagged fraction
+  of searched sources by magnitude of the sample star in `v140-halo-vanishing`: 18 of 30 for G < 10 (at every
+  distance out to the 60" field edge), 22 of 60 for G 10 to 11 (0 of 9 beyond 50"), 14 of 118 for G 11 to 12
+  (6 of 14 at 10" to 20", 6 of 73 beyond), 3 to 5% for fainter stars. Gaia is now read 90" beyond the field edge
+  (was 30"), so the field answers of Gaia are fetched again.
+- `vet/vanishing_checks.py`: for a plate source without a Gaia counterpart, `proper_motion` used to pass by
+  comparing the plate position with itself. It now passes only on the recorded distance of the nearest Gaia path
+  (`vanishing_data.nearest_gaia_track`), fails when that is within the match radius, and is `not_evaluated` when
+  the record is missing (units of runs before this version).
+- The channel code did not change. Flags of this channel remain leads: the remaining rate (3 to 5% of searched
+  sources in the 1.4.0 run) is dominated by sources seen on the first-epoch plates only, and the false-alarm rate
+  of the live plate search is still not measured.
+
 ## [1.5.0] - 2026-11-18
 
 ### The radio search reads real Breakthrough Listen scans

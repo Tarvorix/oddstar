@@ -10,7 +10,7 @@ Point sources confidently detected on two or more 20th-century photographic plat
 1. Propagate modern Gaia coordinates back to historical plate epochs using `(pmra, pmdec)`.
 2. Require `>= 2` independent early plate detections (`early_plates_count >= 2`) and modern survey non-detection with local depth exceeding early magnitude by `>= 2.0 mag`.
 
-## Live survey search (config 1.4.0)
+## Live survey search (config 1.4.0, matching changed in 1.6.0)
 A sample star is in Gaia by construction, so it cannot be the unit of this search. `oddstar search vanishing --live`
 searches **plate sources**: the USNO-B1.0 objects around each sample position (`oddstar/io/plate_survey.py`).
 `--limit` is the number of sample positions; `n_searched` counts plate sources.
@@ -20,9 +20,15 @@ For each field of radius `plate_field_radius_arcsec` three catalogues are read (
 1. USNO-B1.0 (VizieR I/284). A source is a unit when it was detected on both first-epoch plates (blue and red) and is
    not flagged as lying on a diffraction spike. Its position is at epoch 2000 when the catalogue lists a proper motion,
    and at the mean plate epoch when it lists none.
-2. Gaia DR3 out to 30" beyond the field edge, moved to the epoch of the plate position with its proper motions. A
-   source within `match_radius_arcsec` is the modern counterpart; the unit then carries the Gaia position and proper
-   motion, which is what the channel propagates.
+2. Gaia DR3 out to 90" beyond the field edge (the largest halo radius below), moved to the epoch of the plate
+   position with its proper motions. A source within `match_radius_arcsec` is the modern counterpart; the unit then
+   carries the Gaia position and proper motion, which is what the channel propagates.
+   Since 1.6.0 a Gaia star is also the counterpart when its path from 1949 to 2002, drawn with the Gaia proper
+   motion, passes within `match_radius_arcsec` of where the plates saw the source (the catalogue position taken
+   back to the mean plate epoch with the catalogue's own motion). The catalogue's proper motion can be wrong, and
+   its epoch-2000 position is then far from a star that never left: in the first full halo run the brightest
+   "vanished" sources were the fast-moving sample stars themselves. The comparison epoch of such a match is the
+   epoch of closest approach (`vanishing_data.gaia_match` is `"track"`).
 3. Pan-STARRS1 DR2 mean objects with at least `plate_ps1_min_detections` detections. An object within
    `match_radius_arcsec` is a counterpart. The local depth is the `plate_depth_percentile` of the r-band PSF magnitudes
    of the field's objects and needs `plate_depth_min_objects` of them.
@@ -34,6 +40,7 @@ result:
 | Reason | Meaning |
 |---|---|
 | `too_faint` | closer than `min_depth_margin_mag` to the local Pan-STARRS depth: its absence would not be significant |
+| `near_bright_star` | inside the halo radius of a bright Gaia star (`plate_bright_star_halo`: 90" for G < 10, 50" for G < 11, 20" for G < 12) and not that star itself; halos, spikes and ghosts repeat on both first-epoch plates |
 | `no_coverage` | the field has no Pan-STARRS depth (south of Dec -30, or too few objects with an r magnitude) |
 | `failed` | the Gaia or Pan-STARRS query of the field failed after `plate_max_attempts`; not cached, retried next run |
 
@@ -42,6 +49,9 @@ listed in `failed_field_ids`, and the search prints a warning, because its sourc
 
 Flagged plate sources are written to `live_stars.json` as searched; the per-star archive enrichment does not apply to
 an object that is not a Gaia star. Vetting evaluates `proper_motion`, `plate_defect` and `depth` from the survey record.
+For a plate source without a Gaia counterpart, `proper_motion` passes only on the recorded distance of the nearest
+Gaia path (`vanishing_data.nearest_gaia_track`); a unit of a run made before 1.6.0 has no such record and is
+`not_evaluated`.
 `sso_plate`, `blend_split` and `known_variable` stay `not_evaluated`: no plate-epoch ephemeris, high-resolution imaging
 or variable-star lookup is made.
 
@@ -54,6 +64,11 @@ What a live flag means, and what it does not:
   rejects most plate flaws, but not independent epochs: an asteroid or a satellite glint can be on both.
 - A flag says that no catalogued modern source lies within `match_radius_arcsec`. It does not say the sky is empty
   there; only the images can.
+- The halo radii were read off the first full halo run (config 1.4.0, 3,012 searched plate sources): the flagged
+  fraction was 60% around sample stars with G < 10, 37% for G 10 to 11 (none beyond 50"), 12% for G 11 to 12 (the
+  excess inside 20"), and 3 to 5% around fainter stars. They are a mask fitted to that sample, not a model of the
+  plates, and the 3 to 5% that remains is the rate of unexplained flags per searched source, mostly sources seen
+  on the first-epoch plates only.
 - The certificate of this channel was measured on fixtures (a Gaia star paired with a plate record). The rate of false
   USNO-B entries per field is not part of it, so the expected number of false alarms of a live run is not measured.
 
@@ -61,7 +76,7 @@ What a live flag means, and what it does not:
 Defined in `configs/default.yaml` under `channels.vanishing`:
 - `min_early_plates: 2`, `min_depth_margin_mag: 2.0`, `match_radius_arcsec: 3.0`, `max_pm_residual_arcsec: 1.5`
 - Live plate-source search: `plate_field_radius_arcsec: 60.0`, `plate_ps1_min_detections: 2`, `plate_depth_percentile: 90.0`,
-  `plate_depth_min_objects: 10`, and the operational keys `plate_max_attempts: 3`, `plate_backoff_s: 2.0`,
+  `plate_depth_min_objects: 10`, `plate_bright_star_halo: [[10.0, 90.0], [11.0, 50.0], [12.0, 20.0]]`, and the operational keys `plate_max_attempts: 3`, `plate_backoff_s: 2.0`,
   `plate_rate_limit_rps: 2.0`
 
 ## Known Impostors

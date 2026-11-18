@@ -355,10 +355,41 @@ def test_download_resumes_and_checks_the_file(tmp_path: Path, monkeypatch: pytes
     dest3 = tmp_path / "d" / "scan3.fil"
     with pytest.raises(ArchiveAccessError, match="MD5"):
         br.download_file("http://x/scan3.fil", dest3, len(body), "f" * 32)
+
+    # A transfer that is cut twice is resumed from the bytes on disk, without the caller asking again
+    cuts = [4000, 7000]
+
+    class _Cut(_Resp):
+        def iter_content(self, chunk_size: int) -> Any:
+            yield self.data[:3000]
+            raise requests.exceptions.ChunkedEncodingError("Connection broken: reset by peer")
+
+    def flaky_get(url: str, headers: dict[str, str], stream: bool, timeout: float) -> _Resp:
+        calls.append(dict(headers))
+        start = int(headers["Range"].split("=")[1].rstrip("-")) if "Range" in headers else 0
+        return _Cut(body[start:], 206 if start else 200) if cuts and cuts.pop(0) else _Resp(body[start:], 206 if start else 200)
+
+    monkeypatch.setattr(requests, "get", flaky_get)
+    n, slept = len(calls), []
+    dest4 = tmp_path / "d" / "scan4.fil"
+    assert br.download_file("http://x/scan4.fil", dest4, len(body), md5, sleep=slept.append) == "downloaded" and dest4.read_bytes() == body
+    assert calls[n:] == [{}, {"Range": "bytes=3000-"}, {"Range": "bytes=6000-"}] and len(slept) == 2
+
+    # A server that keeps cutting without sending anything gives up after `attempts` requests and keeps the part file
+    class _Dead(_Resp):
+        def iter_content(self, chunk_size: int) -> Any:
+            raise requests.exceptions.ChunkedEncodingError("Connection broken")
+            yield b""
+
+    monkeypatch.setattr(requests, "get", lambda url, headers, stream, timeout: _Dead(b"", 200))
+    dest5 = tmp_path / "d" / "scan5.fil"
+    with pytest.raises(ArchiveAccessError, match="rerun to resume"):
+        br.download_file("http://x/scan5.fil", dest5, len(body), md5, attempts=3, sleep=slept.append)
+    assert not dest5.exists()
     assert not dest3.exists() and dest3.with_name("scan3.fil.part").exists()
     monkeypatch.setattr(requests, "get", lambda url, headers, stream, timeout: _Resp(body[:500], 200))
     with pytest.raises(ArchiveAccessError, match="rerun to resume"):
-        br.download_file("http://x/scan4.fil", tmp_path / "d" / "scan4.fil", len(body), md5)
+        br.download_file("http://x/scan6.fil", tmp_path / "d" / "scan6.fil", len(body), md5, attempts=2, sleep=slept.append)
     monkeypatch.setattr(requests, "get", lambda url, headers, stream, timeout: _Resp(b"", 404))
     with pytest.raises(ArchiveAccessError, match="HTTP 404"):
         br.download_file("http://x/scan5.fil", tmp_path / "d" / "scan5.fil", len(body), md5)

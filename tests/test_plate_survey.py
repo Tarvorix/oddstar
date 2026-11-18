@@ -17,6 +17,7 @@ from oddstar.io import live_survey as ls
 from oddstar.io import optical_timeseries as ot
 from oddstar.io import plate_survey as ps
 from oddstar.io.cache import RawCache
+from oddstar.io.physics import angular_separation_arcsec
 from oddstar.vet.vanishing_checks import run_vanishing_vetting
 
 COLS = ps.USNO_COLUMNS.split(",")
@@ -78,7 +79,7 @@ class _Sky:
         def gaia_tap(*, urls: list[str], query: str, archive: str, release: str, cache: RawCache, timeout_s: int, sleep: Any = None) -> Any:
             ra, dec, rad = (float(x) for x in query.split("CIRCLE('ICRS', ")[1].rstrip(")").split(", "))
             self.requests.append(f"gaia {ra:.4f} {dec:.4f}")
-            assert abs(rad * 3600.0 - 90.0) < 0.01  # field radius plus the edge margin
+            assert abs(rad * 3600.0 - 150.0) < 0.01  # field radius plus the largest halo radius
 
             class _Man:
                 manifest_id = "gaia-manifest"
@@ -209,6 +210,63 @@ def test_plate_units_statuses_matches_and_resume(cfg: Any, tmp_path: Path, monke
 
     units3, summary3 = ps.fetch_plate_units(stars, cfg, cache, max_fields=1, sleep=lambda s: None)
     assert summary3["n_fields_requested"] == 1 and summary3["n_fields_not_fetched"] == 4 and len(units3) == 5
+
+
+def test_moving_stars_are_matched_along_their_path_and_bright_star_halos_are_not_searched(cfg: Any, tmp_path: Path) -> None:
+    st = ps._settings(cfg)
+    assert ps.gaia_margin_arcsec(st) == 90.0
+    assert [ps.halo_radius_arcsec(g, st["halo"]) for g in (9.1, 10.0, 10.9, 11.99, 12.0, None)] == [90.0, 50.0, 50.0, 20.0, None, None]
+    ch = build_channel("vanishing", cfg, repo_root())
+    ps1 = [{"objID": f"p{i}", "raMean": 150.0 + 0.05, "decMean": 20.0 + 0.05 + i * 1e-3, "nDetections": 12, "rMeanPSFMag": 19.0 + 0.25 * i} for i in range(12)]
+
+    def units(star_g: float, gaia: list[dict[str, Any]], rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+        star = {"source_id": "1", "ra_deg": 150.0, "dec_deg": 20.0, "mags": {"G": star_g}}
+        out, _ = ps.build_field_units(star, ps.parse_usno_rows(rows), gaia, ps1, st)
+        return {u["source_id"].split()[-1]: u for u in out}
+
+    # A 10th-magnitude star moving half an arcsecond a year (measured case: HIP 59490). The plates saw it where it
+    # was in 1960; the catalogue gave it a wrong proper motion, so its epoch-2000 position is 20 arcsec off the star.
+    pm = (-218.0, -439.0)
+    fast = {"source_id": "900", "ra_deg": 150.0, "dec_deg": 20.0, "pmra_mas_yr": pm[0], "pmdec_mas_yr": pm[1], "g_mag": 10.02}
+    in_1960 = _offset(150.0, 20.0, -pm[0] / 1000.0 * 56.0, -pm[1] / 1000.0 * 56.0)
+    wrong_pm = (-206, 114)
+    at_2000 = _offset(*in_1960, wrong_pm[0] / 1000.0 * 33.4, wrong_pm[1] / 1000.0 * 33.4)
+    by = units(10.02, [fast], [
+        _usno_row("H", *at_2000, r1=9.77, b1=10.7, pm=wrong_pm, epoch=1966.6, ndet=3),
+        _usno_row("I", *_offset(*in_1960, 30.0, 0.0), r1=17.0, b1=18.0, epoch=1954.0, ndet=2),   # 28 arcsec from the star's path
+        _usno_row("J", *_offset(150.0, 20.0, -55.0, -20.0), r1=18.0, b1=19.0, epoch=1954.0, ndet=2),  # 64 arcsec from it
+    ])
+    h = by["H"]["vanishing_data"]
+    assert angular_separation_arcsec(150.0, 20.0, *at_2000) > 25.0 and h["nearest_gaia"]["sep_arcsec"] > 10.0
+    assert h["present_in_gaia"] and h["gaia_match"] == "track" and h["nearest_gaia_track"]["sep_arcsec"] < 0.1
+    assert h["usno_epoch"] == pytest.approx(1960.0, abs=0.1) and by["H"]["pmdec_mas_yr"] == -439.0
+    assert ps.plate_search_status(by["H"]) == "searched" and not ch.score(ch.measure(by["H"], {})).flagged, "the star itself is not in its own halo"
+    assert ps.plate_search_status(by["I"]) == "near_bright_star"
+    assert by["I"]["plate_fetch"]["bright_star"] == {"source_id": "900", "g_mag": 10.02, "sep_arcsec": pytest.approx(28.0, abs=0.5), "halo_radius_arcsec": 50.0}
+    assert ps.plate_search_status(by["J"]) == "searched" and ch.score(ch.measure(by["J"], {})).flagged
+    vet = {r.check: r for r in run_vanishing_vetting(by["J"], cfg, tmp_path / "vet")}
+    assert vet["proper_motion"].status == "pass" and vet["proper_motion"].metrics["nearest_track_sep_arcsec"] == pytest.approx(64.0, abs=1.5)
+    assert "paths of 1 Gaia star(s) over 1949.0-2002.0" in vet["proper_motion"].note
+    # Without the record of the paths (a run made before config 1.6.0) the check cannot pass
+    old = json.loads(json.dumps(by["J"]))
+    del old["vanishing_data"]["nearest_gaia_track"]
+    assert {r.check: r.status for r in run_vanishing_vetting(old, cfg, tmp_path / "vet2")}["proper_motion"] == "not_evaluated"
+    # A plate source on the path of a faint moving star that the catalogue epoch misses fails the check when not matched
+    moved = json.loads(json.dumps(by["J"]))
+    moved["vanishing_data"]["nearest_gaia_track"]["sep_arcsec"] = 1.2
+    assert {r.check: r.status for r in run_vanishing_vetting(moved, cfg, tmp_path / "vet3")}["proper_motion"] == "fail"
+
+    # An 11.5-magnitude star that does not move: 20 arcsec halo
+    still = {"source_id": "901", "ra_deg": 150.0, "dec_deg": 20.0, "pmra_mas_yr": 0.0, "pmdec_mas_yr": 0.0, "g_mag": 11.5}
+    by = units(11.5, [still], [
+        _usno_row("K", *_offset(150.0, 20.0, 0.0, 15.0), r1=18.0, b1=19.0, epoch=1954.0, ndet=2),
+        _usno_row("L", *_offset(150.0, 20.0, 0.0, 26.0), r1=18.0, b1=19.0, epoch=1954.0, ndet=2),
+        _usno_row("M", 150.0, 20.0, r1=11.6, b1=12.2),
+    ])
+    assert [ps.plate_search_status(by[k]) for k in "KLM"] == ["near_bright_star", "searched", "searched"]
+    assert by["M"]["vanishing_data"]["gaia_match"] == "catalogue_epoch"
+    cov = ps.search_coverage_summary(list(by.values()), cfg)
+    assert cov["n_near_bright_star"] == 1 and cov["not_searched_ids"] == {"near_bright_star": ["USNO-B1.0 K"]}
 
 
 def test_an_empty_field_is_believed_only_from_a_mirror_that_holds_the_catalogue(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
