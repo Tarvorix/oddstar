@@ -597,6 +597,87 @@ def test_one_file_at_a_time_search_gives_the_same_result_and_leaves_no_scan_on_d
     assert fetched == ["off_0023.gpuspec.0000.fil"] and res2[0]["selected"]["hit"] == got["selected"]["hit"]
 
 
+def test_radio_followup_searches_chosen_stars_on_request(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cfg: Any) -> None:
+    """`oddstar radio followup`: the recordings of chosen stars are fetched, searched and removed; the survey then reads the result."""
+    import shutil
+
+    from oddstar import cli
+
+    stars, arc, archive_dir = _sample(tmp_path)
+    monkeypatch.setattr(ot, "_get_with_retries", arc.get)
+    channel = build_channel("radio_narrowband", cfg, repo_root())
+    cache = RawCache(tmp_path / "raw")
+    data_dir = tmp_path / "pass_through"
+    data_dir.mkdir()
+    fetched: list[str] = []
+
+    def fake_download(url: str, dest: Path, size_bytes: int, md5sum: str, **kw: Any) -> str:
+        if not (archive_dir / dest.name).is_file():
+            raise ArchiveAccessError(f"{url}: HTTP 404", retryable=False)
+        fetched.append(dest.name)
+        shutil.copy(archive_dir / dest.name, dest)
+        return "downloaded"
+
+    monkeypatch.setattr(br, "download_file", fake_download)
+    by_id = {s["source_id"]: s for s in stars}
+
+    def follow(sid: str, **kw: Any) -> dict[str, Any]:
+        return br.followup_star(sid, by_id[sid]["ra_deg"], by_id[sid]["dec_deg"], cfg, cache, channel, data_dir, sleep=lambda s: None, **kw)
+
+    # A dry run lists the scan set and fetches nothing
+    dry = follow("1", dry_run=True)
+    assert dry["status"] == "would_search" and dry["scan_sets"][0]["status"] == "would_search" and dry["scan_sets"][0]["bytes"] > 0 and fetched == []
+    # Too little free disk: nothing is fetched
+    assert follow("1", min_free_bytes=10**18)["status"] == "disk_full" and fetched == []
+    # The search: three files pass through, nothing stays on disk, the flagged window is reported
+    rec = follow("1")
+    assert rec["status"] == "searched" and len(fetched) == 3 and rec["n_windows_flagged"] == 1 and rec["n_windows_flagged_outside_rfi_bands"] == 1
+    band = rec["scan_sets"][0]["bands"][0]
+    assert band["selected_hit"]["in_rfi_band"] is False and band["n_windows_evaluated"] >= 1 and rec["scan_sets"][0]["already_stored"] is False
+    assert [p for p in data_dir.rglob("*") if p.is_file()] == [], "neither a scan nor its cut windows stay on disk"
+    # A repeat reads the stored result
+    fetched.clear()
+    again = follow("1")
+    assert again["status"] == "searched" and again["scan_sets"][0]["already_stored"] is True and fetched == []
+    # The other cases: recordings that cannot be fetched, no comparison scan, no pointing
+    failed = follow("2")
+    assert failed["status"].startswith("failed: ") and "HTTP 404" in failed["status"] and [p for p in data_dir.rglob("*") if p.is_file()] == []
+    assert follow("3")["status"] == "no_comparison" and follow("5")["status"] == "no_coverage"
+    assert follow("6")["status"].startswith("failed: ")
+    # The survey reads the stored result of star 1 and downloads nothing
+    out, summary = br.enrich_sample_radio(stars[:2], cfg, cache, channel, data_dir, sleep=lambda s: None)
+    assert [br.radio_search_status(s) for s in out] == ["searched", "not_downloaded"] and summary["n_ok"] == 1
+
+    # The command: by default the stars vetting left at Tier C or better; --ids and --all-covered choose otherwise
+    monkeypatch.setattr(cli, "RawCache", lambda *a, **kw: RawCache(tmp_path / "raw"))
+    runs = repo_root() / "runs"
+    src, out_dir = runs / "test-followup-src", runs / "radio-followup-test-followup-src"
+    try:
+        src.mkdir(parents=True)
+        score = {"source_id": "2", "channel": "ir_excess", "raw_statistic": 9.0, "false_alarm_prob": 1e-4, "flagged": True, "rank_score": 9.0,
+                     "summary": "x"}
+        (src / "search_ir_excess.json").write_text(json.dumps({
+            "channel": "ir_excess", "sample_stars": stars, "flagged_ids": ["2"], "scores": [score]}), encoding="utf-8")
+        code, payload = dispatch(["radio", "followup", "--from-run", "test-followup-src", "--radio-data-dir", str(data_dir), "--dry-run", "--json"])
+        assert code == 0, payload
+        d = payload["data"]
+        assert d["selection"] == "tier C or better" and [s["source_id"] for s in d["stars"]] == ["2"] and d["stars"][0]["tier_before"] == "C"
+        assert d["status_counts"] == {"would_search": 1} and not out_dir.exists(), "a dry run writes nothing"
+        code, payload = dispatch(["radio", "followup", "--from-run", "test-followup-src", "--ids", "1,5", "--radio-data-dir", str(data_dir), "--json"])
+        assert code == 0, payload
+        assert payload["data"]["status_counts"] == {"searched": 1, "no_coverage": 1}
+        saved = json.loads((out_dir / "radio_followup.json").read_text(encoding="utf-8"))
+        assert [s["status"] for s in saved["stars"]] == ["searched", "no_coverage"] and saved["n_windows_flagged_outside_rfi_bands"] == 1
+        code, payload = dispatch(["radio", "followup", "--from-run", "test-followup-src", "--all-covered", "--radio-data-dir", str(data_dir),
+                                  "--dry-run", "--json"])
+        assert code == 0 and payload["data"]["n_selected"] == 6 and payload["data"]["status_counts"]["searched"] == 1
+        code, payload = dispatch(["radio", "followup", "--from-run", "test-followup-src", "--ids", "99", "--json"])
+        assert code != 0 and "No position" in json.dumps(payload)
+    finally:
+        shutil.rmtree(src, ignore_errors=True)
+        shutil.rmtree(out_dir, ignore_errors=True)
+
+
 def test_two_nodes_of_one_parkes_scan_do_not_share_a_local_file(tmp_path: Path) -> None:
     # The two recording nodes of one Parkes multibeam scan write the same file name into different directories
     a = "http://blpd12.ssl.berkeley.edu/collate_mb_2/blc11/guppi_58326_62282_852088_G299.60-41.91_0001.0000.h5"
