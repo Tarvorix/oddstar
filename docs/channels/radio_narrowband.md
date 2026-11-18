@@ -47,6 +47,9 @@ decides anything, and it is the channel code above.
    satellite and telephone uplink bands and the mobile bands from 698 to 960 MHz (basis in `configs/CHANGELOG.md`).
    Stored results are keyed by `bl_radio.SEARCH_VERSION`; a change of the search, or of the table inside the
    frequency range of a stored result, changes that version.
+   The windows cut by `--search` stay under `data/breakthrough_listen_scans/_work`, keyed by `bl_radio.CUT_VERSION`:
+   after a change that only touches the scoring, the same command scores them again without fetching a scan.
+   They can be deleted once no such change is expected (about 1.6 GB per scan of a Green Bank L-band set).
 
    **Cadences.** When the archive holds several ON scans of one target that follow each other (A, B, A, C, A), the
    plan joins them (`comparison: "cadence"`): candidates are found in the middle ON scan, the same sky frequencies

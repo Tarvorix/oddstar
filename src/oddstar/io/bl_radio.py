@@ -45,6 +45,10 @@ from oddstar.io import bl_opendata as bl
 from oddstar.io.cache import RawCache
 
 SEARCH_VERSION = "bl_local_search_v2"
+# Version of the cutting phases (candidate windows of the ON scan, the same windows of the other scans). The windows
+# saved under `<data_dir>/_work` are keyed by it, not by SEARCH_VERSION, so a change that only touches the scoring
+# (the allocation table, the listing) scores the saved windows again without fetching a scan.
+CUT_VERSION = "bl_cut_v1"
 # Trial drift rates per search; must equal the grid inside `channels.radio_narrowband.dedoppler_search_scan`
 N_DRIFT_TRIALS = 161
 # Bands allocated to satellite downlinks, radionavigation satellites, aeronautical radionavigation and, since search
@@ -358,7 +362,7 @@ def find_candidate_windows(
             blocks.append({"a0": a0, "n_use": n_use, "f_lo_mhz": on.freq_of_channel(a0), "f_hi_mhz": on.freq_of_channel(a0 + n_use - 1)})
             if progress is not None:
                 progress(bi + 1, len(starts))
-    return {"version": SEARCH_VERSION, "on": _scan_meta(on), "window": cut, "prefilter_window": window, "block_channels": block_n,
+    return {"version": CUT_VERSION, "on": _scan_meta(on), "window": cut, "prefilter_window": window, "block_channels": block_n,
             "max_in_beam_freq_mhz": max_freq_mhz,
             "freq_lo_mhz": round(on.freq_of_channel(0), 6), "freq_hi_mhz": round(on.freq_of_channel(max(0, a_hi - 1)), 6),
             "blocks": blocks, "entries": entries, "n_candidate_windows": n_candidates, "n_candidates_merged": n_merged}
@@ -608,6 +612,13 @@ def _band_signature(source_id: str, plan: dict[str, Any], on_f: dict[str, Any], 
     return hashlib.sha256(desc.encode("utf-8")).hexdigest()[:24], desc, max_freq
 
 
+def _work_key(desc: str) -> str:
+    """Name of the folder that holds a band's saved windows: the band's description with CUT_VERSION for SEARCH_VERSION."""
+    d = json.loads(desc)
+    d["version"] = CUT_VERSION
+    return hashlib.sha256(json.dumps(d, sort_keys=True).encode("utf-8")).hexdigest()[:24]
+
+
 def _cached_band(sig: str, cache: RawCache) -> dict[str, Any] | None:
     cached = cache.lookup(RADIO_QUERY, SEARCH_VERSION, sig)
     if cached is None or cached.offline_fixture:
@@ -672,7 +683,7 @@ def search_plan_one_file_at_a_time(
             results.append(res)
             continue
         t_start = time.monotonic()
-        work = Path(data_dir) / "_work" / f"{source_id}_{sig}"
+        work = Path(data_dir) / "_work" / f"{source_id}_{_work_key(desc)}"
         work.mkdir(parents=True, exist_ok=True)
 
         def _phase(tag: str, f: dict[str, Any], run: Callable[[ScanFile, Path], dict[str, Any]]) -> dict[str, Any]:

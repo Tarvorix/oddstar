@@ -252,6 +252,16 @@ def test_a_cadence_requires_the_line_in_every_on_scan(tmp_path: Path, cfg: Any) 
     sig_s, desc_s, _ = br._band_signature("9", single, on_s, other_s, c, kinds_s)
     assert sig_c != sig_s and "on_other" in desc_c and "on_other" not in desc_s
     assert br._band_signature("9", single, on_s, other_s, c)[0] == sig_s, "a plan without other ON scans keeps its key"
+    # The saved windows are keyed by the cutting version: a new search version finds them again
+    key = br._work_key(desc_s)
+    assert key != sig_s and key != br._work_key(desc_c)
+    old_version = br.SEARCH_VERSION
+    try:
+        br.SEARCH_VERSION = "bl_local_search_test"
+        sig_new, desc_new, _ = br._band_signature("9", single, on_s, other_s, c, kinds_s)
+        assert sig_new != sig_s and br._work_key(desc_new) == key
+    finally:
+        br.SEARCH_VERSION = old_version
 
 
 def test_allocations_and_beam_edge() -> None:
