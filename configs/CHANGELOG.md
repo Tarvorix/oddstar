@@ -2,6 +2,44 @@
 
 All threshold, sample-cut, and prompt changes must be logged here under Ground Rule R4 before running validation or search.
 
+## [1.3.0] - 2026-11-18
+
+### The spectral-line search reads real survey spectra
+Until now no code fetched a spectrum for a live star, and `search spectral_lines --live` was refused (1.2.0). The
+channel had only ever run on fixtures.
+
+- New survey fetch (`oddstar/io/lamost_bulk.py`, used by `search spectral_lines --live`): two epochs per star from the
+  LAMOST DR12 v2.0 low-resolution survey, reduced to the window around H-alpha in the stellar rest frame. See
+  `docs/channels/spectral_lines.md` for the steps and the not-searched reasons (`n_single_epoch`, `n_no_coverage`,
+  `n_failed`, `n_not_fetched`, `n_no_spectrum`). Only a star with two usable epochs from different nights is searched.
+- New keys under `channels.spectral_lines`: `lamost_min_snr_r: 20.0` is a selection cut (an epoch with a lower red
+  signal-to-noise is not used; the usual quality cut for LAMOST low-resolution work). It was chosen before any star was
+  searched. `lamost_max_attempts: 3`, `lamost_backoff_s: 2.0`, `lamost_rate_limit_rps: 2.0` are operational.
+- `SpectralLinesChannel.measure` now follows the line-spread width it is given. The H-alpha templates are broadened in
+  quadrature by the excess over 0.45 A (the width they were defined at). A known line is excluded out to
+  1.5 x `lsf_fwhm_a` when that exceeds the configured width: a matched filter still answers a line one FWHM away with
+  a quarter of its peak, so at R = 1800 the configured 1.5 A let a strong sky line flag from just outside its zone.
+  When `spectra.sky_line_wavelengths_a` is present, those positions are excluded (all of them, geocoronal H-alpha
+  included) in place of the laboratory list; a spectrum in the stellar rest frame has its sky lines displaced by the
+  star's velocity. Exposure arrays of unequal length are not measured. `sky_line` and `stellar_emission` in vetting
+  use the same list and width. No threshold changed (`residual_snr_threshold`, the 0.4 repeat ratio, both exclusion
+  widths and every `vetting.spectral_*` value are as in 1.2.0).
+- Effect on validation: none. The fixtures have `lsf_fwhm_a = 0.45` and no `sky_line_wavelengths_a`, so every code path
+  above reduces to the 1.2.0 arithmetic. Every certificate value of all eight channels was compared with 1.2.0: blind
+  recovery, impostor tiers, completeness grids and false-alarm rates are identical, and one `spectral_lines`
+  calibration-curve statistic per release moved by about 1e-14 (rounding of the rewritten template expression).
+- `search --live` still refuses `vanishing` and `radio_narrowband`.
+
+Known limits:
+- The certificate describes the channel at a line-spread width of 0.45 A. Nothing was injected at R = 1800: the
+  completeness and false-alarm rate of a LAMOST search are not measured, and its flags are leads, not calibrated
+  detections. The null report of such a run carries the fixture grid and must not be read as a LAMOST sensitivity.
+- The public LAMOST file has no sky spectrum per fibre and no detector map: `sky_line` can fail but not pass, and
+  `detector` is `not_evaluated`, so a LAMOST flag cannot clear every check.
+- About half of the 150 A window is excluded around sky and stellar lines at this resolution.
+- `version: "1.3.0"` (was "1.2.0"). The config hash changes; every certificate is regenerated in a separate commit.
+  Runs made under 1.2.0 (`v120-*`) keep their hash; to fuse channels they are run again under 1.3.0, from the cache.
+
 ## [1.2.0] - 2026-11-18
 
 Two changes. Both were decided from how the pipeline behaved, not from which stars it flagged, and neither can

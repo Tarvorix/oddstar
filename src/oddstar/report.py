@@ -206,6 +206,7 @@ def _not_searched(s: dict[str, Any]) -> str:
         return "0"
     parts = [f"{label} {_num(cov.get(k))}" for k, label in (("n_failed", "fetch failed"), ("n_no_coverage", "no coverage"),
              ("n_insufficient_visits", "too few visits"), ("n_no_light_curve", "no light curve"),
+             ("n_single_epoch", "one spectrum epoch"), ("n_no_spectrum", "no spectrum"),
              ("n_not_fetched", "not fetched")) if cov.get(k)]
     return f"{_num(cov.get('n_not_searched'))}" + (f" ({', '.join(parts)})" if parts else "")
 

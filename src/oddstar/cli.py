@@ -62,7 +62,6 @@ from oddstar.vet import vet_target
 # Channels whose inputs no live ingestion provides yet, with the data each one still needs. `search --live` refuses
 # them: measuring empty inputs for every star would report a search that did not happen.
 CHANNELS_WITHOUT_LIVE_SOURCE: dict[str, str] = {
-    "spectral_lines": "needs repeat spectra per star; no spectroscopic survey ingestion exists",
     "vanishing": "needs historical plate catalogue sources around each position; no plate ingestion exists",
     "radio_narrowband": "needs observed radio cadences at the sample positions; only the built-in cadences exist",
 }
@@ -268,6 +267,7 @@ def _cmd_search(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, 
     ch = build_channel(args.channel, cfg, root)
     neowise_fetch: dict[str, Any] | None = None
     tess_fetch: dict[str, Any] | None = None
+    spectra_fetch: dict[str, Any] | None = None
     if args.channel == "radio_narrowband":
         stars = [dict(v) for v in RADIO_CADENCES.values()]
         cuts = []
@@ -295,6 +295,17 @@ def _cmd_search(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, 
                     print(f"  tess {done}/{total} (last {sid}: {status.split(':')[0]})", file=sys.stderr)
 
             stars, tess_fetch = enrich_sample_tess(stars, cfg, cache, max_stars=args.tess_max_stars, progress=_tess_progress)
+        if args.channel == "spectral_lines":
+            # Two LAMOST low-resolution epochs around H-alpha for every sample star that has them (cached,
+            # rate-limited, retried, resumable). Stars beyond --spectra-max-stars, without a spectrum, with one
+            # usable epoch, or whose fetch failed stay in the sample as not searched.
+            from oddstar.io.lamost_bulk import enrich_sample_lamost
+
+            def _spectra_progress(done: int, total: int, sid: str, status: str) -> None:
+                if not args.json and (done == total or done % 100 == 0):
+                    print(f"  spectra {done}/{total} (last {sid}: {status.split(':')[0]})", file=sys.stderr)
+
+            stars, spectra_fetch = enrich_sample_lamost(stars, cfg, cache, max_stars=args.spectra_max_stars, progress=_spectra_progress)
         if args.channel == "ir_timedomain":
             # NEOWISE-R single-exposure rows only, for every sample star (cached, rate-limited, retried, resumable).
             # Full vetting enrichment still runs below, for flagged stars only. Stars beyond --neowise-max-stars or
@@ -370,6 +381,11 @@ def _cmd_search(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, 
         if sc.flagged:
             flagged_ids.append(sc.source_id)
 
+    if is_live and flagged_ids and args.defer_enrichment and args.channel == "spectral_lines":
+        # The spectral checks read only the spectra the survey fetch attached, and `vet --live` cannot fetch them
+        # again for a single star, so the flagged stars are kept as searched.
+        (run_dir / "live_stars.json").write_text(
+            json.dumps({fsid: stars_by_id[fsid] for fsid in flagged_ids}, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     if is_live and flagged_ids and not args.defer_enrichment:
         live_flagged: dict[str, Any] = {}
         for fsid in flagged_ids:
@@ -386,6 +402,10 @@ def _cmd_search(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, 
         from oddstar.channels.optical_dips.channel import search_coverage_summary as dips_coverage_summary
 
         coverage = dips_coverage_summary(stars, cfg)
+    elif args.channel == "spectral_lines" and is_live:
+        from oddstar.channels.spectral_lines.channel import search_coverage_summary as spectra_coverage_summary
+
+        coverage = spectra_coverage_summary(stars, cfg)
     n_searched = coverage["n_searched"] if coverage is not None else len(stars)
 
     payload = {
@@ -411,6 +431,8 @@ def _cmd_search(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, 
             payload["neowise_fetch"] = neowise_fetch
         if tess_fetch is not None:
             payload["tess_fetch"] = tess_fetch
+        if spectra_fetch is not None:
+            payload["spectra_fetch"] = spectra_fetch
     if is_live or coverage is not None:
         # The real searched sample, so the null report is built from these stars and not from regenerated fixtures
         payload["sample_stars"] = [
@@ -438,7 +460,8 @@ def _cmd_search(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, 
         warnings.append(
             f"{coverage['n_not_searched']} of {coverage['n_input']} stars not searched "
             f"(no_coverage={coverage['n_no_coverage']}, failed={coverage['n_failed']}, not_fetched={coverage['n_not_fetched']}, "
-            f"insufficient_visits={coverage.get('n_insufficient_visits', 0)}, no_light_curve={coverage.get('n_no_light_curve', 0)}); "
+            f"insufficient_visits={coverage.get('n_insufficient_visits', 0)}, no_light_curve={coverage.get('n_no_light_curve', 0)}, "
+            f"single_epoch={coverage.get('n_single_epoch', 0)}, no_spectrum={coverage.get('n_no_spectrum', 0)}); "
             "they are excluded from the null result"
         )
     return CLIResponse(
@@ -453,7 +476,7 @@ def _cmd_search(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, 
             "flagged_ids": flagged_ids,
             **(
                 {"coverage": {k: v for k, v in coverage.items() if k != "not_searched_ids"}, "neowise_fetch": neowise_fetch,
-                 "tess_fetch": tess_fetch}
+                 "tess_fetch": tess_fetch, "spectra_fetch": spectra_fetch}
                 if coverage is not None
                 else {}
             ),
@@ -1302,6 +1325,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--defer-enrichment",
         action="store_true",
         help="--live: do not fetch vetting data for flagged stars now (minutes per star); `vet --live` fetches it later",
+    )
+    p_search.add_argument(
+        "--spectra-max-stars",
+        type=int,
+        default=None,
+        help="spectral_lines --live: look up LAMOST spectra for at most N sample stars (default: all); the rest are reported as not searched",
     )
     p_search.add_argument(
         "--tess-max-stars",

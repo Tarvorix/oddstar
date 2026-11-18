@@ -1,4 +1,4 @@
-version: "1.2.0"
+version: "1.3.0"
 
 storage:
   max_cache_gb: 10.0
@@ -171,6 +171,11 @@ channels:
     sky_line_exclusion_angstrom: 1.5
     stellar_line_exclusion_angstrom: 1.5
     design_point_flux_snr: 12.0
+    # LAMOST low-resolution survey fetch (`search spectral_lines --live`)
+    lamost_min_snr_r: 20.0
+    lamost_max_attempts: 3
+    lamost_backoff_s: 2.0
+    lamost_rate_limit_rps: 2.0
 
   vanishing:
     min_early_plates: 2

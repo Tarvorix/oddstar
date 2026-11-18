@@ -207,7 +207,7 @@ def test_spectral_checks_need_explicit_inputs(fn: Callable[..., Any], bad: dict[
     empty = _spec_star(flux_exp1=[], flux_exp2=[], wavelength_a=[], sky_flux=[], detector_artifact=None)
     _is_ne(fn(empty, cfg, tmp_path / "e"))
     live = _live(_spec_star(), spectra=FAILED)
-    _is_ne(fn(live, cfg, tmp_path / "d"), "spectra=failed", "no live ingestion")
+    _is_ne(fn(live, cfg, tmp_path / "d"), "spectra=failed", "no two-epoch survey spectrum")
 
 
 def test_spectral_edge_cases(cfg: Any, tmp_path: Path) -> None:
