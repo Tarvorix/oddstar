@@ -555,7 +555,14 @@ def search_scan_set(
 
 
 def local_path(data_dir: Path, url: str) -> Path:
-    return Path(data_dir) / url.rsplit("/", 1)[-1]
+    """Where a scan file lives on disk. Green Bank names carry the recording node in front (`blc07_guppi_...`,
+    `spliced_blc0001..._guppi_...`). Parkes multibeam names start with `guppi_`: the two nodes of one scan write the
+    same file name into different directories, so such a name is prefixed with a short hash of its URL and the two
+    files stay apart."""
+    name = url.rsplit("/", 1)[-1]
+    if name.startswith("guppi_"):
+        name = f"{hashlib.sha1(_file_key(url).encode('utf-8')).hexdigest()[:8]}_{name}"
+    return Path(data_dir) / name
 
 
 def plan_other_scans(plan: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:

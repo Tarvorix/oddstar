@@ -595,3 +595,15 @@ def test_one_file_at_a_time_search_gives_the_same_result_and_leaves_no_scan_on_d
     (work / "off1.json").unlink()
     res2 = br.search_plan_one_file_at_a_time("1", plan, data_dir, channel, cfg, cache2)
     assert fetched == ["off_0023.gpuspec.0000.fil"] and res2[0]["selected"]["hit"] == got["selected"]["hit"]
+
+
+def test_two_nodes_of_one_parkes_scan_do_not_share_a_local_file(tmp_path: Path) -> None:
+    # The two recording nodes of one Parkes multibeam scan write the same file name into different directories
+    a = "http://blpd12.ssl.berkeley.edu/collate_mb_2/blc11/guppi_58326_62282_852088_G299.60-41.91_0001.0000.h5"
+    b = "http://blpd12.ssl.berkeley.edu/collate_mb_2/blc12/guppi_58326_62282_852088_G299.60-41.91_0001.0000.h5"
+    pa, pb = br.local_path(tmp_path, a), br.local_path(tmp_path, b)
+    assert pa != pb and pa.name.endswith("_guppi_58326_62282_852088_G299.60-41.91_0001.0000.h5") and pa.suffix == ".h5"
+    assert br.local_path(tmp_path, a.replace("http://", "https://")) == pa, "the scheme does not change the name"
+    # Names that carry their node keep their name
+    gbt = "https://bldata.berkeley.edu/blc07_guppi_59426_77412_NGC4168_0012.rawspec.0000.h5"
+    assert br.local_path(tmp_path, gbt).name == "blc07_guppi_59426_77412_NGC4168_0012.rawspec.0000.h5"
