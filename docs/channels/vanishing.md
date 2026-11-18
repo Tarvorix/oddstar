@@ -10,9 +10,59 @@ Point sources confidently detected on two or more 20th-century photographic plat
 1. Propagate modern Gaia coordinates back to historical plate epochs using `(pmra, pmdec)`.
 2. Require `>= 2` independent early plate detections (`early_plates_count >= 2`) and modern survey non-detection with local depth exceeding early magnitude by `>= 2.0 mag`.
 
+## Live survey search (config 1.4.0)
+A sample star is in Gaia by construction, so it cannot be the unit of this search. `oddstar search vanishing --live`
+searches **plate sources**: the USNO-B1.0 objects around each sample position (`oddstar/io/plate_survey.py`).
+`--limit` is the number of sample positions; `n_searched` counts plate sources.
+
+For each field of radius `plate_field_radius_arcsec` three catalogues are read (cached, rate-limited, retried):
+
+1. USNO-B1.0 (VizieR I/284). A source is a unit when it was detected on both first-epoch plates (blue and red) and is
+   not flagged as lying on a diffraction spike. Its position is at epoch 2000 when the catalogue lists a proper motion,
+   and at the mean plate epoch when it lists none.
+2. Gaia DR3 out to 30" beyond the field edge, moved to the epoch of the plate position with its proper motions. A
+   source within `match_radius_arcsec` is the modern counterpart; the unit then carries the Gaia position and proper
+   motion, which is what the channel propagates.
+3. Pan-STARRS1 DR2 mean objects with at least `plate_ps1_min_detections` detections. An object within
+   `match_radius_arcsec` is a counterpart. The local depth is the `plate_depth_percentile` of the r-band PSF magnitudes
+   of the field's objects and needs `plate_depth_min_objects` of them.
+
+A plate source is **searched** only when all three answers were read, the field has a depth, and the depth exceeds its
+first red magnitude by `min_depth_margin_mag`. Every other one is listed with its reason and excluded from the null
+result:
+
+| Reason | Meaning |
+|---|---|
+| `too_faint` | closer than `min_depth_margin_mag` to the local Pan-STARRS depth: its absence would not be significant |
+| `no_coverage` | the field has no Pan-STARRS depth (south of Dec -30, or too few objects with an r magnitude) |
+| `failed` | the Gaia or Pan-STARRS query of the field failed after `plate_max_attempts`; not cached, retried next run |
+
+A field whose USNO-B query failed yields no plate sources at all. It is counted in `plate_fetch.n_fields_failed_usno`,
+listed in `failed_field_ids`, and the search prints a warning, because its sources are in no count.
+
+Flagged plate sources are written to `live_stars.json` as searched; the per-star archive enrichment does not apply to
+an object that is not a Gaia star. Vetting evaluates `proper_motion`, `plate_defect` and `depth` from the survey record.
+`sso_plate`, `blend_split` and `known_variable` stay `not_evaluated`: no plate-epoch ephemeris, high-resolution imaging
+or variable-star lookup is made.
+
+What a live flag means, and what it does not:
+- USNO-B1.0 contains false sources: plate flaws, halos and spikes of bright stars the flag misses, and detections of
+  different objects merged into one entry. The sample positions are bright stars, so their own halos are in every
+  field; each unit records its distance from the sample star and that star's magnitude (`field_sep_arcsec`,
+  `field_star_g_mag`).
+- The two first-epoch plates of a field were usually exposed the same night. They are independent emulsions, which
+  rejects most plate flaws, but not independent epochs: an asteroid or a satellite glint can be on both.
+- A flag says that no catalogued modern source lies within `match_radius_arcsec`. It does not say the sky is empty
+  there; only the images can.
+- The certificate of this channel was measured on fixtures (a Gaia star paired with a plate record). The rate of false
+  USNO-B entries per field is not part of it, so the expected number of false alarms of a live run is not measured.
+
 ## Thresholds in Config
 Defined in `configs/default.yaml` under `channels.vanishing`:
 - `min_early_plates: 2`, `min_depth_margin_mag: 2.0`, `match_radius_arcsec: 3.0`, `max_pm_residual_arcsec: 1.5`
+- Live plate-source search: `plate_field_radius_arcsec: 60.0`, `plate_ps1_min_detections: 2`, `plate_depth_percentile: 90.0`,
+  `plate_depth_min_objects: 10`, and the operational keys `plate_max_attempts: 3`, `plate_backoff_s: 2.0`,
+  `plate_rate_limit_rps: 2.0`
 
 ## Known Impostors
 - High-proper-motion stars that moved beyond the static cross-match radius, plate emulsion flaws/scratches, large-amplitude Mira/LPV variables, asteroids, and blended sources resolved into multiple modern stars.

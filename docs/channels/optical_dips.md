@@ -33,8 +33,8 @@ with its reason and excluded from the null result:
 | `no_light_curve` | no fetch record and no usable light curve |
 
 The search uses one extraction (QLP). The second extraction (TESScut) and the background and centroid series are fetched
-for flagged stars only, by vetting. `vanishing` and `radio_narrowband` have no live data source yet and `search --live`
-refuses them (`spectral_lines` has one since config 1.3.0).
+for flagged stars only, by vetting. `radio_narrowband` has no live data source yet and `search --live` refuses it
+(`spectral_lines` has one since config 1.3.0, `vanishing` since 1.4.0).
 
 ## Thresholds in Config
 Defined in `configs/default.yaml` under `channels.optical_dips`:

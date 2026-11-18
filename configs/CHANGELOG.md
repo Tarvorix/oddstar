@@ -2,6 +2,42 @@
 
 All threshold, sample-cut, and prompt changes must be logged here under Ground Rule R4 before running validation or search.
 
+## [1.4.0] - 2026-11-18
+
+### The vanishing search reads real plate sources
+Until now no code fetched a plate record for a live object and `search vanishing --live` was refused (1.2.0). The
+channel had only ever run on fixtures. A live sample star is in Gaia by construction and cannot vanish from it, so the
+live search has a different unit: the USNO-B1.0 plate sources around each sample position.
+
+- New survey fetch (`oddstar/io/plate_survey.py`, used by `search vanishing --live`): USNO-B1.0, Gaia DR3 and
+  Pan-STARRS1 DR2 for a field around every sample position. See `docs/channels/vanishing.md` for the steps and the
+  not-searched reasons (`n_too_faint`, `n_no_coverage`, `n_failed`).
+- New keys under `channels.vanishing`, all chosen before any field was searched:
+  - `plate_field_radius_arcsec: 60.0`. A high-latitude field of this size holds a handful of plate sources; 1,000
+    fields are 0.87 square degrees.
+  - `plate_ps1_min_detections: 2`. A Pan-STARRS object with fewer detections is not taken as a counterpart or into the
+    depth. A low value is the cautious choice for a search that flags absence: a doubtful modern object still counts
+    as "something is there".
+  - `plate_depth_percentile: 90.0` and `plate_depth_min_objects: 10`. The local depth is the 90th percentile of the
+    r-band PSF magnitudes of the field's Pan-STARRS objects (22.6 in the one field looked at to check the query
+    format). It is where detections become rare, not where they are complete; the existing `min_depth_margin_mag: 2.0`
+    is applied on top, so a searched plate source is at least 2 mag brighter than that.
+  - `plate_max_attempts: 3`, `plate_backoff_s: 2.0`, `plate_rate_limit_rps: 2.0` are operational.
+- The channel code did not change. Thresholds `min_early_plates`, `min_depth_margin_mag`, `match_radius_arcsec` and
+  `max_pm_residual_arcsec` are as in 1.3.0. `vet/vanishing_checks.py` changed in its description only (which inputs a
+  live object can have); every certificate value of all eight channels is identical to 1.3.0.
+- `search --live` now refuses only `radio_narrowband`.
+
+Known limits:
+- The certificate describes a Gaia star paired with a plate record. The rate of false USNO-B1.0 entries (plate flaws,
+  halos of bright stars, merged detections) is not part of it, so the false-alarm rate of a live run is not measured
+  and its flags are leads. The null report of such a run carries the fixture grid.
+- The two first-epoch plates are independent emulsions, usually of the same night, not independent epochs.
+- `sso_plate`, `blend_split` and `known_variable` have no live input and stay `not_evaluated`, so a live flag cannot
+  clear every check.
+- South of Dec -30 there is no Pan-STARRS coverage and nothing is searched.
+- `version: "1.4.0"` (was "1.3.0"). The config hash changes; every certificate is regenerated in a separate commit.
+
 ## [1.3.0] - 2026-11-18
 
 ### The spectral-line search reads real survey spectra

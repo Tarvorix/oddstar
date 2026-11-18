@@ -62,7 +62,6 @@ from oddstar.vet import vet_target
 # Channels whose inputs no live ingestion provides yet, with the data each one still needs. `search --live` refuses
 # them: measuring empty inputs for every star would report a search that did not happen.
 CHANNELS_WITHOUT_LIVE_SOURCE: dict[str, str] = {
-    "vanishing": "needs historical plate catalogue sources around each position; no plate ingestion exists",
     "radio_narrowband": "needs observed radio cadences at the sample positions; only the built-in cadences exist",
 }
 
@@ -268,6 +267,7 @@ def _cmd_search(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, 
     neowise_fetch: dict[str, Any] | None = None
     tess_fetch: dict[str, Any] | None = None
     spectra_fetch: dict[str, Any] | None = None
+    plate_fetch: dict[str, Any] | None = None
     if args.channel == "radio_narrowband":
         stars = [dict(v) for v in RADIO_CADENCES.values()]
         cuts = []
@@ -295,6 +295,19 @@ def _cmd_search(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, 
                     print(f"  tess {done}/{total} (last {sid}: {status.split(':')[0]})", file=sys.stderr)
 
             stars, tess_fetch = enrich_sample_tess(stars, cfg, cache, max_stars=args.tess_max_stars, progress=_tess_progress)
+        n_fields = len(stars)
+        if args.channel == "vanishing":
+            # The unit of this search is a plate source, not a sample star (a sample star is in Gaia by
+            # construction): every USNO-B1.0 source with two first-epoch plates around each sample position,
+            # compared with Gaia and Pan-STARRS (cached, rate-limited, retried, resumable). From here on `stars`
+            # holds plate sources; those that could not be compared stay in the list as not searched.
+            from oddstar.io.plate_survey import fetch_plate_units
+
+            def _plate_progress(done: int, total: int, sid: str, status: str) -> None:
+                if not args.json and (done == total or done % 100 == 0):
+                    print(f"  plate fields {done}/{total} (last {sid}: {status.split(':')[0]})", file=sys.stderr)
+
+            stars, plate_fetch = fetch_plate_units(stars, cfg, cache, max_fields=args.plate_max_fields, progress=_plate_progress)
         if args.channel == "spectral_lines":
             # Two LAMOST low-resolution epochs around H-alpha for every sample star that has them (cached,
             # rate-limited, retried, resumable). Stars beyond --spectra-max-stars, without a spectrum, with one
@@ -323,11 +336,19 @@ def _cmd_search(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, 
         cuts = [
             {
                 "cut_name": f"gaia_{args.region}_live",
-                "description": f"Live Gaia DR3 x AllWISE x 2MASS region='{args.region}' (n={len(stars)}, after_random_index={args.after_random_index})",
-                "count_before": len(stars),
-                "count_after": len(stars),
+                "description": f"Live Gaia DR3 x AllWISE x 2MASS region='{args.region}' (n={n_fields}, after_random_index={args.after_random_index})",
+                "count_before": n_fields,
+                "count_after": n_fields,
             }
         ]
+        if plate_fetch is not None:
+            cuts.append({
+                "cut_name": "usno_b1_plate_sources",
+                "description": (f"USNO-B1.0 sources within {plate_fetch['field_radius_arcsec']:g}\" of each sample position with both first-epoch "
+                                f"plates and no spike flag ({plate_fetch['n_usno_sources']} catalogue sources in {plate_fetch['n_fields_requested']} fields)"),
+                "count_before": int(plate_fetch["n_usno_sources"]),
+                "count_after": len(stars),
+            })
         healpix_cells = sorted({ra_dec_to_healpix(float(s["ra_deg"]), float(s["dec_deg"]), nside=nside) for s in stars})
     else:
         spec, stars = build_parent_sample(
@@ -355,6 +376,13 @@ def _cmd_search(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, 
     for star in stars:
         m = ch.measure(star, {})
         sc = ch.score(m)
+        if plate_fetch is not None:
+            from oddstar.io.plate_survey import plate_search_status
+
+            plate_status = plate_search_status(star)
+            if plate_status != "searched":
+                # No modern comparison was made for this plate source, so it can be neither flagged nor cleared
+                sc = sc.model_copy(update={"flagged": False, "summary": f"NOT SEARCHED ({plate_status}): plate source not compared with modern catalogues"})
         # Calibrate FAP immediately against the active certificate
         from oddstar.fuse.engine import calibrate_fap
 
@@ -381,12 +409,14 @@ def _cmd_search(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, 
         if sc.flagged:
             flagged_ids.append(sc.source_id)
 
-    if is_live and flagged_ids and args.defer_enrichment and args.channel == "spectral_lines":
-        # The spectral checks read only the spectra the survey fetch attached, and `vet --live` cannot fetch them
-        # again for a single star, so the flagged stars are kept as searched.
+    keep_as_searched = args.channel == "vanishing" or (args.channel == "spectral_lines" and args.defer_enrichment)
+    if is_live and flagged_ids and keep_as_searched:
+        # The spectral checks read only the spectra the survey fetch attached, and the vanishing checks only the
+        # plate record and its modern comparison; `vet --live` cannot fetch either again for a single object. A
+        # plate source is not a Gaia star, so the per-star archive enrichment does not apply to it at all.
         (run_dir / "live_stars.json").write_text(
             json.dumps({fsid: stars_by_id[fsid] for fsid in flagged_ids}, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    if is_live and flagged_ids and not args.defer_enrichment:
+    if is_live and flagged_ids and not args.defer_enrichment and args.channel != "vanishing":
         live_flagged: dict[str, Any] = {}
         for fsid in flagged_ids:
             enriched, _ = enrich_star_live_for_vetting(stars_by_id[fsid], cfg, cache)
@@ -406,6 +436,10 @@ def _cmd_search(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, 
         from oddstar.channels.spectral_lines.channel import search_coverage_summary as spectra_coverage_summary
 
         coverage = spectra_coverage_summary(stars, cfg)
+    elif plate_fetch is not None:
+        from oddstar.io.plate_survey import search_coverage_summary as plate_coverage_summary
+
+        coverage = plate_coverage_summary(stars, cfg)
     n_searched = coverage["n_searched"] if coverage is not None else len(stars)
 
     payload = {
@@ -433,6 +467,8 @@ def _cmd_search(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, 
             payload["tess_fetch"] = tess_fetch
         if spectra_fetch is not None:
             payload["spectra_fetch"] = spectra_fetch
+        if plate_fetch is not None:
+            payload["plate_fetch"] = plate_fetch
     if is_live or coverage is not None:
         # The real searched sample, so the null report is built from these stars and not from regenerated fixtures
         payload["sample_stars"] = [
@@ -459,11 +495,15 @@ def _cmd_search(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, 
     if coverage is not None and coverage["n_not_searched"]:
         warnings.append(
             f"{coverage['n_not_searched']} of {coverage['n_input']} stars not searched "
-            f"(no_coverage={coverage['n_no_coverage']}, failed={coverage['n_failed']}, not_fetched={coverage['n_not_fetched']}, "
+            f"(no_coverage={coverage.get('n_no_coverage', 0)}, failed={coverage.get('n_failed', 0)}, not_fetched={coverage.get('n_not_fetched', 0)}, "
             f"insufficient_visits={coverage.get('n_insufficient_visits', 0)}, no_light_curve={coverage.get('n_no_light_curve', 0)}, "
-            f"single_epoch={coverage.get('n_single_epoch', 0)}, no_spectrum={coverage.get('n_no_spectrum', 0)}); "
+            f"single_epoch={coverage.get('n_single_epoch', 0)}, no_spectrum={coverage.get('n_no_spectrum', 0)}, "
+            f"too_faint={coverage.get('n_too_faint', 0)}); "
             "they are excluded from the null result"
         )
+    if plate_fetch is not None and plate_fetch["n_fields_failed_usno"]:
+        warnings.append(f"{plate_fetch['n_fields_failed_usno']} of {plate_fetch['n_fields_requested']} fields returned no plate catalogue "
+                        "(query failed); their plate sources are unknown and are in no count")
     return CLIResponse(
         ok=True,
         summary=f"Searched {n_searched} of {len(stars)} targets on '{args.channel}' -> {len(flagged_ids)} flagged (run_id={run_id})",
@@ -476,7 +516,7 @@ def _cmd_search(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, 
             "flagged_ids": flagged_ids,
             **(
                 {"coverage": {k: v for k, v in coverage.items() if k != "not_searched_ids"}, "neowise_fetch": neowise_fetch,
-                 "tess_fetch": tess_fetch, "spectra_fetch": spectra_fetch}
+                 "tess_fetch": tess_fetch, "spectra_fetch": spectra_fetch, "plate_fetch": plate_fetch}
                 if coverage is not None
                 else {}
             ),
@@ -1325,6 +1365,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--defer-enrichment",
         action="store_true",
         help="--live: do not fetch vetting data for flagged stars now (minutes per star); `vet --live` fetches it later",
+    )
+    p_search.add_argument(
+        "--plate-max-fields",
+        type=int,
+        default=None,
+        help="vanishing --live: read plate sources around at most N sample positions (default: all)",
     )
     p_search.add_argument(
         "--spectra-max-stars",
