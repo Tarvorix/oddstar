@@ -7,6 +7,8 @@ the star. It downloads no radio data: one fine-resolution scan is 15 to 110 GB.
 
 Statuses of one star (`radio_coverage.status`):
 - "in_beam": at least one radio file has the star inside its half-power beam;
+- "unverified_pointing": no file is known to hold the star in its beam, but a file whose southern declination the
+  index may list wrongly (see `true_declination`) could;
 - "near_pointing": files exist within the query radius, but the star is outside every half-power beam;
 - "no_coverage": the index holds no radio file within the query radius;
 - "failed: ...": the index could not be read (not cached, retried next run).
@@ -57,7 +59,8 @@ MIN_REQUEST_INTERVAL_S = 0.5
 # GBT and the Parkes multibeam name it product 0000 (.0000.h5, .0000.fil, .0000.hires.hdf). The Parkes ultra-wideband
 # receiver writes one .fil per 128 MHz sub-band named by start time; its size (18 or 19 spectra of 2**25 channels of
 # 4 bytes plus a header) shows 3.8 Hz channels.
-FINE_RESOLUTION_URL = re.compile(r"\.0000\.(h5|fil)$|\.0000\.hires\.hdf$|/PKSUWL/.*T\d\d:\d\d:\d\d\.\d{3}\.fil$")
+# The Parkes single-beam receivers of 2017 name it "<...>_fine.h5".
+FINE_RESOLUTION_URL = re.compile(r"\.0000\.(h5|fil)$|\.0000\.hires\.hdf$|/PKSUWL/.*T\d\d:\d\d:\d\d\.\d{3}\.fil$|/Parkes_[^/]*_fine\.h5$")
 # Scans of one observing block follow each other within minutes; an OFF scan must start within this of the ON scan
 OFF_SCAN_WINDOW_DAYS = 0.02
 # An OFF pointing must be at least this many half-power radii from the star, so the star is far outside its beam
@@ -67,7 +70,85 @@ SAME_SCAN_MJD_TOL = 5.0 / 86400.0
 # The Parkes multibeam records 13 beams at once; this many other beams of the same instant make a comparison
 MIN_SIMULTANEOUS_OFF_BEAMS = 2
 
+# --- Southern declinations of the index (measured 2026-11-18).
+# Right ascensions and northern declinations are right. Many southern declinations are not: for a true declination
+# -(D + f), with D whole degrees and 0 <= f < 1, the index lists -(D + c - f). The fraction of a degree is mirrored,
+# and c depends on how the file family was entered:
+# - Green Bank "guppi_<day>_<second>_<target>_<scan>.gpuspec" products and Parkes ultra-wideband files: c = 40' 40"
+#   (HIP 3026, HIP 3909 and HIP 17147 at Green Bank, HIP 1837 at Parkes, each against its Gaia DR3 position);
+# - Parkes single-beam "Parkes_<day>_<second>_<target>_fine.h5" files: c = 0, the degrees were taken as negative
+#   and the minutes and seconds added as positive (HIP 8102, HIP 113368);
+# - Parkes multibeam files (collate_mb): right as listed (G238.23-51.24 and G306.02-45.34: the listed beam is
+#   29 arcmin from the position its Galactic name gives, the spacing of the inner ring of beams).
+# A southern file of any other family is "unverified": its declination is not trusted in either direction.
+# True declinations between -1 and 0 degrees cannot be recovered (the degree field carries no sign there), so a
+# pointing in that strip is not found.
+DEC_MIRROR_40_40 = 40.0 / 60.0 + 40.0 / 3600.0
+DEC_MIRRORS = {"mirror_40_40": DEC_MIRROR_40_40, "mirror_0": 0.0}
+# (telescope, URL pattern, rule); the first match decides
+_DEC_RULES: tuple[tuple[str, re.Pattern[str], str], ...] = (
+    ("PARKES", re.compile(r"/collate_mb"), "as_listed"),
+    ("PARKES", re.compile(r"/PKSUWL/"), "mirror_40_40"),
+    ("PARKES", re.compile(r"/Parkes_\d+_\d+_[^/]*_fine\.h5$"), "mirror_0"),
+    ("GBT", re.compile(r"guppi_\d+_\d+_[^/]*\.gpuspec\."), "mirror_40_40"),
+)
+
 ProgressCallback = Callable[[int, int, str, str], None]
+
+
+def unmirror_declination(index_decl: float, c: float) -> float:
+    """True declination of a southern index value listed as -(D + c - f)."""
+    a = abs(index_decl)
+    whole = math.ceil(round(a - c, 6))
+    return -(2.0 * whole + c - a)
+
+
+def mirror_declination(dec: float, c: float) -> float | None:
+    """Where the index lists a true southern declination under mirror constant `c`; None in the strip above -1."""
+    a = abs(dec)
+    whole = math.floor(a)
+    return None if dec >= 0.0 or whole == 0 else -(whole + c - (a - whole))
+
+
+def declination_rule(telescope: str, url: str, index_decl: float) -> str:
+    """ "as_listed", "mirror_40_40", "mirror_0" or "unverified" for one file record."""
+    if index_decl >= 0.0:
+        return "as_listed"
+    for tel, pattern, rule in _DEC_RULES:
+        if tel == str(telescope).upper() and pattern.search(url):
+            return rule
+    return "unverified"
+
+
+def true_declination(telescope: str, url: str, index_decl: float) -> tuple[float, str]:
+    """(declination, rule) of a file record. An "unverified" record keeps the listed value, which must not be trusted."""
+    rule = declination_rule(telescope, url, index_decl)
+    if rule in DEC_MIRRORS:
+        return unmirror_declination(index_decl, DEC_MIRRORS[rule]), rule
+    return index_decl, rule
+
+
+def candidate_declinations(index_decl: float) -> list[float]:
+    """Every declination an unverified southern record could truly have: as listed, or mirrored either way."""
+    return [index_decl, *[unmirror_declination(index_decl, c) for c in DEC_MIRRORS.values()]]
+
+
+def index_query_declinations(dec: float, radius_deg: float) -> list[float]:
+    """Declinations at which the index must be asked to find every file within `radius_deg` of a true declination.
+
+    North of the equator that is the declination itself. South of it, a file can also be listed at the mirrored
+    value of either family, and the part of the circle that lies in a neighbouring whole degree is mirrored into
+    a different place, which is asked separately.
+    """
+    out = [dec]
+    if dec >= 0.0:
+        return out
+    for c in DEC_MIRRORS.values():
+        for d in (dec, dec - radius_deg, dec + radius_deg):
+            m = mirror_declination(d, c)
+            if m is not None and all(abs(m - o) > 1e-6 for o in out) and (d == dec or math.floor(abs(d)) != math.floor(abs(dec))):
+                out.append(m)
+    return out
 
 
 def half_power_radius_arcsec(telescope: str, center_freq_mhz: float) -> float | None:
@@ -112,6 +193,36 @@ def query_bl_files(
     return rows, man, False
 
 
+def query_star_rows(
+    ra: float, dec: float, cache: RawCache, *, radius_deg: float = BL_QUERY_RADIUS_DEG, sleep: ot.Sleeper = time.sleep,
+    min_interval_s: float = 0.0,
+) -> tuple[list[dict[str, Any]], list[ManifestRecord], bool]:
+    """Every file record that could lie within `radius_deg` of a true position, wherever the index lists it.
+
+    Asks the index at each declination of `index_query_declinations` and merges the answers (one record per file).
+    Every request that went to the network is followed by a pause that fills `min_interval_s`.
+    Returns (rows, manifests, all_from_cache).
+    """
+    merged: dict[Any, dict[str, Any]] = {}
+    manifests: list[ManifestRecord] = []
+    all_cached = True
+    for q_dec in index_query_declinations(dec, radius_deg):
+        t_req = time.monotonic()
+        hit = False
+        try:
+            rows, man, hit = query_bl_files(ra, q_dec, cache, radius_deg=radius_deg, sleep=sleep)
+        finally:
+            wait = min_interval_s - (time.monotonic() - t_req)
+            if not hit and wait > 0:
+                sleep(wait)
+        all_cached = all_cached and hit
+        if man is not None:
+            manifests.append(man)
+        for r in rows:
+            merged.setdefault(r.get("id", r.get("url")), r)
+    return list(merged.values()), manifests, all_cached
+
+
 def query_bl_time_window(
     telescope: str, mjd_start: float, mjd_end: float, cache: RawCache, *, sleep: ot.Sleeper = time.sleep,
 ) -> tuple[list[dict[str, Any]], ManifestRecord | None, bool]:
@@ -143,16 +254,22 @@ def query_bl_time_window(
 
 
 def _fine_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Fine-resolution radio files with a usable position, time and frequency."""
+    """Fine-resolution radio files with a usable position, time and frequency.
+
+    The declination is the true one (`true_declination`); a file whose declination is unverified is left out, so it
+    is neither an ON scan nor a comparison scan.
+    """
     out = []
     for r in rows:
         try:
             rec = {"url": str(r["url"]), "target": str(r.get("target", "")), "telescope": str(r.get("telescope", "")).upper(),
-                   "center_freq_mhz": float(r["center_freq"]), "ra_deg": float(r["ra"]), "dec_deg": float(r["decl"]), "mjd": float(r["mjd"]),
+                   "center_freq_mhz": float(r["center_freq"]), "ra_deg": float(r["ra"]), "mjd": float(r["mjd"]),
                    "size_bytes": int(r.get("size") or 0), "md5sum": str(r.get("md5sum") or "")}
+            rec["dec_deg"], rec["dec_rule"] = true_declination(rec["telescope"], rec["url"], float(r["decl"]))
         except (KeyError, TypeError, ValueError):
             continue
-        if FINE_RESOLUTION_URL.search(rec["url"]) and half_power_radius_arcsec(rec["telescope"], rec["center_freq_mhz"]) is not None:
+        if (rec["dec_rule"] != "unverified" and FINE_RESOLUTION_URL.search(rec["url"])
+                and half_power_radius_arcsec(rec["telescope"], rec["center_freq_mhz"]) is not None):
             out.append(rec)
     return out
 
@@ -191,7 +308,7 @@ def plan_star_scans(
 ) -> list[dict[str, Any]]:
     """ON scans that contain the position, each with the OFF scans a comparison needs.
 
-    `rows` is the index answer around the position (`query_bl_files`). A scan is the set of fine-resolution files of
+    `rows` is the index answer around the position (`query_star_rows`). A scan is the set of fine-resolution files of
     one target that start together; only files whose half-power beam contains the position are ON files. An OFF
     scan is another target observed by the same telescope, at least `OFF_MIN_SEPARATION_BEAM_RADII` half-power radii
     from the position, holding a file at the frequency of every ON file (to 1 MHz). Two kinds are listed: the nearest
@@ -254,6 +371,9 @@ def beam_coverage(ra: float, dec: float, rows: list[dict[str, Any]]) -> dict[str
 
     A pointing is (target, telescope, receiver band to the nearest 100 MHz of the centre frequency). Its separation
     is the smallest separation of any of its files; it is in beam when that is within the half-power radius.
+    Separations use the true declination of each file (`true_declination`). A pointing with a file of unverified
+    declination is never in beam; its separation is the smallest over the declinations the file could have, and
+    `possibly_in_beam` says whether one of them would hold the position.
     """
     pointings: dict[tuple[str, str, int], dict[str, Any]] = {}
     n_radio = 0
@@ -261,18 +381,24 @@ def beam_coverage(ra: float, dec: float, rows: list[dict[str, Any]]) -> dict[str
         tel = str(r.get("telescope", "")).upper()
         try:
             f_mhz = float(r.get("center_freq"))
-            p_ra, p_dec = float(r.get("ra")), float(r.get("decl"))
+            p_ra, listed = float(r.get("ra")), float(r.get("decl"))
         except (TypeError, ValueError):
             continue
         radius = half_power_radius_arcsec(tel, f_mhz)
         if radius is None:
             continue
         n_radio += 1
-        sep = angular_separation_arcsec(ra, dec, p_ra, p_dec)
+        p_dec, rule = true_declination(tel, str(r.get("url", "")), listed)
+        if rule == "unverified":
+            sep = min(angular_separation_arcsec(ra, dec, p_ra, d) for d in candidate_declinations(listed))
+        else:
+            sep = angular_separation_arcsec(ra, dec, p_ra, p_dec)
         key = (str(r.get("target", "")), tel, int(round(f_mhz / 100.0)) * 100)
         p = pointings.setdefault(key, {"target": key[0], "telescope": tel, "band_mhz": key[2], "n_files": 0, "total_bytes": 0,
                                        "sep_arcsec": sep, "half_power_radius_arcsec": radius, "mjd_min": None, "mjd_max": None,
-                                       "file_types": []})
+                                       "file_types": [], "dec_rules": []})
+        if rule not in p["dec_rules"]:
+            p["dec_rules"].append(rule)
         p["n_files"] += 1
         p["total_bytes"] += int(r.get("size") or 0)
         if sep < p["sep_arcsec"]:
@@ -286,15 +412,21 @@ def beam_coverage(ra: float, dec: float, rows: list[dict[str, Any]]) -> dict[str
             p["file_types"].append(ft)
     out = []
     for p in sorted(pointings.values(), key=lambda x: (x["sep_arcsec"], x["target"], x["band_mhz"])):
-        p["in_beam"] = bool(p["sep_arcsec"] <= p["half_power_radius_arcsec"])
+        inside = bool(p["sep_arcsec"] <= p["half_power_radius_arcsec"])
+        p["dec_rules"] = sorted(p["dec_rules"])
+        p["dec_unverified"] = "unverified" in p["dec_rules"]
+        p["in_beam"] = inside and not p["dec_unverified"]
+        p["possibly_in_beam"] = inside and p["dec_unverified"]
         p["sep_arcsec"] = round(p["sep_arcsec"], 1)
         p["half_power_radius_arcsec"] = round(p["half_power_radius_arcsec"], 1)
         p["file_types"] = sorted(p["file_types"])
         out.append(p)
     in_beam = [p for p in out if p["in_beam"]]
-    status = "in_beam" if in_beam else ("near_pointing" if out else "no_coverage")
+    possible = [p for p in out if p["possibly_in_beam"]]
+    status = "in_beam" if in_beam else "unverified_pointing" if possible else "near_pointing" if out else "no_coverage"
     return {"status": status, "n_index_rows": len(rows), "n_radio_files": n_radio, "index_answer_full": len(rows) >= BL_TRUSTED_ROWS,
-            "n_pointings": len(out), "n_pointings_in_beam": len(in_beam), "pointings": out}
+            "n_pointings": len(out), "n_pointings_in_beam": len(in_beam), "n_pointings_unverified": sum(p["dec_unverified"] for p in out),
+            "pointings": out}
 
 
 def sample_radio_coverage(
@@ -303,36 +435,33 @@ def sample_radio_coverage(
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Radio-pointing coverage of every star. Returns (per-star records in input order, summary).
 
-    Cached answers are not rate-limited, so an interrupted census resumes quickly. A failed star is recorded as
+    A star south of the equator is asked for at several declinations (`query_star_rows`). Cached answers are not
+    rate-limited, so an interrupted census resumes quickly. A failed star is recorded as
     "failed: ..." and counted separately; it is neither covered nor uncovered.
     """
     records: list[dict[str, Any]] = []
-    counts = {"in_beam": 0, "near_pointing": 0, "no_coverage": 0, "failed": 0}
+    counts = {"in_beam": 0, "unverified_pointing": 0, "near_pointing": 0, "no_coverage": 0, "failed": 0}
     t_start = time.monotonic()
     for i, s in enumerate(stars):
         sid = str(s["source_id"])
         ra, dec = float(s["ra_deg"]), float(s["dec_deg"])
-        t_req = time.monotonic()
         try:
-            rows, man, hit = query_bl_files(ra, dec, cache, sleep=sleep)
+            rows, mans, _ = query_star_rows(ra, dec, cache, sleep=sleep, min_interval_s=min_interval_s)
             rec = beam_coverage(ra, dec, rows)
-            rec["manifest_id"] = man.manifest_id if man is not None else None
+            rec["manifest_ids"] = [m.manifest_id for m in mans]
         except ArchiveAccessError as exc:
-            rec, hit = {"status": f"failed: {str(exc)[:200]}", "pointings": []}, False
+            rec = {"status": f"failed: {str(exc)[:200]}", "pointings": []}
         rec.update({"source_id": sid, "ra_deg": ra, "dec_deg": dec})
         key = "failed" if rec["status"].startswith("failed") else rec["status"]
         counts[key] += 1
         records.append(rec)
         if progress is not None:
             progress(i + 1, len(stars), sid, rec["status"])
-        if not hit:
-            wait = min_interval_s - (time.monotonic() - t_req)
-            if wait > 0:
-                sleep(wait)
     summary = {
-        "n_input": len(stars), "n_in_beam": counts["in_beam"], "n_near_pointing": counts["near_pointing"],
-        "n_no_coverage": counts["no_coverage"], "n_failed": counts["failed"],
+        "n_input": len(stars), "n_in_beam": counts["in_beam"], "n_unverified_pointing": counts["unverified_pointing"],
+        "n_near_pointing": counts["near_pointing"], "n_no_coverage": counts["no_coverage"], "n_failed": counts["failed"],
         "in_beam_ids": [r["source_id"] for r in records if r["status"] == "in_beam"],
+        "unverified_pointing_ids": [r["source_id"] for r in records if r["status"] == "unverified_pointing"],
         "near_pointing_ids": [r["source_id"] for r in records if r["status"] == "near_pointing"],
         "failed_ids": [r["source_id"] for r in records if r["status"].startswith("failed")],
         "query_radius_deg": BL_QUERY_RADIUS_DEG, "elapsed_s": round(time.monotonic() - t_start, 1),
@@ -365,7 +494,7 @@ def main(argv: list[str] | None = None) -> int:
                 continue
             ra, dec = float(rec["ra_deg"]), float(rec["dec_deg"])
             try:
-                rows, _, _ = query_bl_files(ra, dec, cache)
+                rows, _, _ = query_star_rows(ra, dec, cache)
                 scans = plan_star_scans(ra, dec, rows, cache)
                 entry: dict[str, Any] = {"status": "ok", "scans": scans}
             except ArchiveAccessError as exc:

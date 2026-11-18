@@ -9,8 +9,9 @@ Every number that decides a flag comes from `RadioNarrowbandChannel.measure` and
 
 What a star's record holds after `enrich_sample_radio`:
 
-- `radio_fetch.status`: "ok" (a complete scan set was on disk and searched), "not_downloaded" (the star is inside a
-  beam and a complete ON/OFF set exists in the archive, but its files are not in the data directory),
+- `radio_fetch.status`: "ok" (a complete scan set was on disk, or already searched and its result stored, and was
+  searched), "not_downloaded" (the star is inside a beam and a complete ON/OFF set exists in the archive, but its
+  files are not in the data directory and no stored result exists),
   "no_comparison" (inside a beam, but the archive has no OFF scans for it), "no_coverage" (inside no half-power
   beam), "failed: ..." (the index or a file could not be read), "not_fetched" (beyond `max_stars`).
 - For "ok": `scans`, `dt_s`, `df_hz`, `center_freq_mhz` of one window (the one hardest to explain: flagged outside
@@ -271,53 +272,134 @@ def _window_key(hit: dict[str, Any]) -> tuple[int, float]:
     return (1, hit["raw_statistic"]) if hit["raw_statistic"] > 0 else (0, hit["max_on_snr"])
 
 
-def search_scan_set(
-    source_id: str,
-    on: ScanFile,
-    offs: list[ScanFile],
-    channel: Any,
-    cfg: PipelineConfig,
-    *,
-    max_freq_mhz: float | None = None,
+def _scan_meta(sf: ScanFile) -> dict[str, Any]:
+    return {"file": sf.path.name, "source_name": sf.source_name, "df_hz": sf.df_hz, "tsamp_s": sf.tsamp_s, "tstart_mjd": sf.tstart_mjd,
+            "n_ints": sf.n_ints, "nchans": sf.nchans, "f_low_mhz": sf.f_low_mhz, "foff_abs_mhz": abs(sf.foff_mhz)}
+
+
+def _load_windows(path: Path, n_windows: int, n_ints: int, window: int) -> np.ndarray:
+    if n_windows == 0:
+        return np.zeros((0, n_ints, window), dtype=np.float32)
+    return np.memmap(path, dtype="<f4", mode="r", shape=(n_windows, n_ints, window))
+
+
+def find_candidate_windows(
+    on: ScanFile, cfg: PipelineConfig, store_path: Path, *, max_freq_mhz: float | None = None,
     progress: Callable[[int, int], None] | None = None,
 ) -> dict[str, Any]:
-    """Search one ON scan against its OFF scans. Returns the counts, the evaluated windows and the selected cadence.
+    """Phase 1, ON scan only: every window that reaches the prefilter level, plus the strongest window of each block.
 
-    `channel` is the `RadioNarrowbandChannel`; each candidate window is measured and scored by it. Frequencies above
-    `max_freq_mhz` (where the star leaves the half-power beam) are not searched.
+    The power of each listed window is appended to `store_path` (float32, time x channel). The returned record
+    names each window by its lowest ascending channel and frequency, so the same sky frequencies can be cut from
+    the OFF scans later without the ON file.
     """
     st = _settings(cfg)
     window, block_n = int(st["window"]), int(st["block"])
-    if not offs:
-        raise ArchiveAccessError("a search needs at least one OFF scan", retryable=False)
-    for o in offs:
-        if abs(o.df_hz - on.df_hz) > 1e-6 * on.df_hz or abs(o.tsamp_s - on.tsamp_s) > 1e-6 * on.tsamp_s:
-            raise ArchiveAccessError(f"{o.path.name} and {on.path.name} differ in channel width or sampling time", retryable=False)
-    t_start = time.monotonic()
-    order = sorted([(on, "ON"), *[(o, "OFF") for o in offs]], key=lambda p: p[0].tstart_mjd)
-    t0 = order[0][0].tstart_mjd
     a_hi = on.nchans
     if max_freq_mhz is not None:
         a_hi = max(0, min(on.nchans, on.channel_of_freq(max_freq_mhz) + 1))
     starts = [a for a in range(0, a_hi, block_n) if min(a + block_n, a_hi) - a >= window]
-    counts = {"n_candidate_windows": 0, "n_candidates_merged": 0, "n_windows_evaluated": 0, "n_windows_flagged": 0,
-              "n_windows_flagged_outside_rfi_bands": 0, "n_blocks_without_off": 0, "n_channels_searched": 0}
+    entries: list[dict[str, Any]] = []
+    blocks: list[dict[str, Any]] = []
+    n_candidates = n_merged = 0
+    store_path = Path(store_path)
+    store_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(store_path, "wb") as fh:
+        for bi, a0 in enumerate(starts):
+            a1 = min(a0 + block_n, a_hi)
+            block = on.read_ascending(a0, a1)
+            snr, _, ch = prefilter_block(block, on.tsamp_s, on.df_hz, st["max_drift"], window)
+            n_use = (block.shape[1] // window) * window
+            cand = [int(i) for i in np.argsort(-snr) if snr[i] >= st["prefilter"]]
+            n_candidates += len(cand)
+            picks = [(i, True) for i in cand] or [(int(np.argmax(snr)), False)]  # a quiet block still lists its strongest window
+            done: list[int] = []
+            for i, is_cand in picks:
+                c = int(ch[i])
+                if any(lo <= c < lo + window for lo in done):
+                    n_merged += 1
+                    continue
+                lo = max(0, min(c - window // 2, n_use - window))
+                done.append(lo)
+                fh.write(np.ascontiguousarray(block[:, lo:lo + window], dtype="<f4").tobytes())
+                entries.append({"a_lo": a0 + lo, "f_lo_mhz": on.freq_of_channel(a0 + lo), "block": bi, "candidate": is_cand,
+                                "prefilter_snr": float(snr[i]), "hit_channel": a0 + c, "hit_freq_mhz": on.freq_of_channel(a0 + c)})
+            blocks.append({"a0": a0, "n_use": n_use, "f_lo_mhz": on.freq_of_channel(a0), "f_hi_mhz": on.freq_of_channel(a0 + n_use - 1)})
+            if progress is not None:
+                progress(bi + 1, len(starts))
+    return {"version": SEARCH_VERSION, "on": _scan_meta(on), "window": window, "block_channels": block_n, "max_in_beam_freq_mhz": max_freq_mhz,
+            "freq_lo_mhz": round(on.freq_of_channel(0), 6), "freq_hi_mhz": round(on.freq_of_channel(max(0, a_hi - 1)), 6),
+            "blocks": blocks, "entries": entries, "n_candidate_windows": n_candidates, "n_candidates_merged": n_merged}
+
+
+def extract_windows(scan: ScanFile, found: dict[str, Any], store_path: Path, *, progress: Callable[[int, int], None] | None = None) -> dict[str, Any]:
+    """Phase 2, one OFF scan: the power at the sky frequencies of every listed ON window, appended to `store_path`.
+
+    A window the scan does not hold is written as zeros and marked not covered; so is a whole block.
+    """
+    on = found["on"]
+    if abs(scan.df_hz - on["df_hz"]) > 1e-6 * on["df_hz"] or abs(scan.tsamp_s - on["tsamp_s"]) > 1e-6 * on["tsamp_s"]:
+        raise ArchiveAccessError(f"{scan.path.name} and {on['file']} differ in channel width or sampling time", retryable=False)
+    window = int(found["window"])
+    covered: list[bool] = []
+    blocks_covered: list[bool] = []
+    by_block: dict[int, list[dict[str, Any]]] = {}
+    for e in found["entries"]:
+        by_block.setdefault(int(e["block"]), []).append(e)
+    store_path = Path(store_path)
+    store_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(store_path, "wb") as fh:
+        for bi, blk in enumerate(found["blocks"]):
+            o0 = scan.channel_of_freq(blk["f_lo_mhz"])
+            ok = 0 <= o0 and o0 + int(blk["n_use"]) <= scan.nchans
+            blocks_covered.append(bool(ok))
+            data = scan.read_ascending(o0, o0 + int(blk["n_use"])) if ok and by_block.get(bi) else None
+            for e in by_block.get(bi, []):
+                if data is None:
+                    fh.write(np.zeros((scan.n_ints, window), dtype="<f4").tobytes())
+                    covered.append(False)
+                else:
+                    lo = int(e["a_lo"]) - int(blk["a0"])
+                    fh.write(np.ascontiguousarray(data[:, lo:lo + window], dtype="<f4").tobytes())
+                    covered.append(True)
+            if progress is not None:
+                progress(bi + 1, len(found["blocks"]))
+    return {**_scan_meta(scan), "covered": covered, "blocks_covered": blocks_covered}
+
+
+def evaluate_windows(
+    source_id: str, found: dict[str, Any], on_store: Path, offs: list[tuple[dict[str, Any], Path]], channel: Any, cfg: PipelineConfig,
+) -> dict[str, Any]:
+    """Phase 3: measure and score every candidate window with the channel. Needs only the stored windows."""
+    st = _settings(cfg)
+    if not offs:
+        raise ArchiveAccessError("a search needs at least one OFF scan", retryable=False)
+    on, window, entries = found["on"], int(found["window"]), found["entries"]
+    on_w = _load_windows(on_store, len(entries), int(on["n_ints"]), window)
+    off_w = [_load_windows(path, len(entries), int(meta["n_ints"]), window) for meta, path in offs]
+    order = sorted([(on["tstart_mjd"], "ON", -1), *[(meta["tstart_mjd"], "OFF", k) for k, (meta, _) in enumerate(offs)]], key=lambda x: x[0])
+    t0 = order[0][0]
+    block_ok = [all(meta["blocks_covered"][bi] for meta, _ in offs) for bi in range(len(found["blocks"]))]
+    counts = {"n_candidate_windows": int(found["n_candidate_windows"]), "n_candidates_merged": int(found["n_candidates_merged"]),
+              "n_windows_evaluated": 0, "n_windows_flagged": 0, "n_windows_flagged_outside_rfi_bands": 0,
+              "n_blocks_without_off": sum(1 for ok in block_ok if not ok),
+              "n_channels_searched": sum(int(b["n_use"]) for b, ok in zip(found["blocks"], block_ok, strict=True) if ok)}
     windows: list[dict[str, Any]] = []
     best: tuple[tuple[int, float], dict[str, Any], dict[str, Any]] | None = None
-    strongest: tuple[float, int] | None = None  # (prefilter snr, ascending channel) over the whole scan
 
-    def _evaluate(a_lo: int, powers: list[np.ndarray], pre_snr: float, pre_ch: int) -> None:
+    def _evaluate(k: int) -> None:
         nonlocal best
+        e = entries[k]
         cadence = {
-            "source_id": source_id, "dt_s": on.tsamp_s, "df_hz": on.df_hz, "center_freq_mhz": round(on.freq_of_channel(a_lo + window / 2.0), 6),
-            "scans": [{"scan_index": i, "kind": kind, "t_start_s": round((sf.tstart_mjd - t0) * 86400.0, 3), "power": p}
-                      for i, ((sf, kind), p) in enumerate(zip(order, powers, strict=True))],
+            "source_id": source_id, "dt_s": on["tsamp_s"], "df_hz": on["df_hz"],
+            "center_freq_mhz": round(e["f_lo_mhz"] + (window / 2.0) * on["foff_abs_mhz"], 6),
+            "scans": [{"scan_index": i, "kind": kind, "t_start_s": round((t - t0) * 86400.0, 3), "power": on_w[k] if j < 0 else off_w[j][k]}
+                      for i, (t, kind, j) in enumerate(order)],
         }
         m = channel.measure(cadence, {})
         sc = channel.score(m)
-        freq = on.freq_of_channel(pre_ch)
-        allocation = rfi_allocation(freq)
-        hit = {"freq_mhz": round(freq, 6), "window_center_freq_mhz": cadence["center_freq_mhz"], "prefilter_snr": round(float(pre_snr), 2),
+        allocation = rfi_allocation(e["hit_freq_mhz"])
+        hit = {"freq_mhz": round(e["hit_freq_mhz"], 6), "window_center_freq_mhz": cadence["center_freq_mhz"], "prefilter_snr": round(e["prefilter_snr"], 2),
                "max_on_snr": round(float(m.values["max_on_snr"]), 2), "min_on_snr": round(float(m.values["min_on_snr"]), 2),
                "off_scan_hits": int(m.values["off_scan_hits"]), "on_persistence": float(m.values["on_persistence"]),
                "drift_hz_s": float(m.values["drift_hz_s"]), "raw_statistic": float(sc.raw_statistic), "flagged": bool(sc.flagged),
@@ -333,62 +415,58 @@ def search_scan_set(
                 sc_rec["power"] = np.asarray(sc_rec["power"], dtype=float).tolist()
             best = (key, hit, cadence)
 
-    def _off_range(o: ScanFile, a0: int, n: int) -> tuple[int, int] | None:
-        o0 = o.channel_of_freq(on.freq_of_channel(a0))
-        return (o0, o0 + n) if 0 <= o0 and o0 + n <= o.nchans else None
-
-    for bi, a0 in enumerate(starts):
-        a1 = min(a0 + block_n, a_hi)
-        on_block = on.read_ascending(a0, a1)
-        snr, _, ch = prefilter_block(on_block, on.tsamp_s, on.df_hz, st["max_drift"], window)
-        n_use = (on_block.shape[1] // window) * window
-        top = int(np.argmax(snr))
-        if strongest is None or snr[top] > strongest[0]:
-            strongest = (float(snr[top]), a0 + int(ch[top]))
-        cand = [int(i) for i in np.argsort(-snr) if snr[i] >= st["prefilter"]]
-        counts["n_candidate_windows"] += len(cand)
-        ranges = [_off_range(o, a0, on_block.shape[1]) for o in offs]
-        if any(r is None for r in ranges):
-            counts["n_blocks_without_off"] += 1  # an OFF scan does not hold these frequencies: nothing here can be compared
-        else:
-            counts["n_channels_searched"] += n_use
-            if cand:
-                by_file = {id(on): on_block}
-                for o, r in zip(offs, ranges, strict=True):
-                    by_file[id(o)] = o.read_ascending(r[0], r[1])  # type: ignore[index]
-                done: list[int] = []
-                for i in cand:
-                    c = int(ch[i])
-                    if any(lo <= c < lo + window for lo in done):
-                        counts["n_candidates_merged"] += 1
-                        continue
-                    lo = max(0, min(c - window // 2, n_use - window))
-                    done.append(lo)
-                    _evaluate(a0 + lo, [by_file[id(sf)][:, lo:lo + window] for sf, _ in order], float(snr[i]), a0 + c)
-        if progress is not None:
-            progress(bi + 1, len(starts))
-
-    if best is None and strongest is not None and counts["n_channels_searched"]:
+    comparable = [k for k, e in enumerate(entries) if block_ok[int(e["block"])] and all(meta["covered"][k] for meta, _ in offs)]
+    for k in comparable:
+        if entries[k]["candidate"]:
+            _evaluate(k)
+    if best is None and comparable:
         # Nothing reached the prefilter level: measure the strongest window anyway so the star has a real number
-        c = strongest[1]
-        lo = max(0, min(c - window // 2, a_hi - window))
-        ranges = [_off_range(o, lo, window) for o in offs]
-        if all(r is not None for r in ranges):
-            by_file = {id(on): on.read_ascending(lo, lo + window)}
-            for o, r in zip(offs, ranges, strict=True):
-                by_file[id(o)] = o.read_ascending(r[0], r[1])  # type: ignore[index]
-            _evaluate(lo, [by_file[id(sf)] for sf, _ in order], strongest[0], c)
+        _evaluate(max(comparable, key=lambda k: entries[k]["prefilter_snr"]))
 
     windows.sort(key=lambda h: _window_key(h), reverse=True)
     return {
-        "version": SEARCH_VERSION, "source_id": source_id, "on_file": on.path.name, "off_files": [o.path.name for o in offs],
-        "on_target": on.source_name, "off_targets": [o.source_name for o in offs], "df_hz": on.df_hz, "dt_s": on.tsamp_s, "n_ints": on.n_ints,
-        "freq_lo_mhz": round(on.freq_of_channel(0), 6), "freq_hi_mhz": round(on.freq_of_channel(max(0, a_hi - 1)), 6),
-        "max_in_beam_freq_mhz": max_freq_mhz, "n_blocks": len(starts), **counts,
+        "version": SEARCH_VERSION, "source_id": source_id, "on_file": on["file"], "off_files": [meta["file"] for meta, _ in offs],
+        "on_target": on["source_name"], "off_targets": [meta["source_name"] for meta, _ in offs], "df_hz": on["df_hz"], "dt_s": on["tsamp_s"],
+        "n_ints": on["n_ints"], "freq_lo_mhz": found["freq_lo_mhz"], "freq_hi_mhz": found["freq_hi_mhz"],
+        "max_in_beam_freq_mhz": found["max_in_beam_freq_mhz"], "n_blocks": len(found["blocks"]), **counts,
         "n_windows_listed": min(len(windows), int(st["max_listed"])), "windows": windows[:int(st["max_listed"])],
         "selected": None if best is None else {"hit": best[1], "cadence": best[2]},
-        "elapsed_s": round(time.monotonic() - t_start, 1),
     }
+
+
+def search_scan_set(
+    source_id: str,
+    on: ScanFile,
+    offs: list[ScanFile],
+    channel: Any,
+    cfg: PipelineConfig,
+    *,
+    max_freq_mhz: float | None = None,
+    progress: Callable[[int, int], None] | None = None,
+    work_dir: Path | None = None,
+) -> dict[str, Any]:
+    """Search one ON scan against its OFF scans. Returns the counts, the evaluated windows and the selected cadence.
+
+    `channel` is the `RadioNarrowbandChannel`; each candidate window is measured and scored by it. Frequencies above
+    `max_freq_mhz` (where the star leaves the half-power beam) are not searched. The three phases
+    (`find_candidate_windows`, `extract_windows`, `evaluate_windows`) can also be run one file at a time when the
+    disk cannot hold a whole scan set.
+    """
+    import tempfile
+
+    if not offs:
+        raise ArchiveAccessError("a search needs at least one OFF scan", retryable=False)
+    t_start = time.monotonic()
+    with tempfile.TemporaryDirectory(dir=work_dir) as tmp:
+        on_store = Path(tmp) / "on.f32"
+        found = find_candidate_windows(on, cfg, on_store, max_freq_mhz=max_freq_mhz, progress=progress)
+        off_recs = []
+        for k, o in enumerate(offs):
+            path = Path(tmp) / f"off{k}.f32"
+            off_recs.append((extract_windows(o, found, path), path))
+        res = evaluate_windows(source_id, found, on_store, off_recs, channel, cfg)
+    res["elapsed_s"] = round(time.monotonic() - t_start, 1)
+    return res
 
 
 # ---------------------------------------------------------------------------------------------------- the survey
@@ -444,38 +522,118 @@ def search_coverage_summary(stars: list[dict[str, Any]], cfg: PipelineConfig) ->
     return out
 
 
+def _band_sets(plan: dict[str, Any]) -> list[tuple[dict[str, Any], list[dict[str, Any]]]]:
+    """(ON file, its OFF files) for every frequency band of a plan."""
+    on_files, off_sets = plan_files(plan)
+    return [(on_f, [next(f for f in s if abs(f["center_freq_mhz"] - on_f["center_freq_mhz"]) <= 1.0) for s in off_sets]) for on_f in on_files]
+
+
+def _band_signature(source_id: str, plan: dict[str, Any], on_f: dict[str, Any], off_fs: list[dict[str, Any]], cfg: PipelineConfig) -> tuple[str, str, float | None]:
+    max_freq = max_in_beam_freq_mhz(plan["telescope"], plan["sep_arcsec"])
+    desc = json.dumps({"version": SEARCH_VERSION, "source_id": source_id, "on": [on_f["url"], on_f["size_bytes"]],
+                       "offs": [[f["url"], f["size_bytes"]] for f in off_fs], "max_freq_mhz": max_freq, "settings": _settings(cfg)},
+                      sort_keys=True)
+    return hashlib.sha256(desc.encode("utf-8")).hexdigest()[:24], desc, max_freq
+
+
+def _cached_band(sig: str, cache: RawCache) -> dict[str, Any] | None:
+    cached = cache.lookup(RADIO_QUERY, SEARCH_VERSION, sig)
+    if cached is None or cached.offline_fixture:
+        return None
+    try:
+        return json.loads(cache.read_bytes(cached).decode("utf-8"))
+    except (FileNotFoundError, OSError, ValueError):
+        return None
+
+
+def _store_band(res: dict[str, Any], plan: dict[str, Any], sig: str, desc: str, cache: RawCache) -> dict[str, Any]:
+    res.update({"telescope": plan["telescope"], "sep_arcsec": plan["sep_arcsec"], "comparison": plan["comparison"], "on_mjd": plan["mjd"]})
+    cache.put(archive=RADIO_QUERY, release=SEARCH_VERSION, request_signature=sig, query_text=desc,
+              payload=json.dumps(res, sort_keys=True).encode("utf-8"), row_count=int(res["n_windows_evaluated"]), offline_fixture=False)
+    return res
+
+
+def plan_searched(source_id: str, plan: dict[str, Any], cfg: PipelineConfig, cache: RawCache) -> bool:
+    """Every band of the plan already has a stored search result (its scan files are then not needed)."""
+    return all(_cached_band(_band_signature(source_id, plan, on_f, off_fs, cfg)[0], cache) is not None for on_f, off_fs in _band_sets(plan))
+
+
 def _search_plan(source_id: str, plan: dict[str, Any], data_dir: Path, channel: Any, cfg: PipelineConfig, cache: RawCache,
                  progress: Callable[[int, int], None] | None) -> list[dict[str, Any]]:
     """Search results of one plan, one per ON file (frequency band). Answers are cached by files and settings."""
-    on_files, off_sets = plan_files(plan)
     results: list[dict[str, Any]] = []
-    for on_f in on_files:
-        off_fs = [next(f for f in s if abs(f["center_freq_mhz"] - on_f["center_freq_mhz"]) <= 1.0) for s in off_sets]
-        max_freq = max_in_beam_freq_mhz(plan["telescope"], plan["sep_arcsec"])
-        desc = json.dumps({"version": SEARCH_VERSION, "source_id": source_id, "on": [on_f["url"], on_f["size_bytes"]],
-                           "offs": [[f["url"], f["size_bytes"]] for f in off_fs], "max_freq_mhz": max_freq, "settings": _settings(cfg)},
-                          sort_keys=True)
-        sig = hashlib.sha256(desc.encode("utf-8")).hexdigest()[:24]
-        cached = cache.lookup(RADIO_QUERY, SEARCH_VERSION, sig)
-        if cached is not None and not cached.offline_fixture:
+    for on_f, off_fs in _band_sets(plan):
+        sig, desc, max_freq = _band_signature(source_id, plan, on_f, off_fs, cfg)
+        res = _cached_band(sig, cache)
+        if res is None:
+            on = ScanFile(local_path(data_dir, on_f["url"]))
+            offs: list[ScanFile] = []
             try:
-                results.append(json.loads(cache.read_bytes(cached).decode("utf-8")))
-                continue
-            except (FileNotFoundError, OSError, ValueError):
-                pass
-        on = ScanFile(local_path(data_dir, on_f["url"]))
-        offs: list[ScanFile] = []
-        try:
-            offs = [ScanFile(local_path(data_dir, f["url"])) for f in off_fs]
-            res = search_scan_set(source_id, on, offs, channel, cfg, max_freq_mhz=max_freq, progress=progress)
-        finally:
-            on.close()
-            for o in offs:
-                o.close()
-        res.update({"telescope": plan["telescope"], "sep_arcsec": plan["sep_arcsec"], "comparison": plan["comparison"], "on_mjd": plan["mjd"]})
-        cache.put(archive=RADIO_QUERY, release=SEARCH_VERSION, request_signature=sig, query_text=desc,
-                  payload=json.dumps(res, sort_keys=True).encode("utf-8"), row_count=int(res["n_windows_evaluated"]), offline_fixture=False)
+                offs = [ScanFile(local_path(data_dir, f["url"])) for f in off_fs]
+                res = search_scan_set(source_id, on, offs, channel, cfg, max_freq_mhz=max_freq, progress=progress)
+            finally:
+                on.close()
+                for o in offs:
+                    o.close()
+            res = _store_band(res, plan, sig, desc, cache)
         results.append(res)
+    return results
+
+
+def search_plan_one_file_at_a_time(
+    source_id: str, plan: dict[str, Any], data_dir: Path, channel: Any, cfg: PipelineConfig, cache: RawCache, *,
+    keep_files: bool = False, log: Callable[[str], None] = lambda msg: None,
+) -> list[dict[str, Any]]:
+    """Download, use and delete each scan of a plan in turn, so the disk never holds more than one scan file.
+
+    The windows cut from each scan are kept in `<data_dir>/_work`, and a finished phase is not repeated, so an
+    interrupted run resumes. The result is stored in the cache under the same key `enrich_sample_radio` looks up.
+    """
+    results: list[dict[str, Any]] = []
+    for on_f, off_fs in _band_sets(plan):
+        sig, desc, max_freq = _band_signature(source_id, plan, on_f, off_fs, cfg)
+        res = _cached_band(sig, cache)
+        if res is not None:
+            results.append(res)
+            continue
+        t_start = time.monotonic()
+        work = Path(data_dir) / "_work" / f"{source_id}_{sig}"
+        work.mkdir(parents=True, exist_ok=True)
+
+        def _phase(tag: str, f: dict[str, Any], run: Callable[[ScanFile, Path], dict[str, Any]]) -> dict[str, Any]:
+            meta_path, store = work / f"{tag}.json", work / f"{tag}.f32"
+            if meta_path.is_file() and store.is_file():
+                return json.loads(meta_path.read_text(encoding="utf-8"))
+            dest = local_path(data_dir, f["url"])
+            last = [time.monotonic()]
+
+            def _dl(have: int, size: int) -> None:
+                if time.monotonic() - last[0] >= 60.0:
+                    last[0] = time.monotonic()
+                    log(f"{dest.name}: {have / 1e9:.1f} of {size / 1e9:.1f} GB")
+
+            log(f"{tag}: {dest.name}: {download_file(f['url'], dest, f['size_bytes'], f['md5sum'], progress=_dl)}")
+            scan = ScanFile(dest)
+            try:
+                rec = run(scan, store)
+            finally:
+                scan.close()
+            meta_path.write_text(json.dumps(rec) + "\n", encoding="utf-8")
+            if not keep_files:
+                dest.unlink()
+            log(f"{tag}: done after {time.monotonic() - t_start:.0f} s")
+            return rec
+
+        def _blocks(tag: str) -> Callable[[int, int], None]:
+            return lambda d, t: log(f"{tag}: block {d}/{t}") if d == t or d % 32 == 0 else None
+
+        found = _phase("on", on_f, lambda scan, store: find_candidate_windows(scan, cfg, store, max_freq_mhz=max_freq, progress=_blocks("on")))
+        off_recs = [(_phase(f"off{k}", f, lambda scan, store, _k=k: extract_windows(scan, found, store, progress=_blocks(f"off{_k}"))), work / f"off{k}.f32")
+                    for k, f in enumerate(off_fs)]
+        res = evaluate_windows(source_id, found, work / "on.f32", off_recs, channel, cfg)
+        res["elapsed_s"] = round(time.monotonic() - t_start, 1)
+        results.append(_store_band(res, plan, sig, desc, cache))
+        log(f"evaluated {res['n_windows_evaluated']} windows, {res['n_windows_flagged']} flagged")
     return results
 
 
@@ -512,7 +670,7 @@ def enrich_sample_radio(
         t_req = time.monotonic()
         hit = True
         try:
-            rows, _, hit = bl.query_bl_files(ra, dec, cache, sleep=sleep)
+            rows, _, hit = bl.query_star_rows(ra, dec, cache, sleep=sleep)
             cov = bl.beam_coverage(ra, dec, rows)
             if cov["status"] != "in_beam":
                 status = "no_coverage"
@@ -520,7 +678,7 @@ def enrich_sample_radio(
             else:
                 plans = [p for p in bl.plan_star_scans(ra, dec, rows, cache, sleep=sleep) if p["complete"]]
                 rec["n_complete_scan_sets"] = len(plans)
-                ready = [p for p in plans if plan_on_disk(p, data_dir)]
+                ready = [p for p in plans if plan_searched(sid, p, cfg, cache) or plan_on_disk(p, data_dir)]
                 if not plans:
                     status = "no_comparison"
                 elif not ready:
@@ -631,6 +789,9 @@ def main(argv: list[str] | None = None) -> int:
                     help="index of the ON scan in the star's plan (default: the complete scan set with the fewest bytes)")
     ap.add_argument("--data-dir", default=None, help="where the files go (default: breakthrough_listen_scans beside the raw cache)")
     ap.add_argument("--dry-run", action="store_true", help="list the files and sizes, download nothing")
+    ap.add_argument("--search", action="store_true",
+                    help="download, search and delete one scan file at a time (needs disk for one file only) and print the result summary")
+    ap.add_argument("--keep-files", action="store_true", help="with --search: keep each scan file after it was used")
     args = ap.parse_args(argv)
     root = repo_root()
     cfg, _, _ = load_config(root=root)
@@ -656,6 +817,16 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps({"data_dir": str(data_dir), "target": plan["target"], "comparison": plan["comparison"], "total_bytes": total,
                           "files": listing}, indent=2))
         return 0
+    if args.search:
+        from oddstar.channels import build_channel
+
+        cache = RawCache(root / cfg.storage.raw_dir, max_cache_gb=cfg.storage.max_cache_gb)
+        channel = build_channel("radio_narrowband", cfg, root)
+        results = search_plan_one_file_at_a_time(str(args.source_id), plan, data_dir, channel, cfg, cache, keep_files=args.keep_files,
+                                                 log=lambda msg: print(f"  {msg}", file=sys.stderr, flush=True))
+        print(json.dumps([{k: v for k, v in r.items() if k not in ("selected", "windows")} | {
+            "selected_hit": (r["selected"] or {}).get("hit"), "top_windows": r["windows"][:20]} for r in results], indent=2))
+        return 0
     done: list[dict[str, Any]] = []
     for f, row in zip(files, listing, strict=True):
         last = [0.0]
@@ -680,8 +851,9 @@ def default_data_dir(root: Path, cfg: PipelineConfig) -> Path:
 
 __all__ = [
     "COVERAGE_CATEGORIES", "RFI_ALLOCATIONS_MHZ", "ScanFile", "default_data_dir", "download_file", "enrich_sample_radio", "local_path",
-    "max_in_beam_freq_mhz", "plan_files", "plan_on_disk", "prefilter_block", "radio_search_status", "read_sigproc_header", "rfi_allocation",
-    "search_coverage_summary", "search_scan_set",
+    "evaluate_windows", "extract_windows", "find_candidate_windows", "max_in_beam_freq_mhz", "plan_files", "plan_on_disk", "plan_searched",
+    "prefilter_block", "radio_search_status", "read_sigproc_header", "rfi_allocation", "search_coverage_summary", "search_plan_one_file_at_a_time",
+    "search_scan_set",
 ]
 
 if __name__ == "__main__":  # pragma: no cover
