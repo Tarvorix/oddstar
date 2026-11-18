@@ -274,6 +274,12 @@ def _fine_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
+def _product(url: str) -> str:
+    """Which fine-resolution product a file is. The Parkes multibeam archive holds two, `.0000.h5` (or `.fil`) and
+    `.0000.hires.hdf`, with different channel widths; files of different products cannot be compared."""
+    return "hires" if url.endswith(".hires.hdf") else "fine"
+
+
 def _file_entry(r: dict[str, Any]) -> dict[str, Any]:
     return {"url": r["url"], "size_bytes": r["size_bytes"], "md5sum": r["md5sum"], "center_freq_mhz": r["center_freq_mhz"]}
 
@@ -313,6 +319,7 @@ def plan_star_scans(
     scan is another target observed by the same telescope, at least `OFF_MIN_SEPARATION_BEAM_RADII` half-power radii
     from the position, holding a file at the frequency of every ON file (to 1 MHz). Two kinds are listed: the nearest
     scan before and after within `OFF_SCAN_WINDOW_DAYS`, and beams recorded at the same instant (Parkes multibeam).
+    ON and OFF files are always of the same product (`_product`); a scan held as two products gives one plan.
     `comparison` names the set a search should use: "simultaneous_beams" when at least
     `MIN_SIMULTANEOUS_OFF_BEAMS` exist, else "before_after" when both exist, else "incomplete"; ON scans of one
     target that follow each other are then joined into one "cadence" plan (`_merge_cadences`).
@@ -325,13 +332,16 @@ def plan_star_scans(
         if radius is not None and sep <= radius:
             in_beam.append(dict(r, sep_arcsec=sep))
     plans: list[dict[str, Any]] = []
-    for group in sorted(_group_scans(in_beam), key=lambda g: g[0]["mjd"]):
+    by_product = [(scan[0]["mjd"], product, [f for f in scan if _product(f["url"]) == product])
+                  for scan in _group_scans(in_beam) for product in sorted({_product(f["url"]) for f in scan})]
+    chosen: dict[tuple[str, float], dict[str, Any]] = {}
+    for scan_mjd, product, group in sorted(by_product, key=lambda g: (g[0], g[1])):
         target, tel, mjd = group[0]["target"], group[0]["telescope"], group[0]["mjd"]
         on_files = _one_file_per_frequency([f for f in group if f["telescope"] == tel])
         freqs = [round(f["center_freq_mhz"], 1) for f in on_files]
         max_radius = max(half_power_radius_arcsec(tel, f["center_freq_mhz"]) or 0.0 for f in on_files)
         window, _, _ = query_bl_time_window(tel, mjd - OFF_SCAN_WINDOW_DAYS, mjd + OFF_SCAN_WINDOW_DAYS, cache, sleep=sleep)
-        far = [r for r in _fine_rows(window) if r["telescope"] == tel and r["target"] != target
+        far = [r for r in _fine_rows(window) if r["telescope"] == tel and r["target"] != target and _product(r["url"]) == product
                and angular_separation_arcsec(ra, dec, r["ra_deg"], r["dec_deg"]) >= OFF_MIN_SEPARATION_BEAM_RADII * max_radius]
         before: dict[str, Any] | None = None
         after: dict[str, Any] | None = None
@@ -357,13 +367,19 @@ def plan_star_scans(
         else:
             comparison, used = "incomplete", [e for e in (before, after) if e is not None] + simultaneous
         bytes_on = sum(f["size_bytes"] for f in on_files)
-        plans.append({
+        plan = {
             "target": target, "telescope": tel, "mjd": mjd, "sep_arcsec": round(min(f["sep_arcsec"] for f in on_files), 1),
             "center_freqs_mhz": freqs, "on_files": [_file_entry(f) for f in on_files], "bytes_on": bytes_on,
             "off_before": before, "off_after": after, "off_simultaneous": simultaneous,
             "comparison": comparison, "complete": comparison != "incomplete",
             "bytes_on_plus_offs": bytes_on + sum(e["bytes"] for e in used),
-        })
+        }
+        # A scan kept as two products is searched once: as the product with a full comparison, then the one with more
+        # frequencies, then "fine" (which comes first in the loop)
+        held = chosen.get((target, scan_mjd))
+        if held is None or (plan["complete"], len(freqs)) > (held["complete"], len(held["center_freqs_mhz"])):
+            chosen[(target, scan_mjd)] = plan
+    plans = list(chosen.values())
     return _merge_cadences(plans)
 
 

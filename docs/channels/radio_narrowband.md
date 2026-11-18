@@ -24,7 +24,8 @@ decides anything, and it is the channel code above.
    sample position. A star counts as covered only inside the half-power beam of a pointing (radius 0.6 wavelength
    / dish diameter). `--plan` lists, for each covered star, the fine-resolution files that contain it (ON) and the
    comparison scans: the nearest scan before and after on another target with the same receiver, or other beams of
-   the Parkes multibeam recorded at the same instant. Only the index is read.
+   the Parkes multibeam recorded at the same instant. ON and comparison files are always of the same product
+   (`.hires.hdf` files differ in channel width from `.h5` and `.fil` files). Only the index is read.
    The index lists many southern declinations wrongly: the fraction of a degree is mirrored, differently for each
    file family (`bl_opendata.true_declination`, measured against catalogue positions of named targets). A southern
    star is therefore asked for at every declination the index may use, and each file is put back at its true

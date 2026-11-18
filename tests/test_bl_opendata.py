@@ -197,6 +197,40 @@ def test_on_scans_that_follow_each_other_become_one_cadence(tmp_path: Path, monk
     assert "on_other" not in plans[1]
 
 
+def test_on_and_off_files_are_of_the_same_product(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The archive holds two fine products of different channel width (.0000.h5 and .0000.hires.hdf); they are never paired."""
+    ra, dec, t = 150.0, 20.0, 58225.6
+    step = 5.0 / 1440.0
+
+    def hires(row: dict[str, Any]) -> dict[str, Any]:
+        return dict(row, url=row["url"].replace(".gpuspec.0000.h5", ".0000.hires.hdf"), size=500_000_000)
+
+    assert bl._product("http://x/a_0001.0000.hires.hdf") == "hires" and bl._product("http://x/a_0001.0000.h5") == "fine"
+    # Scan 1: the ON scan exists as hires only, its neighbours as h5 only: nothing to compare it with
+    files = [hires(_scan("ONA", ra + 0.02, dec, t)), _scan("OFF1", ra + 2.0, dec, t - step), _scan("OFF2", ra + 2.0, dec, t + step)]
+    # Scan 2, an hour later: ON as hires only, neighbours in both products: the hires neighbours are used
+    t2 = t + 1.0 / 24.0
+    files += [hires(_scan("ONA", ra + 0.02, dec, t2))]
+    for name, dt in (("OFF3", -step), ("OFF4", step)):
+        row = _scan(name, ra + 2.0, dec, t2 + dt)
+        files += [row, hires(row)]
+    # Scan 3, another hour later: ON and neighbours in both products: searched once, as h5
+    t3 = t + 2.0 / 24.0
+    for name, d_ra, dt in (("ONA", 0.02, 0.0), ("OFF5", 2.0, -step), ("OFF6", 2.0, step)):
+        row = _scan(name, ra + d_ra, dec, t3 + dt)
+        files += [row, hires(row)]
+    idx = _TimeIndex(files)
+    monkeypatch.setattr(ot, "_get_with_retries", idx.get)
+    cache = RawCache(tmp_path / "raw")
+    rows, _, _ = bl.query_bl_files(ra, dec, cache)
+    plans = bl.plan_star_scans(ra, dec, rows, cache)
+    assert [(p["comparison"], p["complete"]) for p in plans] == [("incomplete", False), ("before_after", True), ("before_after", True)]
+    assert plans[0]["off_before"] is None and plans[0]["off_after"] is None
+    for p, product in ((plans[1], "hires"), (plans[2], "fine")):
+        urls = [f["url"] for e in (p, p["off_before"], p["off_after"]) for f in (e["on_files"] if e is p else e["files"])]
+        assert len(urls) == 3 and {bl._product(u) for u in urls} == {product}
+
+
 def test_fine_resolution_files_are_recognised_for_each_recorder() -> None:
     fine = [
         "http://x/blc00_guppi_57585_43906_HIP3026_0022.gpuspec.0000.h5", "http://x/blc00_guppi_57585_43906_HIP3026_0022.gpuspec.0000.fil",
