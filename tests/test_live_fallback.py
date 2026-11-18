@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -10,6 +11,7 @@ import requests
 
 from oddstar.config import load_config
 from oddstar.errors import ArchiveAccessError
+from oddstar.io import live_survey
 from oddstar.io.cache import RawCache
 from oddstar.io.live_survey import (
     _parse_ipac_table,
@@ -231,6 +233,86 @@ def test_tap_busy_service_is_retried_after_waits(tmp_path: Path, monkeypatch: An
         _tap_query_cached(urls=["https://tap.example/sync"], query="SELECT 3", archive="gaia", release="dr3", cache=cache,
                           busy_waits_s=(5.0,), sleep=slept.append)
     assert slept == []
+
+
+class _MirrorResp:
+    def __init__(self, status_code: int, content: bytes, content_type: str) -> None:
+        self.status_code, self.content, self.headers = status_code, content, {"Content-Type": content_type}
+        self.text = content.decode("utf-8")
+
+    def json(self) -> Any:
+        return json.loads(self.content)
+
+
+_AIP_VOTABLE = b"""<?xml version="1.0" encoding="UTF-8"?>
+<VOTABLE version="1.3" xmlns="http://www.ivoa.net/xml/VOTable/v1.3"><RESOURCE type="results">
+<INFO name="QUERY_STATUS" value="OK"/>
+<TABLE>
+<FIELD name="source_id" ucd="meta.id;meta.main;meta.ref" ID="datalinkID" datatype="long"/>
+<FIELD name="ra" unit="deg" datatype="double"/>
+<FIELD name="phot_g_mean_mag" unit="mag" datatype="float"/>
+<FIELD name="pmra" datatype="double"/>
+<FIELD name="flag" datatype="boolean"/>
+<FIELD name="designation" datatype="char" arraysize="*"/>
+<DATA><TABLEDATA>
+<TR><TD>1697778723611368320</TD><TD>234.75674234671334</TD><TD>15.739729</TD><TD></TD><TD>true</TD><TD>Gaia DR3 1</TD></TR>
+<TR><TD>1697778341358555776</TD><TD>234.73681651867895</TD><TD>19.423586</TD><TD>NaN</TD><TD>f</TD><TD>Gaia DR3 2</TD></TR>
+</TABLEDATA></DATA>
+</TABLE></RESOURCE></VOTABLE>"""
+
+
+def test_gaia_mirrors_answer_when_the_esa_archive_is_in_maintenance(tmp_path: Path, monkeypatch: Any) -> None:
+    """Seen 2026-11-18: ESA answered HTTP 200 with its downtime page; Heidelberg writes JSON rows as objects; Potsdam
+    refuses FORMAT=json and answers FORMAT=votable with TABLEDATA."""
+    cache = RawCache(tmp_path / "raw", max_cache_gb=1.0)
+    esa, ari, aip = live_survey.GAIA_TAP_URLS
+    asked: list[tuple[str, str]] = []
+    ari_rows = [{"source_id": 1697766384169254400, "ra": 234.95209613797536, "phot_g_mean_mag": 20.489115},
+                {"source_id": 1697766388465292800, "ra": 234.93439619221073, "phot_g_mean_mag": None}]
+    ari_body = json.dumps({"metadata": [{"name": "source_id", "datatype": "LONG"}, {"name": "ra"}, {"name": "phot_g_mean_mag"}],
+                           "data": ari_rows}).encode("utf-8")
+
+    def post(url: str, data: dict[str, Any] | None = None, timeout: int = 15) -> _MirrorResp:
+        asked.append((url, (data or {})["FORMAT"]))
+        if url == esa:
+            return _MirrorResp(200, b"<html><body>Maintenance ongoing!</body></html>", "text/html; charset=UTF-8")
+        if url == ari:
+            return state["ari"]
+        if (data or {})["FORMAT"] != "votable":
+            return _MirrorResp(400, b"<VOTABLE/>", "application/xml; charset=utf-8")
+        return state["aip"]
+
+    state = {"ari": _MirrorResp(200, ari_body, "application/json;charset=UTF-8"), "aip": _MirrorResp(200, _AIP_VOTABLE, "application/xml")}
+    monkeypatch.setattr(requests, "post", post)
+    rows, _, hit = _tap_query_cached(urls=live_survey.GAIA_TAP_URLS, query="SELECT a", archive="gaia", release="dr3", cache=cache)
+    assert rows == ari_rows and hit is False and asked == [(esa, "json"), (ari, "json")]
+
+    # Heidelberg down too: Potsdam is asked for a VOTable, and its cells are typed by the FIELD list
+    state["ari"] = _MirrorResp(500, b"", "text/plain")
+    asked.clear()
+    rows, _, _ = _tap_query_cached(urls=live_survey.GAIA_TAP_URLS, query="SELECT b", archive="gaia", release="dr3", cache=cache)
+    assert asked == [(esa, "json"), (ari, "json"), (aip, "votable")]
+    assert rows == [
+        {"source_id": 1697778723611368320, "ra": 234.75674234671334, "phot_g_mean_mag": 15.739729, "pmra": None, "flag": True, "designation": "Gaia DR3 1"},
+        {"source_id": 1697778341358555776, "ra": 234.73681651867895, "phot_g_mean_mag": 19.423586, "pmra": None, "flag": False, "designation": "Gaia DR3 2"},
+    ]
+
+    # Nothing answers: the error names the maintenance page instead of a JSON decoding error
+    state["aip"] = _MirrorResp(200, _AIP_VOTABLE.replace(b'value="OK"', b'value="OVERFLOW"'), "application/xml")
+    with pytest.raises(ArchiveAccessError, match=r"an HTML page instead of a TAP answer.*HTTP 500.*QUERY_STATUS=OVERFLOW"):
+        _tap_query_cached(urls=live_survey.GAIA_TAP_URLS, query="SELECT c", archive="gaia", release="dr3", cache=cache)
+
+    # An unreadable answer is never an empty one
+    for bad in (b"not xml", _AIP_VOTABLE.replace(b"<TD>true</TD>", b""), _AIP_VOTABLE.replace(b"TABLEDATA", b"BINARY2"),
+                b"<VOTABLE><RESOURCE><INFO name='QUERY_STATUS' value='OK'/></RESOURCE></VOTABLE>"):
+        with pytest.raises(ValueError):
+            live_survey._rows_from_tap_votable(bad)
+    with pytest.raises(ValueError):
+        live_survey._rows_from_tap_json({"metadata": [{"name": "a"}, {"name": "b"}], "data": [{"a": 1}]})
+    with pytest.raises(ValueError):
+        live_survey._rows_from_tap_json({"metadata": [{"name": "a"}, {"name": "b"}], "data": [[1]]})
+    empty = _AIP_VOTABLE[:_AIP_VOTABLE.index(b"<TR>")] + _AIP_VOTABLE[_AIP_VOTABLE.index(b"</TABLEDATA>"):]
+    assert live_survey._rows_from_tap_votable(empty) == []
 
 
 def test_live_region_two_stage_fallback_on_timeout(tmp_path: Path, monkeypatch: Any) -> None:

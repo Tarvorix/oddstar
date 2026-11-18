@@ -7,6 +7,7 @@ import json
 import math
 import re
 import time
+import xml.etree.ElementTree as ET
 from typing import Any
 
 import numpy as np
@@ -41,6 +42,9 @@ GAIA_TAP_URLS = [
     "https://gaia.ari.uni-heidelberg.de/tap/sync",
     "https://gaia.aip.de/tap/sync",
 ]
+# Services that refuse FORMAT=json (HTTP 400 "This response format is not supported") and answer FORMAT=votable with
+# a TABLEDATA VOTable (probed 2026-11-18, while the ESA archive was down for maintenance)
+TAP_VOTABLE_ONLY_URLS = ("https://gaia.aip.de/tap/sync",)
 IRSA_GATOR_URL = "https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-query"
 # A Gator answer may take this many times its socket timeout in total before it is abandoned (a socket timeout
 # bounds only the gap between bytes, so a trickling answer would otherwise never end)
@@ -142,7 +146,8 @@ def _rows_from_tap_json(data: Any) -> list[dict[str, Any]]:
     """Rows of a TAP `FORMAT=json` answer, in either layout the archives use; any other layout is an error.
 
     - ESA Gaia, SIMBAD and GAVO services answer `{"metadata": [{"name": ...}], "data": [[...], ...]}` with typed
-      values.
+      values. The Heidelberg Gaia mirror writes each data row as an object keyed by column name instead of a list;
+      until 2026-11-18 such rows were zipped key against key and then rejected, so that mirror never answered.
     - IRSA answers a VOTable written out as JSON: `{"VOTABLE": {"RESOURCE_ARRAY": [{"INFO_ARRAY": [...],
       "TABLE": {"FIELD_ARRAY": [{"<xmlattr>": {"name", "datatype"}}], "DATA": {"TABLEDATA": [[...]]}}}]}}`, every
       value a string. Until 2026-11-17 this layout was read as "no rows" without an error, so every IRSA TAP query
@@ -152,7 +157,17 @@ def _rows_from_tap_json(data: Any) -> list[dict[str, Any]]:
     """
     if isinstance(data, dict) and isinstance(data.get("metadata"), list) and isinstance(data.get("data"), list):
         cols = [m["name"] for m in data["metadata"]]
-        return [dict(zip(cols, r)) for r in data["data"]]
+        out: list[dict[str, Any]] = []
+        for r in data["data"]:
+            if isinstance(r, dict):  # the Heidelberg mirror: one object per row, keyed by column name
+                if set(r) != set(cols):
+                    raise ValueError("TAP JSON row object does not match the metadata columns")
+                out.append({c: r[c] for c in cols})
+            elif isinstance(r, list) and len(r) == len(cols):
+                out.append(dict(zip(cols, r)))
+            else:
+                raise ValueError("TAP JSON row does not match the metadata columns")
+        return out
     if isinstance(data, dict) and isinstance(data.get("VOTABLE"), dict):
         resources = data["VOTABLE"].get("RESOURCE_ARRAY")
         if resources is None and "RESOURCE" in data["VOTABLE"]:
@@ -194,6 +209,53 @@ def _rows_from_tap_json(data: Any) -> list[dict[str, Any]]:
         raise ValueError("VOTable-JSON answer without a result TABLE")
     keys = sorted(data)[:6] if isinstance(data, dict) else type(data).__name__
     raise ValueError(f"unrecognised TAP JSON layout (top-level {keys})")
+
+
+def _rows_from_tap_votable(payload: bytes) -> list[dict[str, Any]]:
+    """Rows of a TAP answer written as a VOTable with TABLEDATA cells, values converted by each FIELD's datatype.
+
+    Columns are named by the FIELD `name` (the Potsdam mirror gives `source_id` the ID "datalinkID"). An empty cell
+    is a null. Raises ValueError when the answer is not XML, its QUERY_STATUS is not OK (an OVERFLOW answer is cut
+    short and is not accepted), it holds no table, or the table is not TABLEDATA.
+    """
+    try:
+        root = ET.fromstring(payload)
+    except ET.ParseError as exc:
+        raise ValueError(f"TAP answer is not XML: {str(exc)[:120]}") from exc
+    strip = lambda tag: str(tag).rsplit("}", 1)[-1]  # noqa: E731 - drop the VOTable namespace
+    for info in (el for el in root.iter() if strip(el.tag) == "INFO" and el.get("name") == "QUERY_STATUS"):
+        if str(info.get("value", "")).upper() != "OK":
+            raise ValueError(f"TAP QUERY_STATUS={info.get('value')}: {(info.text or '').strip()[:160]}")
+    table = next((el for el in root.iter() if strip(el.tag) == "TABLE"), None)
+    if table is None:
+        raise ValueError("VOTable answer without a TABLE")
+    fields = [(str(el.get("name")), str(el.get("datatype")), el.get("arraysize")) for el in table if strip(el.tag) == "FIELD"]
+    data = next((el for el in table if strip(el.tag) == "DATA"), None)
+    tabledata = next((el for el in data if strip(el.tag) == "TABLEDATA"), None) if data is not None else None
+    if data is not None and tabledata is None:
+        raise ValueError("VOTable answer is not TABLEDATA")
+    rows: list[dict[str, Any]] = []
+    for tr in (el for el in (tabledata if tabledata is not None else []) if strip(el.tag) == "TR"):
+        cells = [(td.text or "").strip() for td in tr if strip(td.tag) == "TD"]
+        if len(cells) != len(fields):
+            raise ValueError("VOTable row does not match its FIELD list")
+        row: dict[str, Any] = {}
+        for (name, dtype, arraysize), val in zip(fields, cells):
+            if val == "":
+                row[name] = None
+            elif arraysize is None and dtype in _VOTABLE_JSON_INT_TYPES:
+                row[name] = int(val)
+            elif arraysize is None and dtype in _VOTABLE_JSON_FLOAT_TYPES:
+                f = float(val)
+                row[name] = f if math.isfinite(f) else None
+            elif arraysize is None and dtype == "boolean":
+                if val.lower() not in ("true", "t", "1", "false", "f", "0"):
+                    raise ValueError(f"VOTable boolean cell '{val[:20]}'")
+                row[name] = val.lower() in ("true", "t", "1")
+            else:
+                row[name] = val
+        rows.append(row)
+    return rows
 
 
 def _tap_signature(candidates: list[str], query: str) -> str:
@@ -240,18 +302,23 @@ def _tap_query_cached(
         busy = False
         for endpoint in candidates:
             try:
+                fmt = "votable" if endpoint in TAP_VOTABLE_ONLY_URLS else "json"
                 resp = requests.post(
                     endpoint,
-                    data={"REQUEST": "doQuery", "LANG": "ADQL", "FORMAT": "json", "QUERY": query},
+                    data={"REQUEST": "doQuery", "LANG": "ADQL", "FORMAT": fmt, "QUERY": query},
                     timeout=timeout_s,
                 )
+                headers = getattr(resp, "headers", None) or {}
                 if resp.status_code != 200:
-                    headers = getattr(resp, "headers", None) or {}
                     if resp.status_code == 429 or (resp.status_code == 503 and headers.get("Retry-After")):
                         busy = True
                     errors.append(f"{endpoint}: HTTP {resp.status_code}")
                     continue
-                rows = _rows_from_tap_json(resp.json())
+                if "text/html" in str(headers.get("Content-Type", "")).lower():
+                    # The ESA archive answers HTTP 200 with its downtime page while it is in maintenance
+                    errors.append(f"{endpoint}: an HTML page instead of a TAP answer (service down or in maintenance)")
+                    continue
+                rows = _rows_from_tap_votable(resp.content) if fmt == "votable" else _rows_from_tap_json(resp.json())
                 cols = list(rows[0]) if rows else []
                 # Some GAVO DaCHS mirrors echo header row when FORMAT=json isn't honored
                 if rows and cols and str(rows[0].get(cols[0])) == cols[0]:
