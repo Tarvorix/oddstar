@@ -939,10 +939,11 @@ def check_vision_rubric(star: dict[str, Any], cfg: PipelineConfig, out_dir: Path
         if off > frac * beam and sig is not None and off > k * float(sig):
             flags.append(f"{b} centroid offset {off:.2f}\" > {frac:.2f} beam and > {k:.0f} sigma ({float(sig):.2f}\")")
         if snr is not None and float(snr) >= min_snr and m.get("fwhm_ratio") is not None and float(m["fwhm_ratio"]) > ext_thr:
-            flags.append(f"{b} extended: FWHM {m['fwhm_arcsec']:.1f}\" = {float(m['fwhm_ratio']):.2f} x reference {m['fwhm_ref_arcsec']:.1f}\"")
+            ref = m.get("fwhm_point_ref_arcsec") or m.get("fwhm_ref_arcsec")
+            flags.append(f"{b} extended: FWHM {m['fwhm_arcsec']:.1f}\" = {float(m['fwhm_ratio']):.2f} x point-source reference {float(ref):.1f}\"")
         if b == "W4" and m.get("brighter_secondary_peak"):
             flags.append(f"W4 secondary peak brighter than the target peak within the beam ({m.get('n_secondary_peaks')} secondary)")
-        per_band[b] = {key: m.get(key) for key in ("offset_arcsec", "offset_sigma_arcsec", "fwhm_arcsec", "fwhm_ref_arcsec", "fwhm_ratio",
+        per_band[b] = {key: m.get(key) for key in ("offset_arcsec", "offset_sigma_arcsec", "fwhm_arcsec", "fwhm_ref_arcsec", "fwhm_point_ref_arcsec", "fwhm_ratio",
                                                     "flux_mjy", "flux_snr", "bg_rms_mjy_beam", "n_secondary_peaks", "brighter_secondary_peak",
                                                     "secondary_peaks", "sha256")}
     png = render_real_cutouts_panel(star, cutout_path)

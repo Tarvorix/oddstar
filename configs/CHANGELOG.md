@@ -2,6 +2,48 @@
 
 All threshold, sample-cut, and prompt changes must be logged here under Ground Rule R4 before running validation or search.
 
+## [1.1.2] - 2026-11-17
+
+### The image-shape check is judged against measured stars
+`vision_rubric` calls a band "extended" when its fitted FWHM exceeds a reference by `vision_extended_fwhm_ratio`.
+In 1.1.0 and 1.1.1 the reference was theoretical: native beam x `wise_atlas_psf_broadening` (9.19" in W3, 16.97"
+in W4). The first live run measured the reference star at 1.40 x that in W3 and 1.31 x in W4 and failed it.
+Whether that meant extended emission or a reference that does not describe this fit could only be settled on
+known point sources, so the fit was run on ordinary stars.
+
+Calibration (`python -m oddstar.validate.atlas_psf`, output committed in ab488cb before this change):
+63 bright, isolated, unsaturated stars with photospheric W3-W4 in 12 fixed fields at |b| > 30 deg, none near a
+pipeline candidate, each measured by the unchanged `measure_wise_cutouts`. All 12 selection queries and all 63
+cutout sets succeeded.
+
+| Band | n | median fitted FWHM | robust sigma | min - max | median / theoretical reference |
+|---|---|---|---|---|---|
+| W3 | 63 | 12.971" | 0.099" | 12.85" - 13.32" | 1.41 |
+| W4 | 63 | 20.597" | 0.487" | 17.84" - 23.76" | 1.21 |
+
+So an ordinary star comes out of this fit 1.41 x (W3) and 1.21 x (W4) wider than the theoretical reference, and the
+1.1.1 check would have called essentially every star extended in W3.
+
+The selection and the rule for using the result were written in `oddstar/validate/atlas_psf.py` and committed
+(160a8f9) before the calibration ran. Applied as written:
+
+- `vetting.w3_atlas_point_fwhm_arcsec: 12.971` and `vetting.w4_atlas_point_fwhm_arcsec: 20.597` (new): the median
+  fitted FWHM of the calibration stars. `fwhm_ratio` is now fitted FWHM over this value. The geometry of the
+  measurement (aperture, fit box, peak search) still uses native beam x `wise_atlas_psf_broadening`, so fitted
+  widths are unchanged and stay comparable with the calibration file.
+- `vetting.vision_extended_fwhm_ratio: 1.3` (unchanged). The rule was max(1.3, 1 + 4 x robust sigma / median) over
+  the two bands, rounded up to 0.05; 1 + 4 sigma / median is 1.03 in W3 and 1.09 in W4, so the rule returns 1.3.
+- `version: "1.1.2"` (was "1.1.1"). The config hash changes; every certificate is regenerated in a separate commit.
+
+Known limits, recorded so they are not mistaken for results:
+- 1.3 is loose against the measured scatter (about 30 sigma in W3, 12 sigma in W4). The rule could only keep or
+  raise the threshold. Tightening it is a separate decision that must be made on calibration data alone.
+- Fitted width rises slightly with S/N (Spearman rho +0.43 in W3, +0.32 in W4), and the W4 scatter is larger for
+  faint stars: the 19 calibration stars with fit S/N below 25 span 17.8" - 23.8" (robust sigma 0.81").
+- The calibration stars have catalogue W4 S/N of 10 or more. A fainter target is outside the calibrated range.
+
+No search result is part of this change.
+
 ## [1.1.1] - 2026-11-17
 
 ### Fixes from the first live archive run of 1.1.0

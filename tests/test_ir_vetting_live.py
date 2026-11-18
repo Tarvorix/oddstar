@@ -543,7 +543,11 @@ def test_allwise_cutouts_fetch_and_measure(tmp_path: Path, monkeypatch: Any, cfg
     for b in ("W3", "W4"):
         assert m[b]["status"] == "ok"
         assert m[b]["offset_arcsec"] < 1.0 and m[b]["offset_sigma_arcsec"] < 1.0
-        assert 0.85 < m[b]["fwhm_ratio"] < 1.15
+        # the fit recovers the width of the synthetic Gaussian source, and the ratio is taken against the measured
+        # point-source width of the band (config), not against the geometric reference
+        assert 0.85 < m[b]["fwhm_arcsec"] / m[b]["fwhm_ref_arcsec"] < 1.15
+        assert m[b]["fwhm_point_ref_arcsec"] == cfg.vetting[f"{b.lower()}_atlas_point_fwhm_arcsec"]
+        assert m[b]["fwhm_ratio"] == pytest.approx(m[b]["fwhm_arcsec"] / m[b]["fwhm_point_ref_arcsec"])
         assert m[b]["flux_snr"] > 20 and m[b]["bg_rms_mjy_beam"] < 1.0
         assert not m[b]["brighter_secondary_peak"]
         assert Path(m[b]["blob_path"]).exists()

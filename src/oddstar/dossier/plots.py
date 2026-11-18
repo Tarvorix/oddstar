@@ -165,7 +165,7 @@ def render_real_cutouts_panel(star: dict[str, Any], out_path: Path, *, half_fov_
             snr_txt = f"{float(snr):.1f}" if snr is not None else "n/a"
             ratio = m.get("fwhm_ratio")
             ratio_txt = f"{float(ratio):.2f}" if ratio is not None else "n/a"
-            label += f"\noff {float(m['offset_arcsec']):.2f}\"±{sig_txt}  S/N {snr_txt}  FWHM/ref {ratio_txt}"
+            label += f"\noff {float(m['offset_arcsec']):.2f}\"±{sig_txt}  S/N {snr_txt}  FWHM/star {ratio_txt}"
         elif m:
             label += f"\n{m.get('status')}"
         ax.set_title(label, fontsize=7.5)

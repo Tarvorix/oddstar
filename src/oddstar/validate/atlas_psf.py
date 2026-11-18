@@ -121,7 +121,7 @@ def run_calibration(cfg: PipelineConfig, cache: RawCache, *, max_per_field: int 
                 star["status"] = "ok"
                 for band in BANDS:
                     m = meas.get(band) or {"status": "no_cutout"}
-                    star["bands"][band] = {k: m.get(k) for k in ("status", "fwhm_arcsec", "fwhm_ref_arcsec", "fwhm_ratio", "flux_snr",
+                    star["bands"][band] = {k: m.get(k) for k in ("status", "fwhm_arcsec", "fwhm_ref_arcsec", "fwhm_point_ref_arcsec", "fwhm_ratio", "flux_snr",
                                                                  "offset_arcsec", "brighter_secondary_peak", "sha256")}
             except Exception as exc:
                 star["status"] = ls._failed(exc)

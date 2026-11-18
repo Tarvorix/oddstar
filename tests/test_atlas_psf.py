@@ -89,3 +89,50 @@ def test_run_calibration_uses_the_pipeline_measurement_and_records_failures(tmp_
     assert rec["stats"]["W3"]["median_over_theoretical_reference"] > 1.3
     assert rec["current_extended_fwhm_ratio"] == pytest.approx(1.3)
     assert rec["proposed_extended_fwhm_ratio"] == pytest.approx(1.3)
+
+
+def test_config_reference_is_the_committed_calibration_under_the_written_rule() -> None:
+    """The extendedness reference and threshold in the config are what the committed calibration gives, no more."""
+    import json
+
+    from oddstar.config import repo_root
+
+    cfg, _, _ = load_config()
+    rec = json.loads((repo_root() / ap.OUTPUT_REL).read_text(encoding="utf-8"))
+    assert all(f["status"] == "ok" for f in rec["fields"]) and rec["n_stars"] >= 2 * ap.MIN_STARS_PER_BAND
+    for band in ap.BANDS:
+        st = rec["stats"][band]
+        assert st["n"] >= ap.MIN_STARS_PER_BAND
+        assert cfg.vetting[f"{band.lower()}_atlas_point_fwhm_arcsec"] == pytest.approx(st["median_arcsec"], abs=5e-4)
+        # recomputed from the per-star values, so the summary cannot drift from the data it summarises
+        vals = [s["bands"][band]["fwhm_arcsec"] for s in rec["stars"] if s["bands"][band]["status"] == "ok"
+                and s["bands"][band]["flux_snr"] >= rec["min_fit_snr"]]
+        assert ap.band_stats(vals)["median_arcsec"] == pytest.approx(st["median_arcsec"])
+    assert cfg.vetting["vision_extended_fwhm_ratio"] == pytest.approx(ap.proposed_ratio(rec["stats"], 1.3))
+    # no calibration star is the pipeline's reference star or sits in its field
+    assert all(abs(s["ra_deg"] - 43.548) > 5.0 or abs(s["dec_deg"] - 5.883) > 5.0 for s in rec["stars"])
+
+
+def test_fwhm_ratio_uses_the_point_source_reference_when_given() -> None:
+    import numpy as np
+    from astropy.io import fits
+    from astropy.wcs import WCS
+
+    pix, n, fwhm = 1.375, 145, 13.0
+    w = WCS(naxis=2)
+    w.wcs.crpix, w.wcs.cdelt, w.wcs.crval, w.wcs.ctype = [73.0, 73.0], [-pix / 3600.0, pix / 3600.0], [150.0, 2.0], ["RA---TAN", "DEC--TAN"]
+    yy, xx = np.mgrid[0:n, 0:n]
+    sig = fwhm / 2.3548 / pix
+    rng = np.random.default_rng(3)
+    data = 500.0 * np.exp(-((xx - 72.0) ** 2 + (yy - 72.0) ** 2) / (2 * sig * sig)) + rng.normal(0.0, 1.0, (n, n))
+    hdr = fits.Header(w.to_header())
+    kw = dict(band="W3", ra_pred=150.0, dec_pred=2.0, native_fwhm_arcsec=6.5, psf_broadening=1.414, beam_arcsec=6.5,
+              annulus_arcsec=(30.0, 60.0), peak_snr_min=3.0)
+    geo = cutouts.measure_band(data, hdr, **kw)
+    cal = cutouts.measure_band(data, hdr, point_fwhm_arcsec=12.971, **kw)
+    assert geo["status"] == cal["status"] == "ok"
+    assert cal["fwhm_arcsec"] == pytest.approx(geo["fwhm_arcsec"])  # the measurement itself is unchanged
+    assert abs(cal["fwhm_arcsec"] - fwhm) < 0.5
+    assert geo["fwhm_ratio"] == pytest.approx(geo["fwhm_arcsec"] / (6.5 * 1.414)) and geo["fwhm_ratio"] > 1.3
+    assert cal["fwhm_point_ref_arcsec"] == 12.971 and cal["fwhm_ratio"] == pytest.approx(cal["fwhm_arcsec"] / 12.971)
+    assert 0.95 < cal["fwhm_ratio"] < 1.05

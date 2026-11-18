@@ -1,4 +1,4 @@
-version: "1.1.1"
+version: "1.1.2"
 
 storage:
   max_cache_gb: 10.0
@@ -216,6 +216,8 @@ vetting:
   w1_beam_arcsec: 6.1
   w2_beam_arcsec: 6.4
   wise_atlas_psf_broadening: 1.414
+  w3_atlas_point_fwhm_arcsec: 12.971
+  w4_atlas_point_fwhm_arcsec: 20.597
   vision_cutout_size_arcsec: 200.0
   vision_centroid_max_sigma: 3.0
   vision_extended_fwhm_ratio: 1.3
