@@ -8,7 +8,10 @@ plates (blue and red) and is not flagged as lying on a diffraction spike. For ea
 1. USNO-B1.0 (VizieR I/284), the plate sources. A position is given at epoch 2000 when the catalogue measured a
    proper motion, and at the mean epoch of the plates when it did not (proper motion listed as zero).
 2. Gaia DR3, moved to that epoch with its proper motions. A Gaia source within `match_radius_arcsec` of a plate
-   source is its modern counterpart.
+   source is its modern counterpart. The catalogue's own proper motion can be wrong (mismatched detections), which
+   puts its epoch-2000 position far from a star that is still there. So a Gaia source also counts when its path
+   over the plate era (`PLATE_ERA`), drawn with the Gaia proper motion, passes within `match_radius_arcsec` of the
+   plate source at its mean plate epoch.
 3. Pan-STARRS1 DR2 mean objects with at least `plate_ps1_min_detections` detections. An object within
    `match_radius_arcsec` is a counterpart. The local depth is the `plate_depth_percentile` of the r-band PSF
    magnitudes of the field's objects, and needs `plate_depth_min_objects` of them.
@@ -19,7 +22,9 @@ source is bright enough that its absence would be significant (depth minus first
 
 - "no_coverage": the field has no Pan-STARRS depth (south of Dec -30 deg, or too few objects);
 - "failed": the Gaia or Pan-STARRS query of the field failed (not cached, retried next run);
-- "too_faint": the source is closer than `min_depth_margin_mag` to the local depth.
+- "too_faint": the source is closer than `min_depth_margin_mag` to the local depth;
+- "near_bright_star": the source lies inside the halo radius of a bright Gaia star (`plate_bright_star_halo`),
+  where plates show halos, spikes and ghosts that both first-epoch plates repeat, and is not that star itself.
 A field whose USNO-B query failed yields no sources at all; it is listed in the summary (`failed_field_ids`).
 
 Limits the run must carry: USNO-B contains false sources (plate flaws, halos of bright stars, mismatched
@@ -58,21 +63,37 @@ GAIA_EPOCH = 2016.0
 PS1_COLUMNS = "[objID,raMean,decMean,nDetections,rMeanPSFMag]"
 PS1_ROW_LIMIT = 20000
 PS1_DEC_LIMIT_DEG = -30.0  # the 3-pi survey footprint
-# Gaia sources are read this far beyond the field edge, so a counterpart that moved across the edge is still found
+# Gaia sources are read at least this far beyond the field edge, so a counterpart that moved across the edge is still
+# found (the largest halo radius of `plate_bright_star_halo` when that is larger)
 GAIA_EDGE_MARGIN_ARCSEC = 30.0
+# First and last plate epochs of USNO-B1.0 (POSS-I began in 1949, the last southern plates were taken in 2002)
+PLATE_ERA = (1949.0, 2002.0)
 
 ProgressCallback = Callable[[int, int, str, str], None]
 _usno_mirror_serves: dict[str, bool] = {}
 
 
-def _settings(cfg: PipelineConfig) -> dict[str, float]:
+def _settings(cfg: PipelineConfig) -> dict[str, Any]:
     ch = cfg.channels["vanishing"]
     return {
         "radius": float(ch["plate_field_radius_arcsec"]), "match": float(ch["match_radius_arcsec"]),
         "min_margin": float(ch["min_depth_margin_mag"]), "ps1_min_det": int(ch["plate_ps1_min_detections"]),
         "depth_pct": float(ch["plate_depth_percentile"]), "depth_min_n": int(ch["plate_depth_min_objects"]),
         "attempts": int(ch["plate_max_attempts"]), "backoff": float(ch["plate_backoff_s"]), "rps": float(ch["plate_rate_limit_rps"]),
+        "halo": sorted((float(g), float(r)) for g, r in ch["plate_bright_star_halo"]),
     }
+
+
+def gaia_margin_arcsec(st: dict[str, Any]) -> float:
+    """How far beyond the field edge Gaia is read: far enough for every halo radius."""
+    return max([GAIA_EDGE_MARGIN_ARCSEC, *[r for _, r in st["halo"]]])
+
+
+def halo_radius_arcsec(g_mag: float | None, halo: list[tuple[float, float]]) -> float | None:
+    """Halo radius of a star of magnitude `g_mag`: that of the first limit it is brighter than; None for a faint star."""
+    if g_mag is None:
+        return None
+    return next((r for g_lim, r in halo if g_mag < g_lim), None)
 
 
 def _float(val: Any) -> float | None:
@@ -148,6 +169,9 @@ def parse_usno_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         u = out[-1]
         # Without a catalogue proper motion nothing was moved to 2000: the position is that of the mean plate epoch
         u["position_epoch"] = USNO_POSITION_EPOCH if (u["pmra_mas_yr"] or u["pmdec_mas_yr"] or u["mean_epoch"] is None) else u["mean_epoch"]
+        # Where the plates saw it: the catalogue position taken back to the mean plate epoch with the catalogue's own motion
+        u["plate_epoch"] = u["position_epoch"] if u["mean_epoch"] is None else u["mean_epoch"]
+        u["plate_ra_deg"], u["plate_dec_deg"] = propagate_position(ra, dec, u["pmra_mas_yr"], u["pmdec_mas_yr"], u["position_epoch"], u["plate_epoch"])
     return out
 
 
@@ -220,12 +244,26 @@ def _nearest(ra: float, dec: float, cands: list[dict[str, Any]], ra_key: str, de
     return best, best_sep
 
 
+def track_separation(c: dict[str, Any], ra: float, dec: float) -> tuple[float, float]:
+    """Smallest separation (arcsec) between a position and a Gaia star's path over `PLATE_ERA`, and the epoch of it."""
+    cos_dec = max(1e-6, math.cos(math.radians(dec)))
+    x0 = ((c["ra_deg"] - ra + 180.0) % 360.0 - 180.0) * cos_dec * 3600.0  # offset of the star in 2016, arcsec
+    y0 = (c["dec_deg"] - dec) * 3600.0
+    vx, vy = c["pmra_mas_yr"] / 1000.0, c["pmdec_mas_yr"] / 1000.0  # arcsec per year
+    v2 = vx * vx + vy * vy
+    epoch = GAIA_EPOCH if v2 == 0.0 else GAIA_EPOCH - (x0 * vx + y0 * vy) / v2
+    epoch = min(PLATE_ERA[1], max(PLATE_ERA[0], epoch))
+    e_ra, e_dec = propagate_position(c["ra_deg"], c["dec_deg"], c["pmra_mas_yr"], c["pmdec_mas_yr"], GAIA_EPOCH, epoch)
+    return angular_separation_arcsec(ra, dec, e_ra, e_dec), epoch
+
+
 def build_field_units(star: dict[str, Any], usno: list[dict[str, Any]], gaia: list[dict[str, Any]] | None, ps1: list[dict[str, Any]] | None,
-                      st: dict[str, float], *, modern_status: str = "ok") -> tuple[list[dict[str, Any]], dict[str, int]]:
+                      st: dict[str, Any], *, modern_status: str = "ok") -> tuple[list[dict[str, Any]], dict[str, int]]:
     """Plate-source units of one field, each with its status, and the counts of what was left out.
 
     `gaia` / `ps1` are None when that catalogue was not read (`modern_status` then says why: "failed: ..." or
-    "no_coverage"). A unit's `plate_fetch.status` is "ok", "too_faint", "no_coverage" or "failed: ...".
+    "no_coverage"). A unit's `plate_fetch.status` is "ok", "too_faint", "near_bright_star", "no_coverage" or
+    "failed: ...".
     """
     counts = {"n_usno_sources": len(usno), "n_on_spike": 0, "n_one_first_epoch_plate": 0, "n_no_first_epoch_plate": 0}
     sid = str(star["source_id"])
@@ -258,42 +296,66 @@ def build_field_units(star: dict[str, Any], usno: list[dict[str, Any]], gaia: li
                 at_epoch.append(dict(c, ra_epoch_deg=e_ra, dec_epoch_deg=e_dec))
             g, g_sep = _nearest(u["ra_deg"], u["dec_deg"], at_epoch, "ra_epoch_deg", "dec_epoch_deg")
             p, p_sep = _nearest(u["ra_deg"], u["dec_deg"], ps1_real, "raMean", "decMean")
-            in_gaia = g is not None and g_sep is not None and g_sep <= st["match"]
+            # Each Gaia star's path over the plate era against where the plates saw the source
+            tracks = sorted(((*track_separation(c, u["plate_ra_deg"], u["plate_dec_deg"]), c) for c in gaia or []
+                             if abs(c["dec_deg"] - u["plate_dec_deg"]) * 3600.0 <= 600.0), key=lambda t: (t[0], t[2]["source_id"]))
+            t_sep, t_epoch, t_star = tracks[0] if tracks else (None, None, None)
+            at_catalogue_epoch = g is not None and g_sep is not None and g_sep <= st["match"]
+            on_track = t_star is not None and t_sep is not None and t_sep <= st["match"]
+            in_gaia = at_catalogue_epoch or on_track
             in_ps1 = p is not None and p_sep is not None and p_sep <= st["match"]
-            if in_gaia and g is not None:
+            epoch, e_ra, e_dec = u["position_epoch"], u["ra_deg"], u["dec_deg"]
+            matched = g if at_catalogue_epoch else t_star if on_track else None
+            if on_track and not at_catalogue_epoch:
+                # compared where and when the star's path meets the plate position
+                epoch, e_ra, e_dec = round(float(t_epoch), 2), u["plate_ra_deg"], u["plate_dec_deg"]
+            if matched is not None:
                 # The channel moves this position back to the plate epoch with these proper motions
-                unit.update(ra_deg=g["ra_deg"], dec_deg=g["dec_deg"], pmra_mas_yr=g["pmra_mas_yr"], pmdec_mas_yr=g["pmdec_mas_yr"])
-                if g["g_mag"] is not None:
-                    unit["mags"] = {"G": g["g_mag"]}
+                unit.update(ra_deg=matched["ra_deg"], dec_deg=matched["dec_deg"], pmra_mas_yr=matched["pmra_mas_yr"], pmdec_mas_yr=matched["pmdec_mas_yr"])
+                if matched["g_mag"] is not None:
+                    unit["mags"] = {"G": matched["g_mag"]}
             unit["vanishing_data"] = {
-                "usno_epoch": u["position_epoch"], "usno_mean_epoch": u["mean_epoch"], "usno_ra_deg": u["ra_deg"], "usno_dec_deg": u["dec_deg"],
+                "usno_epoch": epoch, "usno_mean_epoch": u["mean_epoch"], "usno_ra_deg": e_ra, "usno_dec_deg": e_dec,
                 "usno_mag_r": u["r1_mag"], "early_plates_count": u["n_first_epoch_plates"], "present_in_gaia": bool(in_gaia),
+                "gaia_match": "catalogue_epoch" if at_catalogue_epoch else "track" if on_track else None,
                 "present_in_panstarrs": bool(in_ps1), "panstarrs_depth_mag": depth, "panstarrs_depth_n_objects": n_depth,
                 "nearest_gaia": None if g is None else {"source_id": g["source_id"], "sep_arcsec": round(float(g_sep), 2), "g_mag": g["g_mag"]},
+                "nearest_gaia_track": {
+                    "n_gaia_stars": len(tracks), "plate_epoch": u["plate_epoch"], "plate_era": list(PLATE_ERA),
+                    "source_id": None if t_star is None else t_star["source_id"], "sep_arcsec": None if t_sep is None else round(float(t_sep), 2),
+                    "epoch": None if t_epoch is None else round(float(t_epoch), 2), "g_mag": None if t_star is None else t_star["g_mag"]},
                 "nearest_panstarrs": None if p is None else {"objID": str(p.get("objID")), "sep_arcsec": round(float(p_sep), 2),
                                                              "n_detections": p.get("nDetections"), "r_mag": _float(p.get("rMeanPSFMag"))},
             }
             unit["vetting_archive"]["query_status"].update({"modern_counterpart": "ok", "panstarrs_depth": "ok"})
-            if depth - float(u["r1_mag"]) < st["min_margin"]:
+            # Inside the halo of a bright star and not that star itself: the plates cannot be trusted there
+            halos = [(sep, c, r) for sep, _, c in tracks for r in [halo_radius_arcsec(c["g_mag"], st["halo"])]
+                     if r is not None and st["match"] < sep <= r]
+            if halos:
+                h_sep, h_star, h_radius = halos[0]
+                status = "near_bright_star"
+                unit["plate_fetch"] = {"bright_star": {"source_id": h_star["source_id"], "g_mag": h_star["g_mag"],
+                                                       "sep_arcsec": round(float(h_sep), 2), "halo_radius_arcsec": h_radius}}
+            elif depth - float(u["r1_mag"]) < st["min_margin"]:
                 status = "too_faint"
-        unit["plate_fetch"] = {"status": status}
+        unit["plate_fetch"] = {**unit.get("plate_fetch", {}), "status": status}
         units.append(unit)
     return units, counts
 
 
 def plate_search_status(unit: dict[str, Any]) -> str:
-    """ "searched" or the reason a plate source was not: "too_faint", "no_coverage", "failed"."""
+    """ "searched" or the reason a plate source was not: "too_faint", "near_bright_star", "no_coverage", "failed"."""
     status = str((unit.get("plate_fetch") or {}).get("status") or "")
     if status == "ok" and (unit.get("vanishing_data") or {}).get("panstarrs_depth_mag") is not None:
         return "searched"
     if status.startswith("failed"):
         return "failed"
-    return status if status in {"too_faint", "no_coverage"} else "no_plate_record"
+    return status if status in {"too_faint", "near_bright_star", "no_coverage"} else "no_plate_record"
 
 
 def search_coverage_summary(units: list[dict[str, Any]], cfg: PipelineConfig) -> dict[str, Any]:
     """Counts of searched and not-searched plate sources, in the layout the other survey channels use."""
-    ids: dict[str, list[str]] = {"too_faint": [], "no_coverage": [], "failed": [], "no_plate_record": []}
+    ids: dict[str, list[str]] = {"too_faint": [], "near_bright_star": [], "no_coverage": [], "failed": [], "no_plate_record": []}
     n_searched = 0
     for u in units:
         cat = plate_search_status(u)
@@ -378,7 +440,7 @@ def fetch_plate_units(
             modern = "no_coverage"
         elif any(u["n_first_epoch_plates"] >= 2 and not u["on_spike"] for u in usno):
             try:
-                gaia = _retry(lambda: gaia_cone(ra, dec, st["radius"] + GAIA_EDGE_MARGIN_ARCSEC, cfg, cache, sleep=sleep))
+                gaia = _retry(lambda: gaia_cone(ra, dec, st["radius"] + gaia_margin_arcsec(st), cfg, cache, sleep=sleep))
                 ps1 = _retry(lambda: ps1_cone(ra, dec, st["radius"] + st["match"], int(st["ps1_min_det"]), cache, sleep=sleep))
             except ArchiveAccessError as exc:
                 gaia, ps1, modern = None, None, f"failed: modern catalogues: {str(exc)[:160]}"

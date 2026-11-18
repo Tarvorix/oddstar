@@ -530,7 +530,7 @@ def _cmd_search(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, 
             f"(no_coverage={coverage.get('n_no_coverage', 0)}, failed={coverage.get('n_failed', 0)}, not_fetched={coverage.get('n_not_fetched', 0)}, "
             f"insufficient_visits={coverage.get('n_insufficient_visits', 0)}, no_light_curve={coverage.get('n_no_light_curve', 0)}, "
             f"single_epoch={coverage.get('n_single_epoch', 0)}, no_spectrum={coverage.get('n_no_spectrum', 0)}, "
-            f"too_faint={coverage.get('n_too_faint', 0)}, not_downloaded={coverage.get('n_not_downloaded', 0)}, "
+            f"too_faint={coverage.get('n_too_faint', 0)}, near_bright_star={coverage.get('n_near_bright_star', 0)}, not_downloaded={coverage.get('n_not_downloaded', 0)}, "
             f"no_comparison={coverage.get('n_no_comparison', 0)}); "
             "they are excluded from the null result"
         )

@@ -1,4 +1,4 @@
-version: "1.5.0"
+version: "1.6.0"
 
 storage:
   max_cache_gb: 10.0
@@ -192,6 +192,8 @@ channels:
     # Live plate-source search (`search vanishing --live`): USNO-B1.0 sources around each sample position
     plate_field_radius_arcsec: 60.0
     plate_ps1_min_detections: 2
+    # [G limit, halo radius in arcsec]: a plate source this close to a Gaia star brighter than the limit is not searched
+    plate_bright_star_halo: [[10.0, 90.0], [11.0, 50.0], [12.0, 20.0]]
     plate_depth_percentile: 90.0
     plate_depth_min_objects: 10
     plate_max_attempts: 3

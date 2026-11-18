@@ -4,7 +4,9 @@ Input rule (R9, lessons L007/L008): a check returns `pass` or `fail` only from i
 
 - A live object (`live_enriched` key) counts an input only when `vetting_archive.query_status[<query>] == "ok"`.
   The plate-source survey of the vanishing search (`oddstar.io.plate_survey`) writes `usno_b1`,
-  `modern_counterpart` and `panstarrs_depth` for a USNO-B1.0 source it compared with Gaia and Pan-STARRS. No code
+  `modern_counterpart` and `panstarrs_depth` for a USNO-B1.0 source it compared with Gaia and Pan-STARRS. For a
+  plate source without a Gaia counterpart, `proper_motion` passes only on the survey's record of how close any Gaia
+  star's path over the plate era comes to the plate position (`nearest_gaia_track`). No code
   path fetches a plate-epoch Solar System ephemeris, modern high-resolution imaging or a variable-star catalogue
   cross-match, so `sso_plate`, `blend_split` and `known_variable` return `not_evaluated` for live objects and name
   the missing data product. A live sample star (not a plate source) has none of these inputs.
@@ -35,6 +37,7 @@ _PRODUCTS: dict[str, tuple[str, str]] = {
     "usno_mag_r": ("usno_b1", "USNO-B1.0 / historical plate record (magnitude)"),
     "early_plates_count": ("usno_b1", "USNO-B1.0 / historical plate detections (independent plate count)"),
     "present_in_gaia": ("modern_counterpart", "modern Gaia counterpart match at the plate position"),
+    "nearest_gaia_track": ("modern_counterpart", "paths of the Gaia stars of the field over the plate era"),
     "panstarrs_depth_mag": ("panstarrs_depth", "Pan-STARRS local limiting depth"),
     "sso_on_plate": ("plate_epoch_ephemeris", "Solar System ephemeris at the plate epoch"),
     "blend_split_sources": ("highres_imaging", "modern high-resolution imaging (blend split)"),
@@ -83,13 +86,35 @@ def _not_evaluated(out_dir: Path, check: str, star: dict[str, Any], missing: lis
 
 
 def check_proper_motion(star: dict[str, Any], cfg: PipelineConfig, out_dir: Path) -> VettingResult:
-    """Fail when the plate-to-Gaia offset is a high-proper-motion star that moved (Gaia counterpart present)."""
+    """Fail when the plate-to-Gaia offset is a high-proper-motion star that moved (Gaia counterpart present).
+
+    A plate source of the survey without a Gaia counterpart has no star to move. It passes only when the survey
+    recorded that no Gaia star's path over the plate era comes within the match radius of the plate position.
+    """
     inputs = {k: _vd_input(star, k) for k in ("usno_epoch", "usno_ra_deg", "usno_dec_deg", "present_in_gaia")}
     gaia = {k: _star_input(star, k) for k in ("ra_deg", "dec_deg", "pmra_mas_yr", "pmdec_mas_yr")}
     missing = [k for k, v in {**inputs, **gaia}.items() if v is None]
     metrics: dict[str, Any] = {"input_values": {**inputs, **gaia}}
     if missing:
         return _not_evaluated(out_dir, "proper_motion", star, missing, metrics)
+    if star.get("plate_source") and not bool(inputs["present_in_gaia"]):
+        track = _vd_input(star, "nearest_gaia_track")
+        metrics["input_values"]["nearest_gaia_track"] = track
+        if not isinstance(track, dict):
+            return _not_evaluated(out_dir, "proper_motion", star, ["nearest_gaia_track"], metrics)
+        match_rad = float(cfg.channels["vanishing"]["match_radius_arcsec"])
+        sep = track.get("sep_arcsec")
+        moved_star = sep is not None and float(sep) <= match_rad
+        metrics.update({"nearest_track_sep_arcsec": sep, "match_radius_arcsec": match_rad, "n_gaia_stars": track.get("n_gaia_stars"),
+                        "fast_pm_resolved": moved_star})
+        era = track.get("plate_era") or ["?", "?"]
+        where = (f"nearest path {float(sep):.2f}\" (Gaia DR3 {track.get('source_id')}, at {track.get('epoch')})" if sep is not None
+                 else "no Gaia star in the field")
+        return make_vet_result(
+            out_dir, check="proper_motion", status="fail" if moved_star else "pass",
+            note=(f"No Gaia counterpart; paths of {track.get('n_gaia_stars')} Gaia star(s) over {era[0]}-{era[1]} against the plate position: "
+                  f"{where} (match radius {match_rad:.1f}\")"),
+            metrics=metrics)
     usno_epoch = float(inputs["usno_epoch"])
     usno_ra, usno_dec = float(inputs["usno_ra_deg"]), float(inputs["usno_dec_deg"])
     pred_ra, pred_dec = propagate_position(
