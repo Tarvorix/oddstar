@@ -1490,6 +1490,24 @@ def _cmd_spherex_verdict(args: argparse.Namespace, cfg: PipelineConfig, short_ha
             log=lambda msg: print(f"  {msg}", file=sys.stderr, flush=True))
         return sx.colour_record(star, res)
 
+    def measure_whole(star: dict[str, Any], *, tolerate: bool) -> dict[str, Any]:
+        """Measure a star, and again while images are missing: a later pass fetches only what the archive refused before."""
+        rec: dict[str, Any] = {}
+        for attempt in range(1, passes + 1):
+            try:
+                rec = measure(star)
+            except Exception as exc:  # one comparison star's archive failure is recorded; it then does not count
+                if not tolerate:
+                    raise
+                rec = {"source_id": str(star["source_id"]), "complete": False, "error": f"{type(exc).__name__}: {exc}"[:300]}
+            rec["passes"] = attempt
+            if rec.get("complete") or rec.get("n_images") == 0 or attempt == passes:
+                break
+            print(f"    {rec['source_id']}: {rec.get('n_failed', 'all')} image(s) not fetched in pass {attempt}; pass {attempt + 1} asks for those only",
+                  file=sys.stderr, flush=True)
+        return rec
+
+    passes = max(1, int(args.passes))
     records: list[dict[str, Any]] = []
     for n, sid in enumerate(ids, 1):
         rec: dict[str, Any] = {"source_id": sid}
@@ -1499,19 +1517,16 @@ def _cmd_spherex_verdict(args: argparse.Namespace, cfg: PipelineConfig, short_ha
                 rec["status"] = "no_catalogue_record"
             else:
                 sel = sx.comparison_stars(target, cfg, cache)
-                print(f"  SPHEREx verdict {n}/{len(ids)}: {sid}: {len(sel['stars'])} comparison star(s) of {sel['n_clean']} clean in "
-                      f"{sel['radius_deg']:g} deg", file=sys.stderr, flush=True)
-                t_rec = measure(target)
+                print(f"  SPHEREx verdict {n}/{len(ids)}: {sid}: {len(sel['stars'])} comparison star(s), the nearest of {sel['n_clean']} clean "
+                      f"among {sel['n_examined']} Gaia source(s) examined out to {sel['examined_out_to_deg']:g} deg", file=sys.stderr, flush=True)
+                t_rec = measure_whole(target, tolerate=False)
                 comparison: list[dict[str, Any]] = []
                 for k, st in enumerate(sel["stars"], 1):
-                    try:
-                        c_rec = measure(st)
-                    except Exception as exc:  # one comparison star's archive failure is recorded; it then does not count
-                        c_rec = {"source_id": str(st["source_id"]), "complete": False, "error": f"{type(exc).__name__}: {exc}"[:300]}
+                    c_rec = measure_whole(st, tolerate=True)
                     c_rec["comparison_sep_arcsec"] = st.get("comparison_sep_arcsec")
                     comparison.append(c_rec)
-                    print(f"    comparison {k}/{len(sel['stars'])}: {c_rec['source_id']}: "
-                          f"{'complete' if c_rec.get('complete') else 'incomplete'}", file=sys.stderr, flush=True)
+                    state = "complete" if c_rec.get("complete") else f"incomplete ({c_rec.get('n_failed', 'all')} image(s) not fetched)"
+                    print(f"    comparison {k}/{len(sel['stars'])}: {c_rec['source_id']}: {state}", file=sys.stderr, flush=True)
                 payload = {"target": t_rec, "comparison": comparison, "selection": {k: v for k, v in sel.items() if k != "stars"},
                            "as_of": as_of, "photometry_version": sx.PHOTOMETRY_VERSION, "detectors": list(sx.COLOUR_DETECTORS),
                            "config_hash": short_hash, "git_commit": current_git_commit(root)}
@@ -1835,6 +1850,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_sxv.add_argument("--as-of", type=str, default=None,
                        help="label of the image list (default: today's date, UTC); the same label reads the stored list again")
     p_sxv.add_argument("--workers", type=int, default=2, help="cutouts fetched at a time (default 2; the archive answers 503 when pushed)")
+    p_sxv.add_argument("--passes", type=int, default=2,
+                       help="times a star is gone through while images are missing (default 2; a later pass fetches only what was refused)")
     p_sxv.add_argument("--run-id", type=str, default=None, help="name of the output folder under runs/ (default spherex-verdict-<first id>)")
 
     p_null = sub.add_parser("null-report", parents=[common], help="Emit sensitivity and null-result report")

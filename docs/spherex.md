@@ -123,7 +123,12 @@ changes that make it usable for any star. Both were made after the first verdict
   whose W1 is within `spherex_comparison_w1_halfwidth_mag` (0.6) of the star's, with clean AllWISE W1 and W2 (quality
   A, no contamination flag, not extended) and clean 2MASS photometry: the nearest `spherex_n_comparison_stars` (12).
   Nearby stars were observed by SPHEREx in the same weeks through the same zodiacal light. Nothing about a star's
-  infrared colour enters the choice.
+  infrared colour enters the choice. The archive is asked in two steps, because one query joining Gaia, AllWISE and
+  2MASS over a 3 degree cone timed out on the first live run (HTTP 408): first the Gaia sources of the right colour
+  in a cone (a quarter of the radius, then half, then all of it, only as far as needed), then the AllWISE and 2MASS
+  records of those sources, nearest first, 500 at a time, until twelve clean stars are in hand. Every source nearer
+  than the last one read has then been looked at, so the stars are the same as one query of the whole cone would
+  give. A Gaia list that comes back at the archive's 50,000 row limit is refused, since it is not the whole cone.
 - **Which comparison stars count.** Only those with a complete run and all three windows enter the median and the
   scatter, and at least `spherex_min_comparison_stars` (8) of them are needed.
 
@@ -147,12 +152,17 @@ stored record (`vetting_archive.spherex_colours`, query status `spherex_colours`
 ## Commands
 
 ```
-oddstar spherex verdict --ids <gaia_id>[,<gaia_id>] [--as-of 2026-11-18] [--run-id <name>]
+oddstar spherex verdict --ids <gaia_id>[,<gaia_id>] [--as-of 2026-11-18] [--passes 2] [--run-id <name>]
 ```
 
 Measures each star and its comparison stars on detectors 3 to 6, applies the rule, stores the colours for vetting
 and writes `runs/<run-id>/spherex_verdict.json` (default run id `spherex-verdict-<first id>`). Stored rows are not
-fetched again, so a repeat after a refused cutout fetches only what is missing.
+fetched again, so a repeat after a refused cutout fetches only what is missing. The command does that itself: a
+star with images missing is gone through again (`--passes`, 2 by default), because the rule counts a comparison
+star only when its run is complete and the archive refuses cutouts when it is busy. On the first live run
+(2026-11-18, evening) the archive took about 9 s per cutout and 30 minutes per star, against 8 minutes in the
+morning, and every one of the first five comparison stars was short of some images after one pass. Give a later
+run of the same star the same `--as-of`, so that it works from the same image list.
 
 
 ```

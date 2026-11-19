@@ -146,26 +146,59 @@ def test_colour_record_keeps_what_the_rule_needs() -> None:
 
 def test_comparison_stars_are_the_nearest_of_like_colour_and_brightness(monkeypatch, tmp_path) -> None:
     cfg = load_config()[0]
-    asked: dict[str, str] = {}
+    asked: dict = {"cones": [], "batches": []}
 
     def cand(sid, east_deg, *, ph="AAAA", cc="0000", ext=0, clean=True):
         return {"source_id": str(sid), "ra_deg": 43.5 + east_deg, "dec_deg": 0.0, "mags": {"BP": 14.0, "RP": 12.7, "W1": 10.6},
                 "allwise": {"ph_qual": ph, "cc_flags": cc, "ext_flg": ext}, "2mass_clean": clean}
 
-    def fake_catalogue(where_sql, cfg, cache, *, release, sleep=None):
-        asked["where"], asked["release"] = where_sql, release
-        return ([cand(100 + i, 0.1 * (i + 1)) for i in range(14)]
-                + [cand(1, 0.0), cand(2, 0.01, ph="ABAA"), cand(3, 0.02, cc="0d00"), cand(4, 0.03, ext=1), cand(5, 0.04, clean=False), cand(6, 0.05, ph="AACC")])
+    # Sources with an AllWISE and 2MASS record in the W1 window: 14 good ones 0.1 deg apart, the star itself, and five near ones
+    records = {str(s["source_id"]): s for s in
+               [cand(100 + i, 0.1 * (i + 1)) for i in range(14)]
+               + [cand(1, 0.0), cand(2, 0.01, ph="ABAA"), cand(3, 0.02, cc="0d00"), cand(4, 0.03, ext=1), cand(5, 0.04, clean=False), cand(6, 0.05, ph="AACC")]}
+    # Gaia sources of the right colour: those, and 30 faint ones (no record in the W1 window) spread over the first degree
+    gaia = {sid: s["ra_deg"] - 43.5 for sid, s in records.items()} | {str(900 + i): 0.033 * (i + 1) - 0.001 for i in range(30)}
 
+    def fake_tap(*, urls, query, archive, release, cache, timeout_s=45, sleep=None, **kw):
+        radius = float(query.split("CIRCLE('ICRS', 43.500000, 0.000000, ")[1].split(")")[0])
+        asked["cones"].append((radius, release, query))
+        return [{"source_id": int(sid), "ra": 43.5 + east, "dec": 0.0} for sid, east in gaia.items() if east <= radius + 1e-9], None, False
+
+    def fake_catalogue(where_sql, cfg, cache, *, release, sleep=None):
+        ids = where_sql.split("IN (")[1].split(")")[0].split(",")
+        asked["batches"].append((ids, where_sql, release))
+        return [dict(records[i]) for i in ids if i in records]
+
+    from oddstar.io import live_survey as ls
+    monkeypatch.setattr(ls, "_tap_query_cached", fake_tap)
     monkeypatch.setattr(sx, "catalogue_stars", fake_catalogue)
+    monkeypatch.setattr(sx, "COMPARISON_BATCH", 10)
     target = {"source_id": "1", "ra_deg": 43.5, "dec_deg": 0.0, "mags": {"BP": 14.041, "RP": 12.687, "W1": 10.665}}
     sel = sx.comparison_stars(target, cfg, RawCache(tmp_path / "raw"))
     # The star itself, a poor W2, a contaminated W2, an extended source and poor 2MASS photometry are left out; W3 and W4 do not matter
     assert [s["source_id"] for s in sel["stars"]] == ["6"] + [str(100 + i) for i in range(11)]
-    assert sel["n_in_cone"] == 20 and sel["n_clean"] == 15 and sel["stars"][0]["comparison_sep_arcsec"] == pytest.approx(180.0, abs=0.5)
+    assert sel["stars"][0]["comparison_sep_arcsec"] == pytest.approx(180.0, abs=0.5)
     assert sel["bp_rp_range"] == [1.154, 1.554] and sel["w1_range"] == [10.065, 11.265] and sel["radius_deg"] == 3.0
-    assert "CIRCLE('ICRS', 43.500000, 0.000000, 3.0000)" in asked["where"] and "BETWEEN 1.1540 AND 1.5540" in asked["where"]
-    assert "aw.w1mpro BETWEEN 10.0650 AND 11.2650" in asked["where"] and asked["release"].endswith("_spherex_comparison")
+    # The cone grew from a quarter of the radius to half of it, and the stars were read nearest first, ten at a time
+    assert [c[0] for c in asked["cones"]] == [0.75, 1.5] and all(c[1].endswith("_spherex_cone") for c in asked["cones"])
+    assert "BETWEEN 1.1540 AND 1.5540" in asked["cones"][0][2] and "allwise" not in asked["cones"][0][2]
+    assert all(len(b[0]) <= 10 and "1" not in b[0] for b in asked["batches"]) and asked["batches"][0][0][:5] == ["2", "3", "4", "900", "5"]
+    assert all("aw.w1mpro BETWEEN 10.0650 AND 11.2650" in b[1] and b[2].endswith("_spherex_comparison") for b in asked["batches"])
+    seen = [i for b in asked["batches"] for i in b[0]]
+    assert len(seen) == len(set(seen)) == sel["n_examined"] and sel["cone_deg"] == 1.5
+    # It stopped with the batch that brought the twelfth clean star: nothing nearer than the last star chosen was left unread
+    last_sep_deg = sel["stars"][-1]["comparison_sep_arcsec"] / 3600.0
+    assert sel["examined_out_to_deg"] >= last_sep_deg and all(i in seen for i, east in gaia.items() if east <= last_sep_deg and i != "1")
+    assert sel["n_clean"] >= 12 and sel["n_matched"] >= sel["n_clean"] and sel["n_gaia_in_cone"] == sum(1 for e in gaia.values() if e <= 1.5)
+    # The answer is the same when everything is read in one batch
+    monkeypatch.setattr(sx, "COMPARISON_BATCH", 10_000)
+    whole = sx.comparison_stars(target, cfg, RawCache(tmp_path / "raw2"))
+    assert [s["source_id"] for s in whole["stars"]] == [s["source_id"] for s in sel["stars"]]
+    # A Gaia list at the archive's row limit is not the whole cone and is refused
+    monkeypatch.setattr(ls, "GAIA_SYNC_ROW_CAP", 5)
+    with pytest.raises(Exception, match="row limit"):
+        sx.comparison_stars(target, cfg, RawCache(tmp_path / "raw3"))
+    monkeypatch.undo()
     with pytest.raises(Exception, match="lacks BP, RP or W1"):
         sx.comparison_stars({"source_id": "9", "ra_deg": 1.0, "dec_deg": 1.0, "mags": {"BP": 14.0}}, cfg, RawCache(tmp_path / "raw"))
 
@@ -202,14 +235,15 @@ def test_spherex_verdict_command_measures_stores_and_judges(monkeypatch, tmp_pat
             return _photometry()
         if sid == "511":
             raise RuntimeError("HTTP 503 from the archive")
-        # bare photospheres of the catalogue colours, with the usual window offsets; one run short of two cutouts
+        # bare photospheres of the catalogue colours, with the usual window offsets; one run is short of two cutouts the
+        # first time and whole the second, one is short of them every time
         k = 666.7e3 * 10 ** (-0.4 * (10.49 + 0.01 + 0.07))
         w1 = 309.54e3 * 10 ** (-0.4 * (10.49 - 0.05 + 0.11))
         w2 = 171.787e3 * 10 ** (-0.4 * 10.49)
-        return _photometry(k, w1, w2, complete=sid != "510")
+        return _photometry(k, w1, w2, complete=sid != "509" and not (sid == "510" and [m[0] for m in measured].count("510") == 1))
 
     monkeypatch.setattr(sx, "target_star", lambda sid, cfg, cache, **kw: dict(target) if sid == "42" else None)
-    monkeypatch.setattr(sx, "comparison_stars", lambda t, cfg, cache, **kw: {"stars": [dict(c) for c in comps], "n_in_cone": 30, "n_clean": 20,
+    monkeypatch.setattr(sx, "comparison_stars", lambda t, cfg, cache, **kw: {"stars": [dict(c) for c in comps], "n_examined": 30, "examined_out_to_deg": 0.5, "n_clean": 20,
                                                                            "radius_deg": 3.0, "bp_rp_range": [1.154, 1.554], "w1_range": [10.065, 11.265]})
     monkeypatch.setattr(sx, "gaia_neighbours", lambda *a, **kw: ())
     monkeypatch.setattr(sx, "forced_photometry", fake_photometry)
@@ -222,9 +256,13 @@ def test_spherex_verdict_command_measures_stores_and_judges(monkeypatch, tmp_pat
         assert code == 0, payload
         first, second = payload["data"]["stars"]
         assert first["status"] == "measured" and first["verdict"] == "redder_now" and first["rule"]["n_comparison_usable"] == 10
+        # A star with images missing is gone through a second time, and only such a star
+        assert [m[0] for m in measured] == ["42"] + [str(500 + i) for i in range(9)] + ["509", "509", "510", "510", "511", "511"]
+        assert [c["passes"] for c in first["comparison"]] == [1] * 9 + [2, 2, 2] and first["target"]["passes"] == 1
+        assert first["comparison"][9]["complete"] is False and first["comparison"][9]["n_failed"] == 2 and first["comparison"][10]["complete"] is True
         assert second == {"source_id": "43", "status": "no_catalogue_record"}
-        assert [m[0] for m in measured] == ["42"] + [str(500 + i) for i in range(12)] and all(m[1] == (3, 4, 5, 6) for m in measured)
-        assert first["comparison"][11]["error"].startswith("RuntimeError: HTTP 503") and first["comparison"][10]["complete"] is False
+        assert all(m[1] == (3, 4, 5, 6) for m in measured)
+        assert first["comparison"][11]["error"].startswith("RuntimeError: HTTP 503") and first["comparison"][11]["complete"] is False
         assert first["comparison"][0]["comparison_sep_arcsec"] == 360.0 and first["selection"]["n_clean"] == 20
         assert json.loads((run_dir / "spherex_verdict.json").read_text())["stars"][0]["verdict"] == "redder_now"
         # What vetting reads afterwards
