@@ -2,6 +2,52 @@
 
 All threshold, sample-cut, and prompt changes must be logged here under Ground Rule R4 before running validation or search.
 
+## [1.12.0] - 2026-11-19
+
+### Spectral lines: the filter output is judged against its own baseline, and the template holds the metal lines
+The search of 1,300 nearby stars (run `v1110-local1300-spectral_lines`, config 1.11.0) flagged one star of the 350
+with two LAMOST epochs: Gaia DR3 29259241366225024, residual S/N 6.00 at rest 6507.5 A (air), Tier C. The same
+measurement on every spectrum in the cache (1,535 reduced windows, one epoch at a time) shows the feature is not
+that star's: the residual at rest 6507.5 A has a median of +2.4 per cent of the continuum over all stars (16th to
+84th percentile +1.6 to +3.3), the same in every signal-to-noise class; 280 single spectra reach S/N 4 there
+against 8 and 9 at two control wavelengths; among the spectra whose strongest open residual reaches S/N 4, 294
+have it between 6504 and 6512 A and no other wavelength collects more than 5; a second star in one of the two
+exposures reaches S/N 6.28 at the same place. The flagged star has spectra of S/N 252 and 175, and its amplitude
+(3.8 per cent) is at the 93rd percentile of the sample. The cause is the template. It held a constant, two
+H-alpha profiles and a slope that could only rise to the red. The absorption lines of an F, G or K star pull that
+constant below the continuum, so the stretch between Ca I 6499.65 and Fe II 6516.08, the widest gap of the window
+without a line, stands a few per cent above the fit in every star, in both exposures, as wide as the line spread.
+The significance divided that by the per-pixel noise, which for a spectrum of S/N above about 80 is itself set by
+the unmodelled lines and not by photons. `docs/channels/spectral_lines.md` already named this bump (1 to 2 per
+cent, S/N 3 to 4 in the stars tried); on 1,535 spectra it reaches the threshold.
+
+The measurement changes in three ways. No threshold changes (`residual_snr_threshold` stays 6.0, `repeat_ratio`
+0.4), and no vetting value. The rules below were written before any real spectrum was measured with them.
+
+- **Baseline and scatter of the filter output** (`_calibrated_filter_snr`). The significance of an exposure at a
+  pixel was `filter output / per-pixel noise`. It is now `(filter output - baseline) / max(per-pixel noise,
+  scatter)`, where baseline and scatter are the median and half the 16th-to-84th percentile range of the filter
+  output over the open pixels of that exposure (the pixels outside every excluded line). The larger of the two
+  noise values is used, so the scatter can lower a significance and never raise it. The values are computed twice:
+  once over all open pixels to find the strongest peak, then without the pixels within 2 line-spread FWHM of that
+  peak (`PEAK_LEAVE_OUT_LSF_FWHM`), so a real line is not counted in its own baseline; the second values are
+  used. With fewer than 12 open pixels (`MIN_OPEN_PIXELS_FOR_CALIBRATION`) the baseline is zero and the per-pixel
+  noise is used alone. Each measurement records the four numbers per exposure (`extra.filter_calibration`).
+  The baseline also removes an offset the old statistic carried for every spectrum: the template is fitted to the
+  per-pixel minimum of the two exposures, which lies 0.56 sigma below each exposure for pure noise, and the
+  filter added that up to about +1.3 in every pixel.
+- **Photospheric lines in the template** (`PHOTOSPHERIC_LINES_A`). 21 of the stronger solar absorption lines of
+  6493 to 6664 A (Ca I, Fe I, Fe II, Ba II, Ni I; Moore, Minnaert & Houtgast 1966) enter the non-negative fit as
+  absorption profiles of free depth, broadened by the line spread, where they lie within 3 profile widths of the
+  window. An absorption profile with a non-negative coefficient cannot fit an emission line.
+- **The slope takes either sign.** The fit is non-negative and held `+slope` only, so a continuum that falls to
+  the red was not fitted. `-slope` is now a second column.
+
+Effect on the certificate (fixtures at a line-spread width of 0.45 A, white noise): design-point completeness and
+benchmark recovery are unchanged; completeness at the lowest injected S/N (5, below the threshold) falls from
+0.70 and 0.65 to 0.40 and 0.20 and the null statistic falls by about 1 (median 2.70 to 1.73), both from the
+removed offset. Stored runs under 1.11.0 keep their numbers; a rerun under 1.12.0 measures the cached spectra again.
+
 ## [1.11.0] - 2026-11-19
 
 ### Radio vetting: the other beams of a multibeam scan become the session cross-check (`multi_target`)

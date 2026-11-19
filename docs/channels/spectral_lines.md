@@ -7,9 +7,10 @@ Unresolved emission features narrower than or equal to the instrument line-sprea
 - Multi-exposure optical spectra (`flux_exp1`, `flux_exp2`), sky-fiber spectra, and instrument LSF width from SDSS, LAMOST, GALAH, APOGEE, Gaia RVS, and APF.
 
 ## Algorithm
-1. Fit non-negative linear combination of stellar continuum/absorption templates (`nnls`) on the per-pixel minimum across exposures and subtract.
+1. Fit non-negative linear combination of stellar continuum/absorption templates (`nnls`) on the per-pixel minimum across exposures and subtract. The templates are a constant, a slope of either sign, two H-alpha profiles and (config 1.12.0) 21 of the stronger photospheric lines of 6493 to 6664 A with free depths (`PHOTOSPHERIC_LINES_A`).
 2. Run LSF-width Gaussian matched filter across residual spectra, requiring multi-exposure persistence.
 3. Veto known night-sky/airglow lines and chromospheric stellar lines (e.g., H-alpha).
+4. Config 1.12.0: the significance of an exposure at a pixel is `(filter output - baseline) / max(per-pixel noise, scatter)`. Baseline and scatter are the median and half the 16th-to-84th percentile range of the filter output over the open pixels, taken without the pixels within 2 line-spread FWHM of the strongest peak. The channel statistic is the smaller of the two exposures' values at the best pixel. Each measurement stores the four numbers per exposure in `extra.filter_calibration`.
 
 ## Live survey search (config 1.3.0)
 `oddstar search spectral_lines --live` loads two epochs of every sample star from the LAMOST DR12 v2.0 low-resolution
@@ -48,9 +49,13 @@ With `--defer-enrichment` the flagged stars are still written to `live_stars.jso
 What a live flag means, and what it does not:
 - The certificate of this channel was measured on fixtures at a line-spread width of 0.45 A. Nothing was injected at
   R = 1800, so the completeness and the false-alarm rate of a LAMOST search are not measured. A flag is a lead.
-- The template is a continuum and H-alpha. Other photospheric lines are not modelled. They are absorption lines, so
-  they do not flag by themselves, but the pseudo-continuum between them is a repeatable bump of 1 to 2 per cent in the
-  stars tried so far (residual S/N 3 to 4 on spectra with S/N 70 to 200).
+- Up to config 1.11.0 the template was a continuum and H-alpha only. The pseudo-continuum between the unmodelled
+  absorption lines is then a repeatable bump of 1.6 to 3.3 per cent in nearly every star (1,535 LAMOST spectra,
+  strongest at rest 6504 to 6512 A), and it reached the threshold in spectra of S/N above 170: the one star
+  flagged in the 1,300 nearby stars (29259241366225024, S/N 6.00 at 6507.5 A) was this bump. Config 1.12.0 fits
+  the stronger metal lines and judges the filter output against its own baseline and scatter (see Algorithm and
+  the changelog). What is left of a star's spectrum after the fit still limits the search: in a spectrum of high
+  signal-to-noise the smallest line that flags is set by the scatter of the filter output, not by photon noise.
 - No sky spectrum and no detector map come with the public file: `sky_line` returns `not_evaluated` unless the peak
   sits on a listed sky position (then `fail`), and `detector` is always `not_evaluated`. A sky or instrument feature
   that is not in the list shows as flagged peaks at the same observed wavelength in several stars.
