@@ -265,7 +265,9 @@ def test_radio_checks_need_explicit_inputs(fn: Callable[..., Any], key: str, cfg
     # A live star whose scans were compared: its inputs count, and a missing one is named as not produced by the search
     searched = dict(_live({"source_id": "1"}, breakthrough_listen="ok"), **{key: good[key]})
     _is_pass(fn(searched, cfg, tmp_path / "e"))
-    _is_ne(fn(_live({"source_id": "1"}, breakthrough_listen="ok"), cfg, tmp_path / "f"), "breakthrough_listen=ok", "does not produce this input")
+    # (the session cross-check comes from the beam test, a separate command)
+    _is_ne(fn(_live({"source_id": "1"}, breakthrough_listen="ok"), cfg, tmp_path / "f"), "breakthrough_listen=ok",
+           "no beam test of this window is stored" if fn is rc.check_multi_target else "does not produce this input")
 
 
 def test_radio_cadence_without_measurement_is_not_evaluated(cfg: Any, tmp_path: Path) -> None:

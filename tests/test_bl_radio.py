@@ -689,3 +689,298 @@ def test_two_nodes_of_one_parkes_scan_do_not_share_a_local_file(tmp_path: Path) 
     # Names that carry their node keep their name
     gbt = "https://bldata.berkeley.edu/blc07_guppi_59426_77412_NGC4168_0012.rawspec.0000.h5"
     assert br.local_path(tmp_path, gbt).name == "blc07_guppi_59426_77412_NGC4168_0012.rawspec.0000.h5"
+
+
+# ---------------------------------------------------------------------------------------------------- the beam test
+
+
+def test_range_reader_serves_reads_from_blocks_and_counts_what_it_fetched() -> None:
+    raw = bytes(range(256)) * 40  # 10240 bytes
+    asked: list[tuple[int, int]] = []
+
+    def fetch(a: int, b: int) -> bytes:
+        asked.append((a, b))
+        return raw[a:b]
+
+    r = br.RangeReader(fetch, len(raw), block_bytes=1000, max_blocks=8)
+    assert r.readable() and r.seekable() and not r.writable() and r.tell() == 0
+    assert r.read(10) == raw[:10] and asked == [(0, 1000)] and r.tell() == 10
+    assert r.read(500) == raw[10:510] and asked == [(0, 1000)], "the same block is not fetched twice"
+    r.seek(2500)
+    assert r.read(3000) == raw[2500:5500] and asked[-1] == (2000, 6000), "neighbouring missing blocks are one request"
+    r.seek(900)
+    assert r.read(1200) == raw[900:2100] and asked[-1] == (1000, 2000), "only the block in the middle was missing"
+    assert r.seek(-240, 2) == 10000 and r.read() == raw[10000:] and asked[-1] == (10000, 10240), "the last block is short"
+    assert r.read(5) == b"" and r.seek(0, 2) == len(raw)
+    r.seek(4, 0)
+    r.seek(2, 1)
+    buf = bytearray(8)
+    assert r.readinto(buf) == 8 and bytes(buf) == raw[6:14]
+    assert r.n_requests == len(asked) and r.bytes_fetched == sum(b - a for a, b in asked)
+    with pytest.raises(ArchiveAccessError):
+        br.RangeReader(lambda a, b: raw[a:b - 1], len(raw), block_bytes=1000).read(10)
+    with pytest.raises(ArchiveAccessError):
+        br.RangeReader(fetch, 0)
+
+
+def test_http_range_fetch_accepts_only_the_asked_range() -> None:
+    body = bytes(range(200))
+
+    class _R:
+        def __init__(self, status: int, content: bytes) -> None:
+            self.status_code, self.content = status, content
+
+        def close(self) -> None:
+            pass
+
+    class _Session:
+        def __init__(self, answers: list[Any]) -> None:
+            self.answers, self.ranges = answers, []
+
+        def get(self, url: str, headers: dict[str, str], **kw: Any) -> Any:
+            self.ranges.append(headers["Range"])
+            a = self.answers.pop(0)
+            if isinstance(a, Exception):
+                raise a
+            return a
+
+    import requests
+
+    s = _Session([_R(206, body[10:20])])
+    assert br.http_range_fetch("http://x/f.h5", session=s)(10, 20) == body[10:20] and s.ranges == ["bytes=10-19"]
+    # a server error, a cut transfer and a short body are tried again
+    s = _Session([_R(503, b""), requests.exceptions.ConnectionError("cut"), _R(206, body[:5]), _R(206, body[:10])])
+    assert br.http_range_fetch("http://x/f.h5", session=s, sleep=lambda t: None)(0, 10) == body[:10] and len(s.ranges) == 4
+    # a server that ignores the range would send the whole file: refused, not retried
+    s = _Session([_R(200, body)])
+    with pytest.raises(ArchiveAccessError, match="does not serve byte ranges") as e:
+        br.http_range_fetch("http://x/f.h5", session=s, sleep=lambda t: None)(0, 10)
+    assert e.value.retryable is False and len(s.ranges) == 1
+    s = _Session([_R(404, b"")])
+    with pytest.raises(ArchiveAccessError, match="HTTP 404"):
+        br.http_range_fetch("http://x/f.h5", session=s, sleep=lambda t: None)(0, 10)
+    s = _Session([_R(500, b"")] * 3)
+    with pytest.raises(ArchiveAccessError, match="HTTP 500") as e:
+        br.http_range_fetch("http://x/f.h5", session=s, attempts=3, sleep=lambda t: None)(0, 10)
+    assert e.value.retryable is True and len(s.ranges) == 3
+
+
+def _as_remote(path: Path, asked: list[tuple[int, int]] | None = None, block: int = 4096) -> br.ScanFile:
+    """A local scan file read the way an archive file is: through a `RangeReader`."""
+    raw = path.read_bytes()
+
+    def fetch(a: int, b: int) -> bytes:
+        if asked is not None:
+            asked.append((a, b))
+        return raw[a:b]
+
+    return br.ScanFile(path.name, fileobj=br.RangeReader(fetch, len(raw), block_bytes=block))
+
+
+def test_a_scan_read_through_byte_ranges_equals_the_local_file_and_fetches_only_its_chunks(tmp_path: Path) -> None:
+    pytest.importorskip("h5py")
+    data = _noise(70)
+    path = write_h5(tmp_path / "a.gpuspec.0000.h5", data)
+    local = br.ScanFile(path)
+    asked: list[tuple[int, int]] = []
+    remote = _as_remote(path, asked, block=512)
+    assert remote.nchans == N_F and remote.n_ints == N_T and remote.chunk_channels == 1024 and local.chunk_channels == 1024
+    assert remote.freq_of_channel(0) == local.freq_of_channel(0) and remote.tstart_mjd == local.tstart_mjd
+    n_open = sum(b - a for a, b in asked)
+    # two windows inside one chunk of the file (ascending 3072..4095), one in another: read together, sliced apart
+    wins = remote.read_windows([3100, 3600, 7000, -5, N_F - 100], 200)
+    assert wins[3] is None and wins[4] is None, "a window the file does not hold is None"
+    for a, w in zip([3100, 3600, 7000], wins[:3], strict=True):
+        assert w is not None and np.array_equal(w, data[:, a:a + 200]) and np.array_equal(w, local.read_ascending(a, a + 200))
+    n_read = sum(b - a for a, b in asked) - n_open
+    assert 0 < n_read < 0.45 * path.stat().st_size, "two of eight chunk columns were fetched, not the file"
+    assert remote.fileobj.bytes_fetched == sum(b - a for a, b in asked)
+    remote.close()
+    local.close()
+    with pytest.raises(ArchiveAccessError, match="only an HDF5 scan"):
+        br.ScanFile("x.gpuspec.0000.fil", fileobj=br.RangeReader(lambda a, b: b"", 10))
+
+
+MB_RA, MB_DEC = 150.0, 20.0
+KB_RA, KB_DEC = 160.0, 25.0
+
+
+def _multibeam_sample(tmp_path: Path) -> tuple[list[dict[str, Any]], _Archive, Path]:
+    """Two stars in a multibeam scan each: every beam of a scan carries the ON beam's target name and start time.
+
+    Star 11 has two lines in its ON beam: line A (channel 1000) only there, line B (channel 6000, stronger) also in a
+    near and in a far beam. Star 12 has only line B, also in a far beam; one of its far beam files is not in the archive.
+    """
+    pytest.importorskip("h5py")
+    data_dir = tmp_path / "scans"
+    data_dir.mkdir()
+    arc = _Archive(data_dir)
+    step = 5.7 / 1440.0
+    asec = 1.0 / 3600.0
+
+    def add(name: str, target: str, ra: float, dec: float, mjd: float, data: np.ndarray | None) -> None:
+        size = 1000
+        if data is not None:
+            size = write_h5(data_dir / name, data, tstart=mjd, source=target).stat().st_size
+        arc.rows.append(_index_row(name, target, ra, dec, mjd, size))
+
+    def line_b(seed: int) -> np.ndarray:
+        return _tone(_noise(seed), 6000, 0.2, amp=900.0)
+
+    add("mb1_on.gpuspec.0000.h5", "MB1", MB_RA, MB_DEC + 100 * asec, T_ON, _tone(line_b(40), 1000, 0.3))
+    add("mb1_near.gpuspec.0000.h5", "MB1", MB_RA, MB_DEC + 1000 * asec, T_ON, line_b(41))       # 1000": outside the beam, nearer than 6 radii
+    add("mb1_far1.gpuspec.0000.h5", "MB1", MB_RA, MB_DEC + 2000 * asec, T_ON, line_b(42))
+    add("mb1_far2.gpuspec.0000.h5", "MB1", MB_RA, MB_DEC - 2500 * asec, T_ON, _noise(43))
+    add("mb1_far3.gpuspec.0000.h5", "MB1", MB_RA + 1.0, MB_DEC, T_ON, _noise(44))
+    add("mb1_off1.gpuspec.0000.h5", "MBOFF", MB_RA + 3.0, MB_DEC, T_ON - step, _noise(45))
+    add("mb1_off2.gpuspec.0000.h5", "MBOFF", MB_RA + 3.0, MB_DEC, T_ON + step, _noise(46))
+
+    add("mb2_on.gpuspec.0000.h5", "MB2", KB_RA, KB_DEC + 100 * asec, T_ON + 1.0, line_b(50))
+    add("mb2_far1.gpuspec.0000.h5", "MB2", KB_RA, KB_DEC + 2000 * asec, T_ON + 1.0, line_b(51))
+    add("mb2_far2.gpuspec.0000.h5", "MB2", KB_RA, KB_DEC - 2500 * asec, T_ON + 1.0, None)       # listed by the index, not served
+    add("mb2_far3.gpuspec.0000.h5", "MB2", KB_RA + 1.0, KB_DEC, T_ON + 1.0, _noise(53))
+    add("mb2_off1.gpuspec.0000.h5", "MBOFF2", KB_RA + 3.0, KB_DEC, T_ON + 1.0 - step, _noise(54))
+    add("mb2_off2.gpuspec.0000.h5", "MBOFF2", KB_RA + 3.0, KB_DEC, T_ON + 1.0 + step, _noise(55))
+    stars = [{"source_id": sid, "ra_deg": ra, "dec_deg": dec, "live_enriched": False, "distance_pc": 300.0, "teff_k": 5200.0}
+             for sid, ra, dec in (("11", MB_RA, MB_DEC), ("12", KB_RA, KB_DEC))]
+    return stars, arc, data_dir
+
+
+def test_beam_test_reads_the_other_beams_of_the_instant_and_feeds_the_multi_target_check(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cfg: Any) -> None:
+    import shutil
+
+    from oddstar import cli
+
+    stars, arc, data_dir = _multibeam_sample(tmp_path)
+    monkeypatch.setattr(ot, "_get_with_retries", arc.get)
+    cache = RawCache(tmp_path / "raw")
+    channel = build_channel("radio_narrowband", cfg, repo_root())
+    df_hz = DF_MHZ * 1e6
+
+    # The search as it was: the beams carry the ON beam's name, so the comparison is the scans before and after
+    out, summary = br.enrich_sample_radio(stars, cfg, cache, channel, data_dir, sleep=lambda s: None)
+    assert [br.radio_search_status(s) for s in out] == ["searched", "searched"] and summary["n_windows_flagged_outside_rfi_bands"] == 3
+    assert summary["n_windows_tested"] == 0
+    s11, s12 = out
+    assert s11["radio_search"]["scan_sets"][0]["comparison"] == "before_after" and "multi_target_match" not in s11
+    f_a, f_b = F_LOW + 1000 * DF_MHZ, F_LOW + 6000 * DF_MHZ
+    assert s11["radio_search"]["selected_hit"]["freq_mhz"] == pytest.approx(f_b, abs=2e-6), "the stronger line is the selected window"
+    vet = {r.check: r for r in run_radio_vetting(s11, cfg, tmp_path / "vet0")}
+    assert vet["multi_target"].status == "not_evaluated" and "oddstar radio beams" in vet["multi_target"].note
+
+    plan = bl.plan_star_scans(MB_RA, MB_DEC, bl.query_star_rows(MB_RA, MB_DEC, cache, sleep=lambda s: None)[0], cache, sleep=lambda s: None)[0]
+    beams = plan["beams_same_instant"]
+    assert [b["files"][0]["url"].rsplit("/", 1)[-1][:8] for b in beams] == ["mb1_near", "mb1_far1", "mb1_far2", "mb1_far3"], "nearest first"
+    assert [b["far"] for b in beams] == [False, True, True, True] and plan["off_simultaneous"] == []
+
+    asked: list[tuple[int, int]] = []
+    opened: list[str] = []
+
+    def remote(f: dict[str, Any]) -> br.ScanFile:
+        path = data_dir / f["url"].rsplit("/", 1)[-1]
+        opened.append(path.name)
+        if not path.is_file():
+            raise ArchiveAccessError(f"{f['url']}: HTTP 404", retryable=False)
+        return _as_remote(path, asked)
+
+    logs: list[str] = []
+    rec = br.beam_test_star("11", MB_RA, MB_DEC, cfg, cache, channel, open_scan=remote, sleep=lambda s: None, log=logs.append)
+    assert rec["status"] == "tested" and rec["n_windows_tested"] == 2 and rec["n_windows_in_far_beams"] == 1 and rec["n_windows_in_no_far_beam"] == 1
+    band = rec["scan_sets"][0]["bands"][0]
+    assert band["already_stored"] is False and rec["scan_sets"][0]["n_beams_same_instant"] == 4
+    test = band["test"]
+    assert test["n_beams_read"] == 4 and test["n_far_beams_read"] == 3 and test["bytes_fetched"] == sum(b - a for a, b in asked) > 0
+    assert test["n_range_requests"] == len(asked) and test["chunk_channels"] == 1024
+    # the ON beam, the four other beams, then the two OFF scans for the window that may become the selected one
+    assert opened == ["mb1_on.gpuspec.0000.h5", "mb1_near.gpuspec.0000.h5", "mb1_far1.gpuspec.0000.h5", "mb1_far2.gpuspec.0000.h5",
+                      "mb1_far3.gpuspec.0000.h5", "mb1_off1.gpuspec.0000.h5", "mb1_off2.gpuspec.0000.h5"]
+    w_b, w_a = sorted(band["windows"], key=lambda w: -w["freq_mhz"])
+    assert w_a["freq_mhz"] == pytest.approx(f_a, abs=2e-6) and w_b["freq_mhz"] == pytest.approx(f_b, abs=2e-6)
+    assert w_a["matches_stored_hit"] and w_b["matches_stored_hit"], "the ON beam read again gives the stored hit"
+    assert w_b["multi_target_match"] is True and (w_b["n_far_beams"], w_b["n_far_beams_with_hit"], w_b["n_near_beams"], w_b["n_near_beams_with_hit"]) == (3, 1, 1, 1)
+    assert w_a["multi_target_match"] is False and (w_a["n_far_beams"], w_a["n_far_beams_with_hit"], w_a["n_near_beams_with_hit"]) == (3, 0, 0)
+    far1 = next(b for b in w_b["beams"] if b["beam"] == 1)
+    assert far1["hit"] and far1["snr"] > 30 and far1["snr_at_on_freq"] == pytest.approx(far1["snr"], abs=0.01) and far1["drift_hz_s"] == pytest.approx(0.2)
+    assert abs(far1["freq_offset_hz"] - w_b["on"]["freq_offset_hz"]) <= df_hz
+    quiet = next(b for b in w_b["beams"] if b["beam"] == 2)
+    assert not quiet["hit"] and quiet["snr"] < 10 and quiet["snr_at_on_freq"] < 6
+    assert w_a["remeasured"]["flagged"] and w_a["remeasured"]["off_scan_hits"] == 0 and "remeasured" not in w_b
+    assert any("line in 1 of 2 window(s)" in m for m in logs)
+
+    # A repeat reads the stored test; --redo would read the beams again
+    opened.clear()
+    again = br.beam_test_star("11", MB_RA, MB_DEC, cfg, cache, channel, open_scan=remote, sleep=lambda s: None)
+    assert again["scan_sets"][0]["bands"][0]["already_stored"] is True and opened == [] and again["n_windows_in_far_beams"] == 1
+
+    # Star 12: its only line is in a far beam; a beam file the archive does not serve is listed with its error
+    rec12 = br.beam_test_star("12", KB_RA, KB_DEC, cfg, cache, channel, open_scan=remote, sleep=lambda s: None)
+    t12 = rec12["scan_sets"][0]["bands"][0]
+    assert rec12["status"] == "tested" and rec12["n_windows_tested"] == 1 and rec12["n_windows_in_far_beams"] == 1
+    assert t12["test"]["n_beams_listed"] == 3 and t12["test"]["n_beams_read"] == 2 and "HTTP 404" in t12["test"]["beams"][1]["error"]
+    assert t12["windows"][0]["n_far_beams"] == 2 and t12["windows"][0]["n_far_beams_with_hit"] == 1
+
+    # The survey now reads the stored tests: star 11's selected window is the line no far beam shows, star 12 keeps its line
+    out, summary = br.enrich_sample_radio(stars, cfg, cache, channel, data_dir, sleep=lambda s: None)
+    s11, s12 = out
+    assert summary["n_windows_flagged_outside_rfi_bands"] == 3, "the search counts are not changed by the test"
+    assert (summary["n_windows_tested"], summary["n_windows_in_far_beams"], summary["n_windows_in_no_far_beam"]) == (3, 2, 1)
+    hit = s11["radio_search"]["selected_hit"]
+    assert hit["freq_mhz"] == pytest.approx(f_a, abs=2e-6) and hit["multi_target_match"] is False and s11["multi_target_match"] is False
+    assert s11["radio_search"]["scan_sets"][0]["beam_test"]["n_windows_in_far_beams"] == 1
+    listed = s11["radio_search"]["scan_sets"][0]["windows"]
+    assert [w.get("multi_target_match") for w in listed[:2]] == [False, True], "the window a far beam shows ranks below the one none shows"
+    m = channel.measure(s11, {})
+    assert channel.score(m).flagged and m.values["drift_hz_s"] == pytest.approx(0.3) and len(s11["scans"]) == 3
+    vet = {r.check: r for r in run_radio_vetting(s11, cfg, tmp_path / "vet1")}
+    assert vet["multi_target"].status == "pass" and "none of the 3 far beams" in vet["multi_target"].note
+    assert vet["off_scan"].status == "pass" and vet["rfi_band"].status == "pass" and vet["reobservation"].status == "not_evaluated"
+    assert s12["multi_target_match"] is True and s12["radio_search"]["selected_hit"]["freq_mhz"] == pytest.approx(f_b, abs=2e-6)
+    assert channel.score(channel.measure(s12, {})).flagged, "still a flagged window: vetting rejects it"
+    vet = {r.check: r for r in run_radio_vetting(s12, cfg, tmp_path / "vet2")}
+    assert vet["multi_target"].status == "fail" and "in 1 of 2 far beams" in vet["multi_target"].note
+
+    # The command
+    monkeypatch.setattr(cli, "RawCache", lambda *a, **kw: RawCache(tmp_path / "raw"))
+    monkeypatch.setattr(br, "open_remote_scan", remote)
+    runs = repo_root() / "runs"
+    src, out_dir = runs / "test-beams-src", runs / "radio-beams-test-beams-src"
+    try:
+        src.mkdir(parents=True)
+        score = {"source_id": "12", "channel": "radio_narrowband", "raw_statistic": 9.0, "false_alarm_prob": 1e-4, "flagged": True,
+                 "rank_score": 9.0, "summary": "x"}
+        (src / "search_radio_narrowband.json").write_text(json.dumps({
+            "channel": "radio_narrowband", "sample_stars": stars, "flagged_ids": ["12"], "scores": [score]}), encoding="utf-8")
+        code, payload = dispatch(["radio", "beams", "--from-run", "test-beams-src", "--json"])
+        assert code == 0, payload
+        d = payload["data"]
+        assert d["selection"] == "tier C or better" and [s["source_id"] for s in d["stars"]] == ["12"] and d["status_counts"] == {"tested": 1}
+        assert d["n_windows_tested"] == 1 and d["n_windows_in_far_beams"] == 1 and "1 also in a far beam" in payload["summary"]
+        opened.clear()
+        code, payload = dispatch(["radio", "beams", "--from-run", "test-beams-src", "--ids", "11,12", "--redo", "--json"])
+        assert code == 0, payload
+        assert payload["data"]["n_windows_tested"] == 3 and payload["data"]["n_windows_in_no_far_beam"] == 1 and len(opened) == 11
+        saved = json.loads((out_dir / "radio_beams.json").read_text(encoding="utf-8"))
+        assert [s["status"] for s in saved["stars"]] == ["tested", "tested"] and "cadence" not in json.dumps(saved)
+    finally:
+        shutil.rmtree(src, ignore_errors=True)
+        shutil.rmtree(out_dir, ignore_errors=True)
+
+
+def test_beam_test_has_nothing_to_do_without_other_beams_or_flagged_windows(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cfg: Any) -> None:
+    stars, arc, data_dir = _sample(tmp_path)
+    monkeypatch.setattr(ot, "_get_with_retries", arc.get)
+    cache = RawCache(tmp_path / "raw")
+    channel = build_channel("radio_narrowband", cfg, repo_root())
+
+    def never(f: dict[str, Any]) -> br.ScanFile:
+        raise AssertionError("no file is opened")
+
+    def test(i: int) -> dict[str, Any]:
+        return br.beam_test_star(stars[i]["source_id"], stars[i]["ra_deg"], stars[i]["dec_deg"], cfg, cache, channel, open_scan=never, sleep=lambda s: None)
+
+    assert test(0)["status"] == "not_searched" and test(4)["status"] == "no_coverage" and test(5)["status"].startswith("failed: ")
+    br.enrich_sample_radio(stars[:1], cfg, cache, channel, data_dir, sleep=lambda s: None)
+    rec = test(0)
+    assert rec["status"] == "no_other_beams" and rec["scan_sets"][0]["bands"][0]["n_windows_flagged_outside_rfi_bands"] == 1
+    assert rec["n_windows_tested"] == 0

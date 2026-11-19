@@ -1387,6 +1387,60 @@ def _cmd_radio_followup(args: argparse.Namespace, cfg: PipelineConfig, short_has
     )
 
 
+def _cmd_radio_beams(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, root: Path) -> CLIResponse:
+    """Test the flagged radio windows of chosen stars against the other beams recorded at the same instant.
+
+    For a scan of a multibeam receiver (Parkes multibeam: 13 beams) the other beams point at other parts of the sky.
+    Every window of a star's stored search that is flagged outside the allocated bands is read from each of them,
+    a few kilohertz per beam by HTTP range requests: no scan file is downloaded. The result is stored with the
+    search; the next `search radio_narrowband --live` and `vet` then evaluate the check `multi_target`.
+    Stars: those the given runs left at `--min-tier` or better (default), or the ones named with `--ids`.
+    """
+    from oddstar.io.bl_radio import beam_test_star
+
+    stars, tiers, _ = _stars_and_tiers_of_runs(args.from_run, cfg, root)
+    if args.ids:
+        chosen = [i.strip() for i in args.ids.split(",") if i.strip()]
+        selection = "ids"
+    else:
+        chosen = sorted(sid for sid, tier in tiers.items() if _TIER_RANK[tier] >= _TIER_RANK[args.min_tier])
+        selection = f"tier {args.min_tier} or better"
+    cache = RawCache(root / cfg.storage.raw_dir, max_cache_gb=cfg.storage.max_cache_gb)
+    _positions_for(chosen, stars, args.from_run, cfg, cache)
+    channel = build_channel("radio_narrowband", cfg, root)
+    records = []
+    for n, sid in enumerate(chosen, 1):
+        rec = beam_test_star(sid, float(stars[sid]["ra_deg"]), float(stars[sid]["dec_deg"]), cfg, cache, channel, redo=args.redo,
+                             log=lambda msg, _sid=sid: print(f"  {_sid}: {msg}", file=sys.stderr, flush=True))
+        rec["tier_before"] = tiers.get(sid)
+        records.append(rec)
+        print(f"  beam test {n}/{len(chosen)}: {sid}: {rec['status'].split(':')[0]}", file=sys.stderr, flush=True)
+    counts: dict[str, int] = {}
+    for rec in records:
+        key = rec["status"].split(":")[0]
+        counts[key] = counts.get(key, 0) + 1
+    totals = {k: sum(int(r.get(k, 0)) for r in records)
+              for k in ("n_windows_tested", "n_windows_in_far_beams", "n_windows_in_no_far_beam", "n_windows_not_judged")}
+    payload = {
+        "run_id": args.run_id or f"radio-beams-{args.from_run[0]}", "from_runs": list(args.from_run), "selection": selection,
+        "config_hash": short_hash, "git_commit": current_git_commit(root), "n_selected": len(chosen), "status_counts": counts, **totals,
+        "stars": records,
+    }
+    out_dir = root / cfg.storage.runs_dir / payload["run_id"]
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out = out_dir / "radio_beams.json"
+    out.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return CLIResponse(
+        ok=True,
+        summary=(f"Beam test of {len(chosen)} star(s) ({selection}): " + (", ".join(f"{v} {k}" for k, v in sorted(counts.items())) or "nothing selected")
+                 + f"; {totals['n_windows_tested']} window(s) read: {totals['n_windows_in_far_beams']} also in a far beam, "
+                 f"{totals['n_windows_in_no_far_beam']} in no far beam, {totals['n_windows_not_judged']} not judged"),
+        artifacts=[str(out)],
+        data=payload,
+        next="oddstar search radio_narrowband --live --json" if counts.get("tested") else "",
+    )
+
+
 def _cmd_spherex_photometry(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, root: Path) -> CLIResponse:
     """Measure chosen stars on every SPHEREx spectral image that holds them (0.75 to 5 micron, 2025 on).
 
@@ -1828,6 +1882,15 @@ def build_parser() -> argparse.ArgumentParser:
     p_rf.add_argument("--radio-data-dir", type=str, default=None, help="where scan files pass through (default: data/breakthrough_listen_scans)")
     p_rf.add_argument("--run-id", type=str, default=None, help="name of the output folder under runs/ (default radio-followup-<first run>)")
 
+    p_rb = radio_sub.add_parser("beams", parents=[common],
+                                help="Test flagged radio windows against the other beams recorded at the same instant (range requests, no download)")
+    p_rb.add_argument("--from-run", action="append", required=True, metavar="RUN_ID",
+                      help="search run whose sample holds the stars (repeatable); its flagged stars and vetting give the tiers")
+    p_rb.add_argument("--min-tier", choices=["A", "B", "C"], default="C", help="test stars at this tier or better (default C)")
+    p_rb.add_argument("--ids", type=str, default=None, help="comma-separated source ids to test instead of the tier selection")
+    p_rb.add_argument("--redo", action="store_true", help="read the beams again even when a beam test is stored")
+    p_rb.add_argument("--run-id", type=str, default=None, help="name of the output folder under runs/ (default radio-beams-<first run>)")
+
     p_sx = sub.add_parser("spherex", parents=[common], help="SPHEREx 0.75 to 5 micron spectral images")
     sx_sub = p_sx.add_subparsers(dest="spherex_cmd", required=True)
     p_sxp = sx_sub.add_parser("photometry", parents=[common],
@@ -1928,6 +1991,8 @@ def dispatch(argv: list[str] | None = None, *, root: Path | None = None) -> tupl
             resp = _cmd_runs_verify(args, cfg, short_hash, base)
         elif cmd == "radio" and args.radio_cmd == "followup":
             resp = _cmd_radio_followup(args, cfg, short_hash, base)
+        elif cmd == "radio" and args.radio_cmd == "beams":
+            resp = _cmd_radio_beams(args, cfg, short_hash, base)
         elif cmd == "spherex" and args.spherex_cmd == "photometry":
             resp = _cmd_spherex_photometry(args, cfg, short_hash, base)
         elif cmd == "spherex" and args.spherex_cmd == "verdict":
