@@ -5,8 +5,12 @@ Input rule (R9, lessons L007/L008): a check returns `pass` or `fail` only from i
 - A live star (`live_enriched` key) counts an input only when `vetting_archive.query_status["breakthrough_listen"]
   == "ok"`. The live radio search (`oddstar.io.bl_radio`, config 1.5.0) writes that for a star whose ON and OFF
   fine-resolution scans were on disk and compared; it attaches the cadence of one window and `in_rfi_band` for its
-  frequency. It does not produce a session cross-check or a second-epoch record, so those two checks stay
-  `not_evaluated` for a live star. For every other live star (no beam contains it, the scans were not downloaded,
+  frequency. It does not produce a second-epoch record, so `reobservation` stays `not_evaluated` for a live star.
+  The session cross-check comes from the beam test (`oddstar radio beams`, config-independent, stored with the
+  search): for a scan of a multibeam receiver it reads the star's window from the other beams recorded at the same
+  instant, which point at unrelated sky, and writes `multi_target_match` (True when a far beam shows the line,
+  False when at least two far beams were read and none shows it). Without a stored beam test of the selected
+  window `multi_target` stays `not_evaluated`. For every other live star (no beam contains it, the scans were not downloaded,
   no OFF scan exists, the search failed) every check returns `not_evaluated` and names the status.
 - For a cadence or hand-built dict an input counts only when its key is explicitly present and not None.
   `off_scan_hits` and `drift_hz_s` are written by `RadioNarrowbandChannel.measure` (or copied from the stored
@@ -34,6 +38,7 @@ _PRODUCTS = {
 RADIO_QUERY = "breakthrough_listen"
 NO_LIVE_DATA = "no ON/OFF radio scans were compared for this star"
 NOT_FROM_LIVE_SEARCH = "the live radio search does not produce this input"
+NO_BEAM_TEST = "no beam test of this window is stored: run `oddstar radio beams` (it needs other beams recorded at the same instant)"
 
 
 def _is_live(target: dict[str, Any]) -> bool:
@@ -55,7 +60,8 @@ def _not_evaluated(out_dir: Path, check: str, target: dict[str, Any], key: str, 
     note = f"Missing input: {_PRODUCTS[key]} [{key}]"
     if _is_live(target):
         status = _live_status(target)
-        note += f" (query_status {RADIO_QUERY}={status}; {NOT_FROM_LIVE_SEARCH if status == 'ok' else NO_LIVE_DATA})"
+        produced = NO_BEAM_TEST if key == "multi_target_match" else NOT_FROM_LIVE_SEARCH
+        note += f" (query_status {RADIO_QUERY}={status}; {produced if status == 'ok' else NO_LIVE_DATA})"
     elif "scans" not in target:
         note += " (no ON/OFF filterbank cadence for this target)"
     return make_vet_result(
@@ -115,12 +121,22 @@ def check_multi_target(target: dict[str, Any], cfg: PipelineConfig, out_dir: Pat
     if raw is None:
         return _not_evaluated(out_dir, "multi_target", target, "multi_target_match")
     multi = bool(raw)
+    note = "Same frequency/drift signature observed toward unrelated targets in observing session" if multi else "Signal absent toward unrelated targets in session"
+    values: dict[str, Any] = {"multi_target_match": multi}
+    hit = (target.get("radio_search") or {}).get("selected_hit") or {}
+    if hit.get("multi_target_match") is not None and hit.get("n_far_beams") is not None:
+        # The beam test of a multibeam scan: the other beams of the same instant are the unrelated targets
+        values.update({k: hit.get(k) for k in ("freq_mhz", "n_far_beams", "n_far_beams_with_hit", "n_near_beams", "n_near_beams_with_hit")})
+        note = (f"Line at {hit.get('freq_mhz')} MHz also in {hit['n_far_beams_with_hit']} of {hit['n_far_beams']} far beams recorded at the same instant "
+                f"(and in {hit.get('n_near_beams_with_hit')} of {hit.get('n_near_beams')} nearer beams): not from the star's position" if multi else
+                f"Line at {hit.get('freq_mhz')} MHz in none of the {hit['n_far_beams']} far beams recorded at the same instant "
+                f"(nearer beams: {hit.get('n_near_beams_with_hit')} of {hit.get('n_near_beams')})")
     return make_vet_result(
         out_dir,
         check="multi_target",
         status="fail" if multi else "pass",
-        note="Same frequency/drift signature observed toward unrelated targets in observing session" if multi else "Signal absent toward unrelated targets in session",
-        metrics={"input_values": {"multi_target_match": multi}, "multi_target_match": multi},
+        note=note,
+        metrics={"input_values": values, "multi_target_match": multi},
     )
 
 

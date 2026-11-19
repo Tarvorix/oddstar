@@ -29,6 +29,7 @@
 | `oddstar search <channel>` | Score the sample (blocked unless a matching certificate exists) |
 | `oddstar vet <run>` | Run all applicable artifact/impostor checks on flagged targets |
 | `oddstar radio followup --from-run <run>` | Fetch and search the Breakthrough Listen recordings of chosen stars (Tier C or better by default, `--ids`, or `--all-covered`), one file at a time; `search radio_narrowband` itself downloads nothing |
+| `oddstar radio beams --from-run <run>` | Read the radio windows flagged outside the allocated bands from the other beams recorded at the same instant (Parkes multibeam), by HTTP range requests, no download; stores `multi_target_match` for the `multi_target` check of the next `search radio_narrowband --live` and `vet` (Tier C or better by default, or `--ids`) |
 | `oddstar spherex photometry --from-run <run>` | Measure chosen stars (Tier C or better by default, or `--ids`) on every SPHEREx 0.75 to 5 micron image that holds them: one cutout per exposure, a stored row per measurement, one file per star under `runs/<run>/spherex/` |
 | `oddstar spherex verdict --ids <gaia_id>` | Measure a star and its nearest comparison stars on the SPHEREx images, apply the colour rule of `docs/spherex.md` and store the result for the `spherex_colours` check of `vet --live` and `inspect --live` (8 to 30 minutes per comparison star that is not stored yet, by how busy the archive is; images it refuses are asked for again in a second pass) |
 | `oddstar fuse <runs...>` | Join channel scores on `source_id`, calibrate FAP, assign tiers and rank |

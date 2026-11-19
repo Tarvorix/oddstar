@@ -69,6 +69,9 @@ OFF_MIN_SEPARATION_BEAM_RADII = 6.0
 SAME_SCAN_MJD_TOL = 5.0 / 86400.0
 # The Parkes multibeam records 13 beams at once; this many other beams of the same instant make a comparison
 MIN_SIMULTANEOUS_OFF_BEAMS = 2
+# The thirteen beams of the Parkes multibeam are recorded at the same instant under one target name, half a degree
+# apart; files of one instant that point farther apart than this are different beams.
+SAME_BEAM_ARCSEC = 60.0
 
 # --- Southern declinations of the index (measured 2026-11-18).
 # Right ascensions and northern declinations are right. Many southern declinations are not: for a true declination
@@ -303,6 +306,46 @@ def _group_scans(files: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
     return groups
 
 
+def _group_beams(files: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
+    """Files that start together (within `SAME_SCAN_MJD_TOL` of the first) and point at one place (within
+    `SAME_BEAM_ARCSEC` of the first) are one beam, whatever target name they carry."""
+    groups: list[list[dict[str, Any]]] = []
+    for f in sorted(files, key=lambda x: (x["mjd"], x["ra_deg"], x["dec_deg"], x["url"])):
+        for g in groups:
+            if (abs(f["mjd"] - g[0]["mjd"]) <= SAME_SCAN_MJD_TOL
+                    and angular_separation_arcsec(g[0]["ra_deg"], g[0]["dec_deg"], f["ra_deg"], f["dec_deg"]) <= SAME_BEAM_ARCSEC):
+                g.append(f)
+                break
+        else:
+            groups.append([f])
+    return groups
+
+
+def beams_same_instant(ra: float, dec: float, window_rows: list[dict[str, Any]], telescope: str, product: str, mjd: float,
+                       freqs: list[float], max_radius: float) -> list[dict[str, Any]]:
+    """Every other beam recorded with an ON scan, nearest first.
+
+    `window_rows` are the fine-resolution files of the time around the scan (`_fine_rows`). A beam is listed when
+    it started with the ON scan, points outside the ON beam's half-power radius and holds a file of the same
+    product at every ON frequency (to 1 MHz). The beams of a multibeam scan carry the ON beam's target name, so a
+    beam is told from the ON beam by where it points, not by its name. `far` is true for a beam at least
+    `OFF_MIN_SEPARATION_BEAM_RADII` half-power radii from the position: only those count as comparison beams.
+    """
+    others = [r for r in window_rows if r["telescope"] == telescope and _product(r["url"]) == product
+              and abs(r["mjd"] - mjd) <= SAME_SCAN_MJD_TOL and angular_separation_arcsec(ra, dec, r["ra_deg"], r["dec_deg"]) > max_radius]
+    out: list[dict[str, Any]] = []
+    for group in _group_beams(others):
+        per_freq = {round(o["center_freq_mhz"], 1): o for o in _one_file_per_frequency(group)}
+        matched = [next((o for k, o in per_freq.items() if abs(k - f) <= 1.0), None) for f in freqs]
+        if any(m is None for m in matched):
+            continue  # this beam does not cover every ON frequency
+        sep = angular_separation_arcsec(ra, dec, group[0]["ra_deg"], group[0]["dec_deg"])
+        entry = _off_entry(group[0]["target"], [m for m in matched if m is not None], mjd, sep)
+        out.append(dict(entry, ra_deg=round(float(group[0]["ra_deg"]), 5), dec_deg=round(float(group[0]["dec_deg"]), 5),
+                        far=bool(sep >= OFF_MIN_SEPARATION_BEAM_RADII * max_radius)))
+    return sorted(out, key=lambda e: (e["sep_arcsec"], e["ra_deg"], e["dec_deg"]))
+
+
 def _off_entry(target: str, files: list[dict[str, Any]], mjd_on: float, sep_arcsec: float) -> dict[str, Any]:
     o_mjd = min(f["mjd"] for f in files)
     return {"target": target, "mjd": o_mjd, "minutes_from_on": round((o_mjd - mjd_on) * 1440.0, 1), "sep_arcsec": round(sep_arcsec, 1),
@@ -324,6 +367,11 @@ def plan_star_scans(
     `MIN_SIMULTANEOUS_OFF_BEAMS` exist, else "before_after" when both exist, else "incomplete"; ON scans of one
     target that follow each other are then joined into one "cadence" plan (`_merge_cadences`).
     `bytes_on_plus_offs` is what that comparison downloads.
+
+    `beams_same_instant` lists every other beam recorded with the ON scan (`beams_same_instant`), also the beams of
+    a multibeam scan that carry the ON beam's own target name and are therefore never an OFF scan above. They are
+    not part of the comparison a search downloads; the beam test of a flagged window
+    (`oddstar.io.bl_radio.beam_test_plan`) reads a few kilohertz of each.
     """
     in_beam: list[dict[str, Any]] = []
     for r in _fine_rows(rows):
@@ -341,7 +389,8 @@ def plan_star_scans(
         freqs = [round(f["center_freq_mhz"], 1) for f in on_files]
         max_radius = max(half_power_radius_arcsec(tel, f["center_freq_mhz"]) or 0.0 for f in on_files)
         window, _, _ = query_bl_time_window(tel, mjd - OFF_SCAN_WINDOW_DAYS, mjd + OFF_SCAN_WINDOW_DAYS, cache, sleep=sleep)
-        far = [r for r in _fine_rows(window) if r["telescope"] == tel and r["target"] != target and _product(r["url"]) == product
+        window_rows = _fine_rows(window)
+        far = [r for r in window_rows if r["telescope"] == tel and r["target"] != target and _product(r["url"]) == product
                and angular_separation_arcsec(ra, dec, r["ra_deg"], r["dec_deg"]) >= OFF_MIN_SEPARATION_BEAM_RADII * max_radius]
         before: dict[str, Any] | None = None
         after: dict[str, Any] | None = None
@@ -371,6 +420,7 @@ def plan_star_scans(
             "target": target, "telescope": tel, "mjd": mjd, "sep_arcsec": round(min(f["sep_arcsec"] for f in on_files), 1),
             "center_freqs_mhz": freqs, "on_files": [_file_entry(f) for f in on_files], "bytes_on": bytes_on,
             "off_before": before, "off_after": after, "off_simultaneous": simultaneous,
+            "beams_same_instant": beams_same_instant(ra, dec, window_rows, tel, product, mjd, freqs, max_radius),
             "comparison": comparison, "complete": comparison != "incomplete",
             "bytes_on_plus_offs": bytes_on + sum(e["bytes"] for e in used),
         }

@@ -24,6 +24,14 @@ between two trial rates is smeared over a few channels; one window yields one hi
 weaker signal next to a stronger one is not seen; a set with a single ON scan cannot test persistence, so
 interference that happens to be on during the ON scan only is flagged and has to be removed by vetting or by a
 second epoch. A flag is a lead, not a detection.
+
+The beam test (`beam_test_plan`, `oddstar radio beams`) is the check a multibeam receiver allows: the other beams
+recorded at the same instant point at other parts of the sky, so a line that is also in them does not come from
+the star. For every window flagged outside the allocated bands it reads the same few kilohertz from every other
+beam of the instant, straight from the archive by HTTP range requests (`RangeReader`): no scan file is downloaded.
+A beam counts when the channel, given the ON window and that beam as its OFF scan, counts an OFF hit. The result
+is stored; `enrich_sample_radio` attaches it, prefers a window no far beam shows and gives the star
+`multi_target_match`, which the vetting check `multi_target` reads.
 """
 
 from __future__ import annotations
@@ -40,6 +48,7 @@ from typing import Any, Callable
 
 import numpy as np
 
+from oddstar.channels.radio_narrowband.channel import dedoppler_search_scan
 from oddstar.config import PipelineConfig
 from oddstar.errors import ArchiveAccessError
 from oddstar.io import bl_opendata as bl
@@ -50,6 +59,10 @@ SEARCH_VERSION = "bl_local_search_v4"
 # saved under `<data_dir>/_work` are keyed by it, not by SEARCH_VERSION, so a change that only touches the scoring
 # (the allocation table, the listing) scores the saved windows again without fetching a scan.
 CUT_VERSION = "bl_cut_v1"
+# Version of the beam test (the same windows read from the other beams of the instant); its stored results are keyed by it
+BEAM_TEST_VERSION = "bl_beam_test_v1"
+# A remote scan file is read in blocks of this size; a larger read is one request
+RANGE_BLOCK_BYTES = 1 << 16
 # Trial drift rates per search; must equal the grid inside `channels.radio_narrowband.dedoppler_search_scan`
 N_DRIFT_TRIALS = 161
 # Bands allocated to transmitters, where a narrowband line toward any sky position is expected from them.
@@ -179,14 +192,21 @@ def _plain(v: Any) -> Any:
 
 
 class ScanFile:
-    """One fine-resolution scan (HDF5 or SIGPROC filterbank), read by channel range in ascending frequency."""
+    """One fine-resolution scan (HDF5 or SIGPROC filterbank), read by channel range in ascending frequency.
 
-    def __init__(self, path: str | Path) -> None:
+    With `fileobj` (a seekable binary file object, such as a `RangeReader` over the archive's copy) the HDF5 file is
+    read through it and `path` only names it.
+    """
+
+    def __init__(self, path: str | Path, fileobj: Any = None) -> None:
         self.path = Path(path)
+        self.fileobj = fileobj
         self._h5: Any = None
         name = self.path.name.lower()
-        if not self.path.is_file():
+        if fileobj is None and not self.path.is_file():
             raise ArchiveAccessError(f"{self.path.name}: file not found", retryable=False)
+        if fileobj is not None and not name.endswith((".h5", ".hdf", ".hdf5")):
+            raise ArchiveAccessError(f"{self.path.name}: only an HDF5 scan can be read through a file object", retryable=False)
         if name.endswith((".h5", ".hdf", ".hdf5")):
             try:
                 import h5py
@@ -198,11 +218,12 @@ class ScanFile:
             except ImportError:
                 pass  # an uncompressed file still reads; a compressed one fails below with the filter named
             try:
-                self._h5 = h5py.File(self.path, "r")
+                self._h5 = h5py.File(self.path if fileobj is None else fileobj, "r")
                 self._data = self._h5["data"]
                 hdr = {k: _plain(v) for k, v in self._data.attrs.items()}
             except (OSError, KeyError) as exc:
-                raise ArchiveAccessError(f"{self.path.name}: not a readable filterbank HDF5 file ({str(exc)[:120]})", retryable=False) from exc
+                raise ArchiveAccessError(f"{self.path.name}: not a readable filterbank HDF5 file ({str(exc)[:120]})",
+                                         retryable=fileobj is not None) from exc
         elif name.endswith(".fil"):
             hdr, offset = read_sigproc_header(self.path)
             if int(hdr.get("nbits", 0)) != 32:
@@ -229,6 +250,9 @@ class ScanFile:
             raise ArchiveAccessError(f"{self.path.name}: header values cannot describe a spectrogram", retryable=False)
         self.df_hz = abs(self.foff_mhz) * 1e6
         self.f_low_mhz = min(self.fch1_mhz, self.fch1_mhz + (self.nchans - 1) * self.foff_mhz)
+        # Channels per stored chunk (HDF5): a read of any part of a chunk fetches and unpacks the whole chunk
+        chunks = getattr(self._data, "chunks", None)
+        self.chunk_channels = int(chunks[2]) if chunks else None
 
     def freq_of_channel(self, a: float) -> float:
         """Centre frequency (MHz) of ascending channel index `a`."""
@@ -246,15 +270,124 @@ class ScanFile:
                 arr = self._data[:, 0, a0:a1]
             else:
                 arr = self._data[:, 0, self.nchans - a1:self.nchans - a0][:, ::-1]
-        except OSError as exc:  # a missing decompression filter or a truncated file
-            raise ArchiveAccessError(f"{self.path.name}: cannot read channels {a0}:{a1} ({str(exc)[:160]})", retryable=False) from exc
+        except OSError as exc:  # a missing decompression filter, a truncated file or a failed remote read
+            raise ArchiveAccessError(f"{self.path.name}: cannot read channels {a0}:{a1} ({str(exc)[:160]})",
+                                     retryable=self.fileobj is not None) from exc
         return np.ascontiguousarray(arr, dtype=np.float32)
+
+    def read_windows(self, a_los: list[int], width: int) -> list[np.ndarray | None]:
+        """Power of the ascending channels [a_lo, a_lo + width) for each `a_lo`; None where the file does not hold them.
+
+        Windows that lie in the same stored chunks are read together, so a chunk is fetched and unpacked once.
+        """
+        cw = self.chunk_channels or width
+        out: list[np.ndarray | None] = [None] * len(a_los)
+        groups: dict[tuple[int, int], list[int]] = {}
+        for i, a in enumerate(a_los):
+            if not 0 <= a <= self.nchans - width:
+                continue
+            lo, hi = (a, a + width - 1) if self.foff_mhz > 0 else (self.nchans - a - width, self.nchans - 1 - a)
+            groups.setdefault((lo // cw, hi // cw), []).append(i)
+        for idxs in groups.values():
+            a0 = min(a_los[i] for i in idxs)
+            block = self.read_ascending(a0, max(a_los[i] for i in idxs) + width)
+            for i in idxs:
+                out[i] = np.array(block[:, a_los[i] - a0:a_los[i] - a0 + width])
+        return out
 
     def close(self) -> None:
         if self._h5 is not None:
             self._h5.close()
             self._h5 = None
         self._data = None
+
+
+class RangeReader:
+    """A read-only, seekable file object over byte ranges fetched on demand (for h5py's file-object driver).
+
+    `fetch(start, end)` returns the bytes [start, end) of a file of `size` bytes. Reads are served from blocks of
+    `block_bytes` kept in memory (the most recently used `max_blocks`); neighbouring missing blocks are one request.
+    `bytes_fetched` and `n_requests` count what was asked of the server.
+    """
+
+    def __init__(self, fetch: Callable[[int, int], bytes], size: int, *, block_bytes: int = RANGE_BLOCK_BYTES, max_blocks: int = 512) -> None:
+        if size <= 0:
+            raise ArchiveAccessError("a remote file needs a known size", retryable=False)
+        self._fetch, self.size, self._block, self._max = fetch, int(size), int(block_bytes), int(max_blocks)
+        self._blocks: dict[int, bytes] = {}
+        self._pos = 0
+        self.bytes_fetched = 0
+        self.n_requests = 0
+        self.closed = False
+
+    def readable(self) -> bool:
+        return True
+
+    def seekable(self) -> bool:
+        return True
+
+    def writable(self) -> bool:
+        return False
+
+    def flush(self) -> None:
+        return None
+
+    def close(self) -> None:
+        self.closed = True
+        self._blocks.clear()
+
+    def tell(self) -> int:
+        return self._pos
+
+    def seek(self, offset: int, whence: int = 0) -> int:
+        self._pos = max(0, int(offset) + (0 if whence == 0 else self._pos if whence == 1 else self.size))
+        return self._pos
+
+    def _run(self, b0: int, b1: int) -> bytes:
+        start, end = b0 * self._block, min(b1 * self._block, self.size)
+        data = self._fetch(start, end)
+        if len(data) != end - start:
+            raise ArchiveAccessError(f"range {start}-{end - 1}: got {len(data)} of {end - start} bytes", retryable=True)
+        self.bytes_fetched += len(data)
+        self.n_requests += 1
+        return data
+
+    def read(self, n: int = -1) -> bytes:
+        start = min(self._pos, self.size)
+        end = self.size if n is None or n < 0 else min(self.size, start + int(n))
+        if end <= start:
+            return b""
+        b0, b1 = start // self._block, (end - 1) // self._block + 1
+        have: dict[int, bytes] = {}
+        missing: list[int] = []
+        for b in range(b0, b1):
+            blk = self._blocks.get(b)
+            if blk is None:
+                missing.append(b)
+            else:
+                have[b] = blk
+                self._blocks[b] = self._blocks.pop(b)  # most recently used last
+        i = 0
+        while i < len(missing):
+            j = i
+            while j + 1 < len(missing) and missing[j + 1] == missing[j] + 1:
+                j += 1
+            data = self._run(missing[i], missing[j] + 1)
+            for k, b in enumerate(range(missing[i], missing[j] + 1)):
+                have[b] = data[k * self._block:(k + 1) * self._block]
+            i = j + 1
+        for b in missing:
+            self._blocks[b] = have[b]
+        while len(self._blocks) > self._max:
+            self._blocks.pop(next(iter(self._blocks)))
+        buf = b"".join(have[b] for b in range(b0, b1))
+        self._pos = end
+        return buf[start - b0 * self._block:end - b0 * self._block]
+
+    def readinto(self, b: Any) -> int:
+        data = self.read(len(b))
+        b[:len(data)] = data
+        return len(data)
 
 
 # ---------------------------------------------------------------------------------------------------- the search
@@ -313,6 +446,14 @@ def _window_key(hit: dict[str, Any]) -> tuple[int, float]:
     if hit["flagged"]:
         return (3 if not hit["in_rfi_band"] else 2, hit["min_on_snr"])
     return (1, hit["raw_statistic"]) if hit["raw_statistic"] > 0 else (0, hit["max_on_snr"])
+
+
+def _selection_key(hit: dict[str, Any]) -> tuple[float, float]:
+    """`_window_key` for choosing a star's window once the beam test has run: a window flagged outside the allocated
+    bands that a far beam of the same instant also shows ranks below one that none shows (or that was not tested),
+    and above a window flagged inside an allocated band."""
+    rank, value = _window_key(hit)
+    return (rank - 0.5 if rank == 3 and hit.get("multi_target_match") is True else float(rank), value)
 
 
 def _scan_meta(sf: ScanFile) -> dict[str, Any]:
@@ -693,7 +834,8 @@ def _search_plan(source_id: str, plan: dict[str, Any], data_dir: Path, channel: 
                 for o in others:
                     o.close()
             res = _store_band(res, plan, sig, desc, cache)
-        results.append(res)
+        test = _cached_beam_test(_beam_test_signature(sig, plan, on_f)[0], cache)
+        results.append(res if test is None else apply_beam_test(res, test))
     return results
 
 
@@ -866,6 +1008,328 @@ def followup_star(
     return rec
 
 
+# ---------------------------------------------------------------------------------------------------- the beam test
+
+
+def _beam_files(plan: dict[str, Any], on_f: dict[str, Any]) -> list[tuple[dict[str, Any], dict[str, Any]]]:
+    """(beam, its file at the frequency of `on_f`) for every other beam recorded with the plan's ON scan, nearest first."""
+    out = []
+    for e in plan.get("beams_same_instant") or []:
+        f = next((f for f in e["files"] if abs(f["center_freq_mhz"] - on_f["center_freq_mhz"]) <= 1.0), None)
+        if f is not None:
+            out.append((e, f))
+    return out
+
+
+def _beam_test_signature(band_sig: str, plan: dict[str, Any], on_f: dict[str, Any]) -> tuple[str, str]:
+    """Key of one band's stored beam test: the band's search and the beam files it would read."""
+    desc = json.dumps({"version": BEAM_TEST_VERSION, "band": band_sig,
+                       "beams": [[_file_key(f["url"]), f["size_bytes"], bool(e["far"])] for e, f in _beam_files(plan, on_f)]}, sort_keys=True)
+    return hashlib.sha256(desc.encode("utf-8")).hexdigest()[:24], desc
+
+
+def _cached_beam_test(sig: str, cache: RawCache) -> dict[str, Any] | None:
+    cached = cache.lookup(RADIO_QUERY, BEAM_TEST_VERSION, sig)
+    if cached is None or cached.offline_fixture:
+        return None
+    try:
+        return json.loads(cache.read_bytes(cached).decode("utf-8"))
+    except (FileNotFoundError, OSError, ValueError):
+        return None
+
+
+def _tested_key(hit: dict[str, Any]) -> tuple[float, float]:
+    return (float(hit["freq_mhz"]), float(hit["window_center_freq_mhz"]))
+
+
+def beam_test_windows(res: dict[str, Any]) -> list[dict[str, Any]]:
+    """The windows of a stored band result the beam test reads: flagged, outside the allocated bands."""
+    return [w for w in res.get("windows") or [] if w.get("flagged") and not w.get("in_rfi_band")]
+
+
+def _snr_along_drift(power: np.ndarray, dt_s: float, df_hz: float, drift_hz_s: float) -> np.ndarray:
+    """S/N of every channel of a window, power summed along one drift: the channel's statistic at a given drift."""
+    arr = np.asarray(power, dtype=float)
+    zero = arr.mean(axis=0)
+    med = float(np.median(zero))
+    sig = max(1e-6, 1.4826 * float(np.median(np.abs(zero - med))))
+    shifts = np.round((drift_hz_s * np.arange(arr.shape[0], dtype=float) * dt_s) / df_hz).astype(int)
+    acc = np.zeros(arr.shape[1], dtype=float)
+    for ti, sh in enumerate(shifts):
+        acc += np.roll(arr[ti], -sh)
+    return (acc / arr.shape[0] - med) / sig
+
+
+def beam_test_band(
+    source_id: str, plan: dict[str, Any], on_f: dict[str, Any], other_fs: list[dict[str, Any]], kinds: list[str], res: dict[str, Any],
+    channel: Any, cfg: PipelineConfig, open_scan: Callable[[dict[str, Any]], ScanFile], *, log: Callable[[str], None] = lambda msg: None,
+) -> dict[str, Any] | None:
+    """Read every window of one band that is flagged outside the allocated bands from the other beams of the instant.
+
+    `res` is the band's stored search result, `open_scan(file)` opens a scan file of the plan (remotely by default,
+    see `beam_test_plan`). Returns None when the band has no such window or the plan lists no other beam.
+
+    For each window the ON beam is read again first: its strongest de-Doppler peak must be the stored hit, which
+    shows that the same channels were read; a window that fails this is not judged. Each other beam is then
+    measured by the channel with the ON window as the ON scan and the beam as its one OFF scan, and counts as
+    showing the line when the channel counts an OFF hit (S/N at least `min_snr`, at the ON frequency within the
+    channel's tolerance; the beams start together, so there is no drift to allow for). `multi_target_match` of a
+    window is True when at least one far beam (`far` of the plan: `OFF_MIN_SEPARATION_BEAM_RADII` or more
+    half-power radii from the star) shows the line, False when at least `MIN_SIMULTANEOUS_OFF_BEAMS` far beams were
+    read and none shows it, else None. Nearer beams are measured and listed but decide nothing. A window that is
+    not the stored selected one and that no far beam shows gets its full cadence (ON scan and the scans the search
+    compared it with) read too, so that it can become the star's selected window.
+    """
+    windows = beam_test_windows(res)
+    beams = _beam_files(plan, on_f)
+    if not windows or not beams:
+        return None
+    t_start = time.monotonic()
+    ch_cfg = cfg.channels["radio_narrowband"]
+    min_snr, tol_hz, max_drift = float(ch_cfg["min_snr"]), float(ch_cfg["freq_match_tol_hz"]), float(ch_cfg["max_abs_drift_hz_s"])
+    width = int(res["window_channels"])
+    opened: list[ScanFile] = []
+    fetched = {"bytes": 0, "requests": 0}
+
+    def _open(f: dict[str, Any]) -> ScanFile:
+        scan = open_scan(f)
+        opened.append(scan)
+        return scan
+
+    def _close(scan: ScanFile) -> None:
+        fetched["bytes"] += int(getattr(scan.fileobj, "bytes_fetched", 0))
+        fetched["requests"] += int(getattr(scan.fileobj, "n_requests", 0))
+        scan.close()
+        opened.remove(scan)
+
+    def _cut(scan: ScanFile, f_los: list[float]) -> list[np.ndarray | None]:
+        return scan.read_windows([scan.channel_of_freq(f) for f in f_los], width)
+
+    try:
+        on = _open(on_f)
+        meta = _scan_meta(on)
+        if abs(on.df_hz - float(res["df_hz"])) > 1e-6 * on.df_hz:
+            raise ArchiveAccessError(f"{on.path.name}: channel width differs from the stored search result", retryable=False)
+        f_los = [float(w["window_center_freq_mhz"]) - (width / 2.0) * abs(on.foff_mhz) for w in windows]
+        on_power = _cut(on, f_los)
+        recs: list[dict[str, Any]] = []
+        for w, power in zip(windows, on_power, strict=True):
+            rec: dict[str, Any] = {"freq_mhz": w["freq_mhz"], "window_center_freq_mhz": w["window_center_freq_mhz"], "beams": []}
+            if power is None:
+                rec.update({"on": None, "matches_stored_hit": False})
+            else:
+                # in double precision, as the channel measures a window
+                snr, f_hz, drift = dedoppler_search_scan(np.asarray(power, dtype=float), on.tsamp_s, on.df_hz, max_abs_drift=max_drift)
+                rec["on"] = {"snr": round(snr, 2), "freq_offset_hz": round(f_hz, 3), "drift_hz_s": drift}
+                if "ON" in kinds:  # a cadence: this scan is one of several ON scans, and the stored drift is the strongest one's
+                    rec["matches_stored_hit"] = bool(float(w["min_on_snr"]) - 0.006 <= snr <= float(w["max_on_snr"]) + 0.006)
+                else:              # one ON scan: the stored hit is this scan's peak
+                    rec["matches_stored_hit"] = bool(abs(snr - float(w["max_on_snr"])) <= 0.006 and abs(drift - float(w["drift_hz_s"])) <= 1e-9)
+            recs.append(rec)
+        log(f"ON beam {on.path.name}: {len(windows)} window(s) read, {sum(1 for r in recs if r['matches_stored_hit'])} equal to the stored hit")
+
+        beam_meta: list[dict[str, Any]] = []
+        for bi, (e, f) in enumerate(beams):
+            entry = {"beam": bi, "file": f["url"].rsplit("/", 1)[-1], "url": f["url"], "sep_arcsec": e["sep_arcsec"], "far": bool(e["far"]),
+                     "ra_deg": e.get("ra_deg"), "dec_deg": e.get("dec_deg"), "target": e["target"]}
+            try:
+                scan = _open(f)
+                if abs(scan.df_hz - on.df_hz) > 1e-6 * on.df_hz or abs(scan.tsamp_s - on.tsamp_s) > 1e-6 * on.tsamp_s:
+                    raise ArchiveAccessError(f"{scan.path.name} and {on.path.name} differ in channel width or sampling time", retryable=False)
+                cut = _cut(scan, f_los)
+                entry["t_offset_s"] = round((scan.tstart_mjd - on.tstart_mjd) * 86400.0, 3)
+            except ArchiveAccessError as exc:
+                entry["error"] = str(exc)[:240]
+                beam_meta.append(entry)
+                log(f"beam {bi + 1}/{len(beams)} ({e['sep_arcsec']:.0f} arcsec): not read: {entry['error']}")
+                continue
+            finally:
+                if opened[-1] is not on:
+                    _close(opened[-1])
+            beam_meta.append(entry)
+            n_hit = 0
+            for rec, w, p_on, p_beam in zip(recs, windows, on_power, cut, strict=True):
+                if p_on is None or p_beam is None:
+                    rec["beams"].append({"beam": bi, "far": entry["far"], "read": False})
+                    continue
+                cadence = {"source_id": source_id, "dt_s": on.tsamp_s, "df_hz": on.df_hz, "center_freq_mhz": w["window_center_freq_mhz"],
+                           "scans": [{"scan_index": 0, "kind": "ON", "t_start_s": 0.0, "power": p_on},
+                                     {"scan_index": 1, "kind": "OFF", "t_start_s": entry["t_offset_s"], "power": p_beam}]}
+                hit = int(channel.measure(cadence, {}).values["off_scan_hits"]) > 0
+                snr, f_hz, drift = dedoppler_search_scan(np.asarray(p_beam, dtype=float), on.tsamp_s, on.df_hz, max_abs_drift=max_drift)
+                # For the reader, not for the rule: the beam's S/N at the ON frequency along the ON drift
+                c_on = int(round(p_on.shape[1] / 2.0 + rec["on"]["freq_offset_hz"] / on.df_hz))
+                half = max(1, int(round(max(tol_hz, abs(rec["on"]["drift_hz_s"]) * 30.0) / on.df_hz)))
+                near = _snr_along_drift(p_beam, on.tsamp_s, on.df_hz, rec["on"]["drift_hz_s"])[max(0, c_on - half):c_on + half + 1]
+                rec["beams"].append({"beam": bi, "far": entry["far"], "read": True, "hit": bool(hit), "snr": round(snr, 2),
+                                     "freq_offset_hz": round(f_hz, 3), "drift_hz_s": drift,
+                                     "snr_at_on_freq": round(float(near.max()), 2) if near.size else None})
+                n_hit += int(hit)
+            log(f"beam {bi + 1}/{len(beams)} ({e['sep_arcsec']:.0f} arcsec, {'far' if e['far'] else 'near'}): line in {n_hit} of {len(windows)} window(s); "
+                f"{fetched['bytes'] / 1e6:.0f} MB fetched so far, {time.monotonic() - t_start:.0f} s")
+
+        stored_sel = _tested_key(res["selected"]["hit"]) if res.get("selected") else None
+        need_cadence: list[int] = []
+        for i, rec in enumerate(recs):
+            read = [b for b in rec["beams"] if b.get("read")]
+            far, near_b = [b for b in read if b["far"]], [b for b in read if not b["far"]]
+            rec.update({"n_far_beams": len(far), "n_far_beams_with_hit": sum(1 for b in far if b["hit"]),
+                        "n_near_beams": len(near_b), "n_near_beams_with_hit": sum(1 for b in near_b if b["hit"])})
+            if not rec["matches_stored_hit"]:
+                rec["multi_target_match"] = None
+            elif rec["n_far_beams_with_hit"] > 0:
+                rec["multi_target_match"] = True
+            else:
+                rec["multi_target_match"] = False if rec["n_far_beams"] >= bl.MIN_SIMULTANEOUS_OFF_BEAMS else None
+            if rec["matches_stored_hit"] and rec["multi_target_match"] is not True and _tested_key(windows[i]) != stored_sel:
+                need_cadence.append(i)
+
+        if need_cadence:
+            # The scans the search compared the ON scan with, for the windows that may become the selected one
+            others = []
+            for kind, f in zip(kinds, other_fs, strict=True):
+                scan = _open(f)
+                others.append((scan.tstart_mjd, kind, _cut(scan, [f_los[i] for i in need_cadence])))
+                _close(scan)
+            for n, i in enumerate(need_cadence):
+                parts = [(on.tstart_mjd, "ON", on_power[i]), *[(t, kind, cut[n]) for t, kind, cut in others]]
+                if any(p is None for _, _, p in parts):
+                    continue
+                parts.sort(key=lambda x: x[0])
+                cadence = {"source_id": source_id, "dt_s": on.tsamp_s, "df_hz": on.df_hz, "center_freq_mhz": windows[i]["window_center_freq_mhz"],
+                           "scans": [{"scan_index": k, "kind": kind, "t_start_s": round((t - parts[0][0]) * 86400.0, 3), "power": power}
+                                     for k, (t, kind, power) in enumerate(parts)]}
+                m = channel.measure(cadence, {})
+                recs[i]["remeasured"] = {"min_on_snr": round(float(m.values["min_on_snr"]), 2), "off_scan_hits": int(m.values["off_scan_hits"]),
+                                         "drift_hz_s": float(m.values["drift_hz_s"]), "flagged": bool(channel.score(m).flagged)}
+                for sc in cadence["scans"]:
+                    sc["power"] = np.asarray(sc["power"], dtype=float).tolist()
+                recs[i]["cadence"] = {k: v for k, v in cadence.items() if k not in ("off_scan_hits", "drift_hz_s")}
+        chunk_channels = on.chunk_channels
+    finally:
+        for sc in list(opened):
+            _close(sc)
+    return {
+        "version": BEAM_TEST_VERSION, "source_id": source_id, "on_file": meta["file"], "on_target": meta["source_name"], "on_mjd": plan["mjd"],
+        "telescope": plan["telescope"], "df_hz": meta["df_hz"], "dt_s": meta["tsamp_s"], "window_channels": width,
+        "chunk_channels": chunk_channels, "min_snr": min_snr, "freq_match_tol_hz": tol_hz,
+        "far_separation_beam_radii": bl.OFF_MIN_SEPARATION_BEAM_RADII, "min_far_beams": bl.MIN_SIMULTANEOUS_OFF_BEAMS,
+        "beams": beam_meta, "windows": recs, **_beam_test_counts(recs, beam_meta), "elapsed_s": round(time.monotonic() - t_start, 1),
+        "bytes_fetched": fetched["bytes"], "n_range_requests": fetched["requests"],
+    }
+
+
+def _beam_test_counts(recs: list[dict[str, Any]], beam_meta: list[dict[str, Any]]) -> dict[str, int]:
+    return {"n_beams_listed": len(beam_meta), "n_beams_read": sum(1 for b in beam_meta if "error" not in b),
+            "n_far_beams_read": sum(1 for b in beam_meta if "error" not in b and b["far"]),
+            "n_windows_tested": len(recs), "n_windows_in_far_beams": sum(1 for r in recs if r["multi_target_match"] is True),
+            "n_windows_in_no_far_beam": sum(1 for r in recs if r["multi_target_match"] is False),
+            "n_windows_not_judged": sum(1 for r in recs if r["multi_target_match"] is None)}
+
+
+def apply_beam_test(res: dict[str, Any], test: dict[str, Any]) -> dict[str, Any]:
+    """A band's search result with its stored beam test attached.
+
+    Every tested window gets `multi_target_match` and the beam counts. The selected window stays the stored one
+    unless a far beam shows it and another tested window, which no far beam shows, has its cadence in the test:
+    then the best of those (`_window_key`) is selected. The counts of the search are not changed: a window a far
+    beam shows is still a flagged window, and it is vetting (`multi_target`) that rejects it.
+    """
+    by_key = {_tested_key(t): t for t in test["windows"]}
+
+    def _with(hit: dict[str, Any]) -> dict[str, Any]:
+        t = by_key.get(_tested_key(hit))
+        return hit if t is None else {**hit, "multi_target_match": t["multi_target_match"], "n_far_beams": t["n_far_beams"],
+                                      "n_far_beams_with_hit": t["n_far_beams_with_hit"], "n_near_beams": t["n_near_beams"],
+                                      "n_near_beams_with_hit": t["n_near_beams_with_hit"]}
+
+    out = dict(res)
+    out["windows"] = sorted((_with(w) for w in res.get("windows") or []), key=_selection_key, reverse=True)
+    out["beam_test"] = {k: test[k] for k in ("version", "n_beams_listed", "n_beams_read", "n_far_beams_read", "n_windows_tested",
+                                             "n_windows_in_far_beams", "n_windows_in_no_far_beam", "n_windows_not_judged")}
+    sel = res.get("selected")
+    if sel is not None:
+        sel = {"hit": _with(sel["hit"]), "cadence": sel["cadence"]}
+        if sel["hit"].get("multi_target_match") is True:
+            by_hit = {_tested_key(w): w for w in out["windows"]}
+            better = [(by_hit[_tested_key(t)], t["cadence"]) for t in test["windows"]
+                      if t["multi_target_match"] is not True and "cadence" in t and _tested_key(t) in by_hit]
+            if better:
+                hit, cadence = max(better, key=lambda x: _window_key(x[0]))
+                sel = {"hit": hit, "cadence": cadence}
+        out["selected"] = sel
+    return out
+
+
+def beam_test_plan(
+    source_id: str, plan: dict[str, Any], channel: Any, cfg: PipelineConfig, cache: RawCache, *,
+    open_scan: Callable[[dict[str, Any]], ScanFile] | None = None, redo: bool = False, log: Callable[[str], None] = lambda msg: None,
+) -> list[dict[str, Any]]:
+    """The beam test of every band of a searched plan, stored in the cache. One record per band:
+    {"on_file", "status", ...} with status "tested" (and the test), "not_searched" (no stored search result),
+    "nothing_to_test" (no window flagged outside the allocated bands) or "no_other_beams" (the plan lists no other
+    beam of the instant: a single-beam receiver)."""
+    open_scan = open_scan if open_scan is not None else open_remote_scan
+    out: list[dict[str, Any]] = []
+    for on_f, other_fs, kinds in _band_sets(plan):
+        rec: dict[str, Any] = {"on_file": on_f["url"].rsplit("/", 1)[-1]}
+        band_sig = _band_signature(source_id, plan, on_f, other_fs, cfg, kinds)[0]
+        res = _cached_band(band_sig, cache)
+        if res is None:
+            out.append(rec | {"status": "not_searched"})
+            continue
+        if not beam_test_windows(res):
+            out.append(rec | {"status": "nothing_to_test"})
+            continue
+        if not _beam_files(plan, on_f):
+            out.append(rec | {"status": "no_other_beams", "n_windows_flagged_outside_rfi_bands": len(beam_test_windows(res))})
+            continue
+        sig, desc = _beam_test_signature(band_sig, plan, on_f)
+        test = None if redo else _cached_beam_test(sig, cache)
+        stored = test is not None
+        if test is None:
+            test = beam_test_band(source_id, plan, on_f, other_fs, kinds, res, channel, cfg, open_scan, log=log)
+            assert test is not None
+            cache.put(archive=RADIO_QUERY, release=BEAM_TEST_VERSION, request_signature=sig, query_text=desc,
+                      payload=json.dumps(test, sort_keys=True).encode("utf-8"), row_count=int(test["n_windows_tested"]), offline_fixture=False)
+        out.append(rec | {"status": "tested", "already_stored": stored, "test": {k: v for k, v in test.items() if k != "windows"},
+                          "windows": [{k: v for k, v in w.items() if k != "cadence"} for w in test["windows"]]})
+    return out
+
+
+def beam_test_star(
+    source_id: str, ra: float, dec: float, cfg: PipelineConfig, cache: RawCache, channel: Any, *,
+    open_scan: Callable[[dict[str, Any]], ScanFile] | None = None, redo: bool = False, sleep: Callable[[float], Any] = time.sleep,
+    log: Callable[[str], None] = lambda msg: None,
+) -> dict[str, Any]:
+    """The beam test of every searched scan set of one star (`oddstar radio beams`).
+
+    Status: "no_coverage", "not_searched" (no scan set of the star has a stored search), "nothing_to_test" (no
+    window flagged outside the allocated bands), "no_other_beams", "tested" or "failed: <error>".
+    """
+    sid = str(source_id)
+    rec: dict[str, Any] = {"source_id": sid, "ra_deg": ra, "dec_deg": dec, "scan_sets": []}
+    try:
+        rows, _, _ = bl.query_star_rows(ra, dec, cache, sleep=sleep)
+        if bl.beam_coverage(ra, dec, rows)["status"] != "in_beam":
+            return rec | {"status": "no_coverage"}
+        plans = [p for p in bl.plan_star_scans(ra, dec, rows, cache, sleep=sleep) if p["complete"] and plan_searched(sid, p, cfg, cache)]
+        if not plans:
+            return rec | {"status": "not_searched"}
+        for plan in plans:
+            bands = beam_test_plan(sid, plan, channel, cfg, cache, open_scan=open_scan, redo=redo, log=log)
+            rec["scan_sets"].append({"target": plan["target"], "telescope": plan["telescope"], "mjd": plan["mjd"], "sep_arcsec": plan["sep_arcsec"],
+                                     "n_beams_same_instant": len(plan.get("beams_same_instant") or []), "bands": bands})
+    except ArchiveAccessError as exc:
+        return rec | {"status": f"failed: {str(exc)[:300]}"}
+    statuses = [b["status"] for e in rec["scan_sets"] for b in e["bands"]]
+    rec["status"] = next(s for s in ("tested", "no_other_beams", "nothing_to_test", "not_searched") if s in statuses)
+    tested = [b["test"] for e in rec["scan_sets"] for b in e["bands"] if b["status"] == "tested"]
+    for key in ("n_windows_tested", "n_windows_in_far_beams", "n_windows_in_no_far_beam", "n_windows_not_judged"):
+        rec[key] = sum(int(t[key]) for t in tested)
+    return rec
+
+
 def enrich_sample_radio(
     stars: list[dict[str, Any]],
     cfg: PipelineConfig,
@@ -918,7 +1382,7 @@ def enrich_sample_radio(
                     for p in ready:
                         results.extend(_search_plan(sid, p, data_dir, channel, cfg, cache,
                                                     (lambda d, t, _sid=sid: block_progress(_sid, d, t)) if block_progress else None))
-                    chosen = max((r for r in results if r["selected"] is not None), key=lambda r: _window_key(r["selected"]["hit"]), default=None)
+                    chosen = max((r for r in results if r["selected"] is not None), key=lambda r: _selection_key(r["selected"]["hit"]), default=None)
                     if chosen is None:
                         status = "failed: no window of any scan set could be compared with its OFF scans"
                     else:
@@ -926,6 +1390,9 @@ def enrich_sample_radio(
                         cad = chosen["selected"]["cadence"]
                         s.update({"scans": cad["scans"], "dt_s": cad["dt_s"], "df_hz": cad["df_hz"], "center_freq_mhz": cad["center_freq_mhz"],
                                   "in_rfi_band": bool(chosen["selected"]["hit"]["in_rfi_band"])})
+                        if chosen["selected"]["hit"].get("multi_target_match") is not None:
+                            # From the beam test: the other beams of the same instant point at unrelated sky
+                            s["multi_target_match"] = bool(chosen["selected"]["hit"]["multi_target_match"])
                         s["radio_search"] = {
                             "n_scan_sets_searched": len(ready), "n_scan_sets_not_downloaded": len(plans) - len(ready),
                             "selected_hit": chosen["selected"]["hit"], "selected_on_file": chosen["on_file"],
@@ -952,6 +1419,8 @@ def enrich_sample_radio(
         "n_windows_evaluated": sum(r["n_windows_evaluated"] for s in searched for r in s["radio_search"]["scan_sets"]),
         "n_windows_flagged": sum(r["n_windows_flagged"] for s in searched for r in s["radio_search"]["scan_sets"]),
         "n_windows_flagged_outside_rfi_bands": sum(r["n_windows_flagged_outside_rfi_bands"] for s in searched for r in s["radio_search"]["scan_sets"]),
+        **{f"n_windows_{k}": sum(int((r.get("beam_test") or {}).get(f"n_windows_{k}", 0)) for s in searched for r in s["radio_search"]["scan_sets"])
+           for k in ("tested", "in_far_beams", "in_no_far_beam")},
         "elapsed_s": round(time.monotonic() - t_start, 1),
     }
     return out, summary
@@ -967,6 +1436,50 @@ def secure_url(url: str) -> str:
     """The https address of a file the index lists as http on a host known to serve both."""
     scheme, _, rest = url.partition("://")
     return f"https://{rest}" if scheme == "http" and rest.split("/", 1)[0] in HTTPS_HOSTS else url
+
+
+def http_range_fetch(url: str, *, session: Any = None, timeout_s: float = 60.0, attempts: int = 4,
+                     sleep: Callable[[float], Any] = time.sleep) -> Callable[[int, int], bytes]:
+    """`fetch(start, end)` for a `RangeReader`: the bytes [start, end) of `url` by an HTTP range request.
+
+    Only a 206 answer of the asked length is accepted: a server that ignores the range would send the whole file.
+    """
+    import requests
+
+    sess = session if session is not None else requests.Session()
+
+    def fetch(start: int, end: int) -> bytes:
+        error = ""
+        for attempt in range(max(1, attempts)):
+            try:
+                resp = sess.get(url, headers={"Range": f"bytes={start}-{end - 1}"}, timeout=timeout_s, stream=True)
+                try:
+                    if resp.status_code == 200:
+                        raise ArchiveAccessError(f"{url}: the server does not serve byte ranges", retryable=False)
+                    if resp.status_code != 206:
+                        if resp.status_code < 500:
+                            raise ArchiveAccessError(f"{url}: HTTP {resp.status_code}", retryable=False)
+                        error = f"HTTP {resp.status_code}"
+                    else:
+                        body = resp.content
+                        if len(body) == end - start:
+                            return body
+                        error = f"got {len(body)} of {end - start} bytes"
+                finally:
+                    resp.close()
+            except requests.exceptions.RequestException as exc:
+                error = f"{type(exc).__name__}: {str(exc)[:160]}"
+            if attempt + 1 < max(1, attempts):
+                sleep(min(30.0, 3.0 * (attempt + 1)))
+        raise ArchiveAccessError(f"{url}: bytes {start}-{end - 1}: {error}", retryable=True)
+
+    return fetch
+
+
+def open_remote_scan(f: dict[str, Any], *, session: Any = None) -> ScanFile:
+    """A scan file of the archive (an index entry with `url` and `size_bytes`), read in place by range requests."""
+    url = secure_url(f["url"])
+    return ScanFile(url.rsplit("/", 1)[-1], fileobj=RangeReader(http_range_fetch(url, session=session), int(f.get("size_bytes") or 0)))
 
 
 def has_md5(md5sum: str) -> bool:
@@ -1108,6 +1621,8 @@ def default_data_dir(root: Path, cfg: PipelineConfig) -> Path:
 
 
 __all__ = [
+    "BEAM_TEST_VERSION", "RangeReader", "apply_beam_test", "beam_test_band", "beam_test_plan", "beam_test_star", "beam_test_windows",
+    "http_range_fetch", "open_remote_scan",
     "COVERAGE_CATEGORIES", "RFI_ALLOCATIONS_MHZ", "ScanFile", "default_data_dir", "download_file", "enrich_sample_radio", "local_path",
     "evaluate_windows", "extract_windows", "find_candidate_windows", "followup_star", "plan_work_dirs", "max_in_beam_freq_mhz", "plan_files", "plan_offset_s", "plan_on_disk", "plan_other_scans", "plan_searched", "cut_channels",
     "prefilter_block", "radio_search_status", "read_sigproc_header", "rfi_allocation", "search_coverage_summary", "search_plan_one_file_at_a_time",

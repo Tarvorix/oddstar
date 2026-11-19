@@ -30,6 +30,13 @@ The radio channel has a cheap half and an expensive half, and they are run separ
   `--dry-run` lists what would be fetched. A scan set is not fetched with less than `--min-free-gb` of free disk,
   and the windows cut from the scans are deleted once the result is stored unless `--keep-windows`. The record is
   written to `runs/radio-followup-<run>/radio_followup.json`.
+- **Beam test** (`oddstar radio beams --from-run <run> ...`, config 1.11.0): for a star searched in a scan of a
+  multibeam receiver (the Parkes multibeam records 13 beams at once), reads every window flagged outside the
+  allocated bands from the other beams recorded at the same instant and stores the result where the standard
+  search reads it. It takes the stars the named runs left at Tier C or better, or `--ids a,b`; `--redo` reads the
+  beams again. Nothing is downloaded to disk: each beam file stays in the archive and only the chunks that hold
+  the window are fetched by HTTP range requests (about 16 chunks of 4 MB per window and beam for the 3.3 Hz
+  product). The record is written to `runs/radio-beams-<run>/radio_beams.json`. See "Beam test" below.
 
 A recording was pointed at some other target; the star only lies in its beam. A radio result therefore supports
 or fails to support a star that is odd for another reason, and on its own it cannot rise above Tier C: none of
@@ -99,6 +106,34 @@ Known limits of the live search:
 - A star off the pointing centre is observed at reduced gain (half at the beam edge), which is not corrected.
 - The certificate of this channel is measured on the built-in cadences, not on archive scans. The false-alarm rate
   of the live search has not been measured; a flag is a lead.
+
+## Beam test (config 1.11.0)
+A single ON scan with an OFF scan before and after cannot tell a signal from the star from interference that
+happened to be on during the ON scan. A multibeam receiver can: its other beams look at other parts of the sky
+at the same instant, so a line that is also in them does not come from the star's position.
+
+1. **Which beams** (`bl_opendata.beams_same_instant`, listed in every scan plan as `beams_same_instant`). Files
+   of the same telescope and product that started within 5 s of the ON scan, point outside the ON beam's
+   half-power radius and cover every ON frequency. A beam is told from the ON beam by where it points: the archive
+   names all 13 beams of a Parkes multibeam scan after one pointing. `far` marks beams at least 6 half-power radii
+   from the star, the separation an OFF scan needs.
+2. **What is read** (`bl_radio.beam_test_band`). For each window of the stored search that is flagged outside the
+   allocated bands: the same channels of the ON beam and of every listed beam. The ON beam must give the stored
+   hit again (same S/N and drift), which shows the right bytes were read; otherwise the window is not judged.
+3. **When a beam shows the line.** The channel measures the ON window with the beam as its one OFF scan, and the
+   beam shows the line when the channel counts an OFF hit (S/N at least `min_snr` within `freq_match_tol_hz` of the
+   ON frequency). The record also gives each beam's strongest peak and its S/N at the ON frequency along the ON
+   drift, for the reader.
+4. **Result per window.** `multi_target_match` is True when at least one far beam shows the line, False when at
+   least 2 far beams were read and none shows it, else not set. Nearer beams are listed and decide nothing.
+5. **What the star gets.** `enrich_sample_radio` attaches the stored test. The star keeps its selected window
+   unless a far beam shows it and another tested window is in no far beam; that one is then selected, with its
+   full cadence (read by range requests too). The star's `multi_target_match` is that of its selected window, and
+   the vetting check `multi_target` fails on True (the star is Rejected) and passes on False.
+
+Limits: a pass says the line was in the star's beam and in no far beam at that instant. It does not say the line
+came from the star: interference can enter one beam only, and there is still one ON scan and no second epoch. A
+single-beam receiver (Green Bank) has no other beams, and the check stays `not_evaluated` there.
 
 ## Known Impostors
 - Terrestrial/satellite RFI (`blc1`), zero-drift ground transmitters, and multi-target session interference.

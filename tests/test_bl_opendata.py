@@ -277,6 +277,50 @@ def test_scan_plan_uses_beams_of_the_same_instant_and_one_file_per_frequency(tmp
     assert all(e["minutes_from_on"] == 0.0 and len(e["files"]) == 2 for e in p["off_simultaneous"])
     assert p["off_before"] is None and p["off_after"]["target"] == "G250.00-50.00"
     assert p["bytes_on_plus_offs"] == 6 * 2_768_000_000
+    # every other beam of the instant is listed for the beam test, nearest first, also the one too near to be an OFF scan
+    beams = p["beams_same_instant"]
+    assert [e["target"] for e in beams] == ["G239.00-51.30", "G238.90-50.90", "G239.90-51.60", "G240.50-52.00"]
+    assert [e["far"] for e in beams] == [False, True, True, True] and all(len(e["files"]) == 2 and e["minutes_from_on"] == 0.0 for e in beams)
+    assert all(f["url"].endswith(".0000.hires.hdf") for e in beams for f in e["files"]), "the ON scan's product, one file per frequency"
+    assert beams[1]["ra_deg"] == pytest.approx(ra + 1.0) and beams[1]["dec_deg"] == pytest.approx(dec + 0.3)
+
+
+def test_beams_of_a_multibeam_scan_that_share_the_target_name_are_listed_but_are_not_the_comparison(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The Parkes multibeam archive names all 13 beams of a scan after the pointing of the central beam."""
+    ra, dec, t = 16.0, -70.0, 58326.7209
+    step = 6.0 / 1440.0
+
+    def beam(target: str, node: int, d_ra: float, d_dec: float, mjd: float) -> list[dict[str, Any]]:
+        out = []
+        for band, freq in enumerate((1305.5, 1459.5)):   # each beam is recorded by two nodes, half the band each
+            f = _scan(target, ra + d_ra, dec + d_dec, mjd, freq=freq, tel="Parkes", size=2_750_000_000)
+            f["url"] = f"http://blpd12.ssl.berkeley.edu/collate_mb_2/PKS_0333/blc{node}{band}/guppi_58326_{int((mjd % 1) * 86400)}_{target}_0001.0000.h5"
+            out.append(f)
+        return out
+
+    offsets = [(0.0, 0.02), (1.4, 0.0), (-1.4, 0.0), (0.0, 0.5), (2.9, 0.4), (0.0, -1.0)]   # the ON beam and five others, in degrees
+    files = [f for node, (d_ra, d_dec) in enumerate(offsets) for f in beam("G299.60-41.91", node, d_ra, d_dec, t)]
+    files += [f for node, (d_ra, d_dec) in enumerate(offsets) for f in beam("G301.00-43.00", node, d_ra + 6.0, d_dec + 2.0, t - step)]
+    files += [f for node, (d_ra, d_dec) in enumerate(offsets) for f in beam("G302.00-44.00", node, d_ra - 6.0, d_dec - 2.0, t + step)]
+    idx = _TimeIndex(files)
+    monkeypatch.setattr(ot, "_get_with_retries", idx.get)
+    cache = RawCache(tmp_path / "raw")
+    rows, _, _ = bl.query_bl_files(ra, dec, cache)
+    plans = bl.plan_star_scans(ra, dec, rows, cache)
+    assert len(plans) == 1
+    p = plans[0]
+    assert p["comparison"] == "before_after" and p["off_simultaneous"] == [], "beams of the ON scan's own name are not OFF scans of the search"
+    assert p["off_before"]["target"] == "G301.00-43.00" and p["off_after"]["target"] == "G302.00-44.00"
+    assert [f["url"].split("/")[-2] for f in p["off_before"]["files"]] == ["blc00", "blc01"], "the comparison files are the ones stored searches used"
+    assert [f["url"].split("/")[-2] for f in p["on_files"]] == ["blc00", "blc01"]
+    beams = p["beams_same_instant"]
+    assert len(beams) == 5 and all(e["target"] == "G299.60-41.91" and len(e["files"]) == 2 for e in beams)
+    seps = [e["sep_arcsec"] for e in beams]
+    assert seps == sorted(seps) and seps[0] == pytest.approx(1724.0, abs=30.0)
+    assert [e["far"] for e in beams] == [False, False, False, True, True], "far is six half-power radii (about 2700 arcsec here) or more"
+    assert [[f["url"].split("/")[-2] for f in e["files"]] for e in beams][0] in (["blc10", "blc11"], ["blc20", "blc21"])
+    assert len({e["files"][0]["url"] for e in beams}) == 5, "one entry per beam"
 
 
 GBT_URL = "https://bldata.berkeley.edu/p/spliced_blc0001020304050607_guppi_57585_43576_{}_0021.gpuspec.0000.h5"

@@ -2,6 +2,41 @@
 
 All threshold, sample-cut, and prompt changes must be logged here under Ground Rule R4 before running validation or search.
 
+## [1.11.0] - 2026-11-19
+
+### Radio vetting: the other beams of a multibeam scan become the session cross-check (`multi_target`)
+The first pass of the halo sample through the radio channel (run `v1100-halo-radio_narrowband`, config 1.10.0) left
+four stars at Tier C, each with narrow lines between 1401.7 and 1425.0 MHz in a single Parkes multibeam ON scan
+that the scans before and after do not show. The Parkes multibeam records 13 beams at once, and the other 12
+point 0.4 to 1.8 degrees from the star. The scan planner was written to use them (`off_simultaneous`) but never
+did: the archive names all 13 beams after one pointing, and the planner took a beam of the ON scan's own name for
+part of the ON scan. The check `multi_target` had no input for a live star and was `not_evaluated`. This version
+gives it one. The rule below was written before any of the other beams was read.
+
+- **The beam test** (`oddstar radio beams`, `oddstar.io.bl_radio.beam_test_band`). For every window of a stored
+  search that is flagged outside the allocated bands, the same channels are read from every other beam recorded at
+  the same instant (started within 5 s, same telescope and product, pointing outside the ON beam's half-power
+  radius), a few kilohertz per beam by HTTP range requests. The ON beam is read again first and must give the
+  stored hit, or the window is not judged.
+- **When a beam shows the line.** The channel measures the pair (ON window, beam as its OFF scan); the beam shows
+  the line when the channel counts an OFF hit. These are the channel's existing values: S/N at least `min_snr`
+  (10) within `freq_match_tol_hz` (500 Hz, or 30 s of the measured drift if that is more) of the ON frequency.
+- **Which beams decide.** Only far beams: at least 6 half-power radii from the star, the separation an OFF scan
+  has needed since config 1.5.0 (`OFF_MIN_SEPARATION_BEAM_RADII`). Nearer beams are measured and listed, and
+  decide nothing.
+- **`multi_target_match`** of a window: True when at least one far beam shows the line; False when at least 2 far
+  beams were read (`MIN_SIMULTANEOUS_OFF_BEAMS`, the number a simultaneous comparison has needed since 1.5.0) and
+  none shows it; otherwise not set.
+- **`multi_target`** then reads it as it always read that input: True fails (artifact, so the star is Rejected),
+  False passes, not set stays `not_evaluated`. Its note names the beam counts.
+- **Which window a star keeps.** As before the one hardest to explain, with one addition: a window flagged outside
+  the allocated bands that a far beam shows ranks below one that no far beam shows (or that was not tested), and
+  above a window flagged inside an allocated band.
+- **Not changed.** No threshold. The search, its comparison scans and its counts: a window a far beam shows is
+  still counted as flagged, and it is vetting that rejects it. Stored search results keep their keys; the planner
+  only adds the list `beams_same_instant` to a plan. `reobservation` still has no input for a live star, so a
+  radio result still cannot rise above Tier C. No other channel is touched.
+
 ## [1.10.0] - 2026-11-18
 
 ### Infrared vetting: SPHEREx colours against comparison stars become a check
