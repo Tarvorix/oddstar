@@ -1,6 +1,6 @@
 # Gaia DR3 vs DR4 Re-Validation Comparison Report
 
-- Config hash: DR3 `fe9c2aa57d3c`, DR4 `d70e74340b82`
+- Config hash: DR3 `aa46a4cac9ae`, DR4 `08fc0142d76a`
 - Validation runs on the offline fixture set (synthetic stars and literature analogues), not on live archive data.
 - Open case 4582145718700356096 parallax SNR: DR3=119.2 -> DR4=168.1 (1.41x)
 
