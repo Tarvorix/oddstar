@@ -21,6 +21,22 @@ MIN_SPECTRUM_POINTS = 20
 # Line-spread FWHM (A) at which the photospheric H-alpha templates below are defined; a wider instrument profile
 # broadens them in quadrature by the excess
 REFERENCE_LSF_FWHM_A = 0.45
+# Fewer open pixels than this cannot give the baseline and scatter of the filter output; the per-pixel noise is used alone
+MIN_OPEN_PIXELS_FOR_CALIBRATION = 12
+# Pixels within this many line-spread FWHM of the strongest peak are left out of the baseline and scatter: the filter
+# output of an unresolved line is 1.4 FWHM wide, so 2 FWHM on each side holds all of it
+PEAK_LEAVE_OUT_LSF_FWHM = 2.0
+# Stronger photospheric absorption lines of F, G and K stars in and just outside the H-alpha window (air, A; Moore,
+# Minnaert & Houtgast 1966, solar equivalent width above about 30 mA). Each enters the template as an absorption
+# profile of free depth. They cannot fit an emission line: the coefficients are non-negative and the profiles negative.
+PHOTOSPHERIC_LINES_A = (
+    6493.78, 6494.98, 6496.47, 6496.90, 6498.94, 6499.65,  # Ca I, Fe I, Fe I, Ba II, Fe I, Ca I
+    6516.08, 6518.37, 6546.24, 6569.22, 6572.78, 6574.23, 6575.02,  # Fe II, Fe I, Fe I, Fe I, Ca I, Fe I, Fe I
+    6586.31, 6592.91, 6593.87, 6597.56, 6609.11, 6633.75, 6643.63,  # Ni I, Fe I, Fe I, Fe I, Fe I, Fe I, Ni I
+    6663.44,  # Fe I
+)
+# Intrinsic width (Gaussian sigma, A) of those lines before the line spread: thermal and turbulent broadening of a dwarf
+PHOTOSPHERIC_LINE_SIGMA_A = 0.12
 COVERAGE_CATEGORIES = ("searched", "single_epoch", "no_coverage", "failed", "not_fetched", "no_spectrum")
 
 
@@ -59,6 +75,27 @@ def search_coverage_summary(stars: list[dict[str, Any]], cfg: PipelineConfig) ->
         out[f"n_{cat}"] = len(lst)
     out["not_searched_ids"] = {cat: lst for cat, lst in ids.items() if lst}
     return out
+
+
+def _calibrated_filter_snr(filtered: np.ndarray, sigma_pixel: float, open_window: np.ndarray) -> tuple[np.ndarray, dict[str, Any]]:
+    """Matched-filter output as a significance: (output - baseline) / max(per-pixel noise, scatter of the output).
+
+    Baseline and scatter are the median and half the 16th-to-84th percentile range of the output over the open
+    pixels. The range is used and not the MAD: what a template leaves is not Gaussian, and where the output falls
+    into two groups the MAD jumps between nearly zero and the distance of the groups. `filtered` is the
+    residual convolved with a kernel of unit energy, so white noise of `sigma_pixel` gives an output scatter of
+    `sigma_pixel`. With fewer than `MIN_OPEN_PIXELS_FOR_CALIBRATION` open pixels the baseline is zero and the
+    per-pixel noise is used alone.
+    """
+    base, scatter = 0.0, 0.0
+    if int(np.sum(open_window)) >= MIN_OPEN_PIXELS_FOR_CALIBRATION:
+        vals = filtered[open_window]
+        lo, base, hi = (float(v) for v in np.percentile(vals, [15.87, 50.0, 84.13]))
+        scatter = 0.5 * (hi - lo)
+    noise = max(sigma_pixel, scatter)
+    record = {"baseline": round(base, 5), "filter_scatter": round(scatter, 5), "pixel_noise": round(float(sigma_pixel), 5),
+              "n_open_pixels": int(np.sum(open_window))}
+    return (filtered - base) / noise, record
 
 
 class SpectralLinesChannel:
@@ -114,7 +151,22 @@ class SpectralLinesChannel:
             t2 = -np.exp(-0.5 * (wave - 6562.8) ** 2 / (1.8**2 + extra_var))
             t3 = -np.exp(-0.5 * (wave - 6562.8) ** 2 / (1.4**2 + extra_var))
             t4 = (wave - np.mean(wave)) / 100.0
-            A = np.column_stack([t1, t2, t3, t4])
+            # The slope enters with both signs: the coefficients are non-negative, and a continuum can fall to the red
+            cols = [t1, t2, t3, t4, -t4]
+            line_var = PHOTOSPHERIC_LINE_SIGMA_A**2 + (lsf_fwhm / 2.355) ** 2
+            reach = 3.0 * math.sqrt(line_var)
+            for centre in PHOTOSPHERIC_LINES_A:
+                if wave[0] - reach <= centre <= wave[-1] + reach:
+                    cols.append(-np.exp(-0.5 * (wave - centre) ** 2 / line_var))
+            A = np.column_stack(cols)
+
+            # Matched filter at LSF width (~0.3 A sigma)
+            lsf_sig = max(0.15, lsf_fwhm / 2.355)
+            dw = float(wave[1] - wave[0])
+            kern_half = 4
+            kern_x = np.arange(-kern_half, kern_half + 1) * dw
+            kern = np.exp(-0.5 * (kern_x / lsf_sig) ** 2)
+            kern /= math.sqrt(float(np.sum(kern**2)))
 
             # Fit non-negative template combination on minimum (robust against cosmic rays in 1 exposure)
             comb = np.minimum(e1, e2)
@@ -127,17 +179,6 @@ class SpectralLinesChannel:
             # Robust noise per exposure
             sig1 = max(1e-4, 1.4826 * float(np.median(np.abs(r1 - np.median(r1)))))
             sig2 = max(1e-4, 1.4826 * float(np.median(np.abs(r2 - np.median(r2)))))
-
-            # Matched filter at LSF width (~0.3 A sigma)
-            lsf_sig = max(0.15, lsf_fwhm / 2.355)
-            dw = float(wave[1] - wave[0])
-            kern_x = np.arange(-4, 5) * dw
-            kern = np.exp(-0.5 * (kern_x / lsf_sig) ** 2)
-            kern /= math.sqrt(float(np.sum(kern**2)))
-
-            snr1 = np.convolve(r1 / sig1, kern, mode="same")
-            snr2 = np.convolve(r2 / sig2, kern, mode="same")
-            joint_snr = np.minimum(snr1, snr2)
 
             # Mask out sky lines & optionally stellar lines
             sky_tol = max(float(self.ch_cfg["sky_line_exclusion_angstrom"]), LINE_EXCLUSION_LSF_FWHM * lsf_fwhm)
@@ -156,6 +197,26 @@ class SpectralLinesChannel:
             if self.stellar_line_veto_enabled:
                 for st in KNOWN_STELLAR_LINES_A:
                     mask &= np.abs(wave - st) > st_tol
+
+            # Significance of the filter output against its own baseline and scatter over the open window. The
+            # per-pixel noise alone is right for white noise. What the template leaves of a star's spectrum
+            # (unmodelled absorption lines, the pseudo-continuum between them) is as wide as the line spread, so the
+            # filter adds it up like a line: its output then scatters by more than the per-pixel noise says, and
+            # sits on an offset. The larger of the two scatters is used, so this can lower a significance, never
+            # raise it.
+            f1 = np.convolve(r1, kern, mode="same")
+            f2 = np.convolve(r2, kern, mode="same")
+            snr1, cal1 = _calibrated_filter_snr(f1, sig1, mask)
+            snr2, cal2 = _calibrated_filter_snr(f2, sig2, mask)
+            best_idx = int(np.argmax(np.where(mask, np.minimum(snr1, snr2), 0.0)))
+            # Second pass without the pixels around the strongest peak, so that a real line is not counted in its
+            # own baseline and scatter
+            away = mask & (np.abs(wave - wave[best_idx]) > PEAK_LEAVE_OUT_LSF_FWHM * lsf_fwhm)
+            if int(np.sum(away)) >= MIN_OPEN_PIXELS_FOR_CALIBRATION:
+                snr1, cal1 = _calibrated_filter_snr(f1, sig1, away)
+                snr2, cal2 = _calibrated_filter_snr(f2, sig2, away)
+            joint_snr = np.minimum(snr1, snr2)
+            extra["filter_calibration"] = [cal1, cal2]
 
             masked_snr = np.where(mask, joint_snr, 0.0)
             best_idx = int(np.argmax(masked_snr))

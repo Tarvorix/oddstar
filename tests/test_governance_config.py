@@ -97,7 +97,7 @@ def test_live_sample_sql_is_unchanged_by_the_move_to_config() -> None:
 def test_moved_threshold_values_are_unchanged() -> None:
     cfg = load_config()[0]
     v = cfg.vetting
-    assert cfg.version == "1.11.0"
+    assert cfg.version == "1.12.0"
     expected = {
         "xmatch_max_sep_arcsec": 2.5, "wise_w4_min_frames": 5, "wise_w4_max_rchi2": 3.5, "dog_w1_w2_min": 0.45,
         "dog_w2_w3_min": 3.0, "lc_bls_min_period_days": 0.8, "lc_bls_max_period_days": 8.0, "lc_bls_duration_days": 0.1,

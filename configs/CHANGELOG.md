@@ -2,6 +2,74 @@
 
 All threshold, sample-cut, and prompt changes must be logged here under Ground Rule R4 before running validation or search.
 
+## [1.12.0] - 2026-11-19
+
+### Spectral lines: the filter output is judged against its own baseline, and the template holds the metal lines
+The search of 1,300 nearby stars (run `v1110-local1300-spectral_lines`, config 1.11.0) flagged one star of the 350
+with two LAMOST epochs: Gaia DR3 29259241366225024, residual S/N 6.00 at rest 6507.5 A (air), Tier C. The same
+measurement on every spectrum in the cache (1,535 reduced windows, one epoch at a time) shows the feature is not
+that star's: the residual at rest 6507.5 A has a median of +2.4 per cent of the continuum over all stars (16th to
+84th percentile +1.6 to +3.3), the same in every signal-to-noise class; 280 single spectra reach S/N 4 there
+against 8 and 9 at two control wavelengths; among the spectra whose strongest open residual reaches S/N 4, 294
+have it between 6504 and 6512 A and no other wavelength collects more than 5; a second star in one of the two
+exposures reaches S/N 6.28 at the same place. The flagged star has spectra of S/N 252 and 175, and its amplitude
+(3.8 per cent) is at the 93rd percentile of the sample. The cause is the template. It held a constant, two
+H-alpha profiles and a slope that could only rise to the red. The absorption lines of an F, G or K star pull that
+constant below the continuum, so the stretch between Ca I 6499.65 and Fe II 6516.08, the widest gap of the window
+without a line, stands a few per cent above the fit in every star, in both exposures, as wide as the line spread.
+The significance divided that by the per-pixel noise, which for a spectrum of S/N above about 80 is itself set by
+the unmodelled lines and not by photons. `docs/channels/spectral_lines.md` already named this bump (1 to 2 per
+cent, S/N 3 to 4 in the stars tried); on 1,535 spectra it reaches the threshold.
+
+The measurement changes in three ways. No threshold changes (`residual_snr_threshold` stays 6.0, `repeat_ratio`
+0.4), and no vetting value. The rules below were written before any real spectrum was measured with them.
+
+- **Baseline and scatter of the filter output** (`_calibrated_filter_snr`). The significance of an exposure at a
+  pixel was `filter output / per-pixel noise`. It is now `(filter output - baseline) / max(per-pixel noise,
+  scatter)`, where baseline and scatter are the median and half the 16th-to-84th percentile range of the filter
+  output over the open pixels of that exposure (the pixels outside every excluded line). The larger of the two
+  noise values is used, so the scatter can lower a significance and never raise it. The values are computed twice:
+  once over all open pixels to find the strongest peak, then without the pixels within 2 line-spread FWHM of that
+  peak (`PEAK_LEAVE_OUT_LSF_FWHM`), so a real line is not counted in its own baseline; the second values are
+  used. With fewer than 12 open pixels (`MIN_OPEN_PIXELS_FOR_CALIBRATION`) the baseline is zero and the per-pixel
+  noise is used alone. Each measurement records the four numbers per exposure (`extra.filter_calibration`).
+  The baseline also removes an offset the old statistic carried for every spectrum: the template is fitted to the
+  per-pixel minimum of the two exposures, which lies 0.56 sigma below each exposure for pure noise, and the
+  filter added that up to about +1.3 in every pixel.
+- **Photospheric lines in the template** (`PHOTOSPHERIC_LINES_A`). 21 of the stronger solar absorption lines of
+  6493 to 6664 A (Ca I, Fe I, Fe II, Ba II, Ni I; Moore, Minnaert & Houtgast 1966) enter the non-negative fit as
+  absorption profiles of free depth, broadened by the line spread, where they lie within 3 profile widths of the
+  window. An absorption profile with a non-negative coefficient cannot fit an emission line.
+- **The slope takes either sign.** The fit is non-negative and held `+slope` only, so a continuum that falls to
+  the red was not fitted. `-slope` is now a second column.
+
+Measured on real spectra after the rule was written (commit 6fa2f3e against the code of 1.11.0, on Kyle's Mac,
+cached LAMOST windows only; 434 two-epoch stars: the 350 of the nearby sample and the 84 of the halo sample):
+
+- Flags: 1 under 1.11.0 (29259241366225024, S/N 6.00), none under 1.12.0. That star now reads S/N 4.55. Largest
+  statistic of the 434 stars: 6.00 before, 4.92 now; stars at S/N 4 or more: 94 before, 41 now; at 5 or more: 17
+  before, none now.
+- Null test: 500 pairs made of one epoch each of two different stars of similar signal-to-noise. No flag under
+  either version; largest statistic 5.86 before, 4.86 now; at S/N 5 or more: 13 before, none now.
+- The feature is lowered, not removed. Of the 151 stars that still reach S/N 3, 149 peak between 6504 and 6512 A
+  (278 of 339 before), and so do all 113 such null pairs. The four lines of the template just blueward of the
+  window (6496.47 to 6499.65 A) fit to zero depth in the median, because only their wings lie inside it. The
+  margin to the threshold is about 1.1.
+- Planted lines (unresolved, same amplitude in both epochs, 7,692 cases), fraction flagged within 3 A, 1.11.0 then
+  1.12.0, for stars whose weaker epoch has S/N above 100: at 6508 A, 0.90 and 0.91 for a line of 5 per cent of
+  the continuum, 1.00 and 0.98 for 8 per cent; at 6524 A, 0.51 and 0.47, then 0.97 and 0.97; at 6620 A, 0.83 and
+  0.29, then 1.00 and 0.73. A line of 12 per cent is found in at least 0.82 of the stars of every class, and one
+  of 20 per cent in at least 0.97. The loss at 6620 A is the removed offset: under 1.11.0, 47 of the 434 stars
+  peaked between 6612 and 6628 A at S/N 3 or more without a planted line, under 1.12.0 two do.
+- Without the photospheric lines (baseline, scatter and slope only) no star and no null pair reaches S/N 4.2, but
+  a line of 8 per cent at 6620 A is found in 0.35 of the high-S/N stars. The lines in the template are what keeps
+  the sensitivity.
+
+Effect on the certificate (fixtures at a line-spread width of 0.45 A, white noise): design-point completeness and
+benchmark recovery are unchanged; completeness at the lowest injected S/N (5, below the threshold) falls from
+0.70 and 0.65 to 0.40 and 0.20 and the null statistic falls by about 1 (median 2.70 to 1.73), both from the
+removed offset. Stored runs under 1.11.0 keep their numbers; a rerun under 1.12.0 measures the cached spectra again.
+
 ## [1.11.0] - 2026-11-19
 
 ### Radio vetting: the other beams of a multibeam scan become the session cross-check (`multi_target`)
