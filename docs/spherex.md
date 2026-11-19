@@ -149,6 +149,17 @@ Vetting does not fetch SPHEREx images itself: a star and twelve comparison stars
 hours. `oddstar spherex verdict` measures them and stores the colours; `vet --live` and `inspect --live` read the
 stored record (`vetting_archive.spherex_colours`, query status `spherex_colours`: "ok" or "not_measured").
 
+### First run of the check (2026-11-18)
+
+`oddstar spherex verdict --ids 5628404318169472 --as-of 2026-11-18` on commit `bbacfc26`. The twelve comparison
+stars are the 12 clean ones among the 1,000 nearest Gaia sources of the right colour (out to 0.71 degrees; one
+Gaia cone query and two batch queries), and none of them is one of the twelve of the first verdict. The first pass
+took 3 h 58 min with the archive busy and left 10 of the 12 short of 1 to 35 cutouts; the second pass took 524 s
+and completed all of them. D(k_w2): median +0.059, scatter 0.029; D(w1_w2): median +0.103, scatter 0.012. The star:
+z(k_w2) = +11.9, z(w1_w2) = +2.7. Verdict: **redder now**, as with the first set (+19.6 and +1.0). In
+`oddstar inspect --live` (run `v1100-inspect`) the check passes with that note; the star stays Tier C with 16 pass,
+0 fail, 8 not evaluated. The numbers per star are in `reports/5628404318169472_report.md`, section 6.5.
+
 ## Commands
 
 ```
