@@ -1118,7 +1118,8 @@ def beam_test_band(
             if power is None:
                 rec.update({"on": None, "matches_stored_hit": False})
             else:
-                snr, f_hz, drift = dedoppler_search_scan(power, on.tsamp_s, on.df_hz, max_abs_drift=max_drift)
+                # in double precision, as the channel measures a window
+                snr, f_hz, drift = dedoppler_search_scan(np.asarray(power, dtype=float), on.tsamp_s, on.df_hz, max_abs_drift=max_drift)
                 rec["on"] = {"snr": round(snr, 2), "freq_offset_hz": round(f_hz, 3), "drift_hz_s": drift}
                 if "ON" in kinds:  # a cadence: this scan is one of several ON scans, and the stored drift is the strongest one's
                     rec["matches_stored_hit"] = bool(float(w["min_on_snr"]) - 0.006 <= snr <= float(w["max_on_snr"]) + 0.006)
@@ -1155,7 +1156,7 @@ def beam_test_band(
                            "scans": [{"scan_index": 0, "kind": "ON", "t_start_s": 0.0, "power": p_on},
                                      {"scan_index": 1, "kind": "OFF", "t_start_s": entry["t_offset_s"], "power": p_beam}]}
                 hit = int(channel.measure(cadence, {}).values["off_scan_hits"]) > 0
-                snr, f_hz, drift = dedoppler_search_scan(p_beam, on.tsamp_s, on.df_hz, max_abs_drift=max_drift)
+                snr, f_hz, drift = dedoppler_search_scan(np.asarray(p_beam, dtype=float), on.tsamp_s, on.df_hz, max_abs_drift=max_drift)
                 # For the reader, not for the rule: the beam's S/N at the ON frequency along the ON drift
                 c_on = int(round(p_on.shape[1] / 2.0 + rec["on"]["freq_offset_hz"] / on.df_hz))
                 half = max(1, int(round(max(tol_hz, abs(rec["on"]["drift_hz_s"]) * 30.0) / on.df_hz)))
@@ -1164,7 +1165,8 @@ def beam_test_band(
                                      "freq_offset_hz": round(f_hz, 3), "drift_hz_s": drift,
                                      "snr_at_on_freq": round(float(near.max()), 2) if near.size else None})
                 n_hit += int(hit)
-            log(f"beam {bi + 1}/{len(beams)} ({e['sep_arcsec']:.0f} arcsec, {'far' if e['far'] else 'near'}): line in {n_hit} of {len(windows)} window(s)")
+            log(f"beam {bi + 1}/{len(beams)} ({e['sep_arcsec']:.0f} arcsec, {'far' if e['far'] else 'near'}): line in {n_hit} of {len(windows)} window(s); "
+                f"{fetched['bytes'] / 1e6:.0f} MB fetched so far, {time.monotonic() - t_start:.0f} s")
 
         stored_sel = _tested_key(res["selected"]["hit"]) if res.get("selected") else None
         need_cadence: list[int] = []
