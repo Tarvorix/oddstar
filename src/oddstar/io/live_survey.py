@@ -6,6 +6,7 @@ import hashlib
 import json
 import math
 import re
+import threading
 import time
 import xml.etree.ElementTree as ET
 from typing import Any
@@ -71,6 +72,35 @@ SIMBAD_TAP_URLS = [
     "https://simbad.cfa.harvard.edu/simbad/sim-tap/sync",
     "https://simbad.cds.unistra.fr/simbad/sim-tap/sync",
 ]
+# Tried after the two above and not part of the cache key, so answers stored before it was added are still served.
+# On 2026-11-19 the CfA mirror accepted connections and never answered and the Strasbourg address answered HTTP 404:
+# 68 flagged stars were vetted without a SIMBAD answer. The mirror at IDIA (South Africa) served the same queries.
+SIMBAD_TAP_FALLBACK_URLS = [
+    "https://simbad.idia.ac.za/simbad/sim-tap/sync",
+]
+# A TAP endpoint that failed this many times in a row in this process is tried after the others (not dropped): a
+# mirror that hangs otherwise costs its full timeout on every query of a long vetting run. A busy answer (HTTP 429)
+# is not a failure here.
+TAP_ENDPOINT_DEMOTE_AFTER = 2
+_tap_endpoint_failures: dict[str, int] = {}
+_tap_endpoint_lock = threading.Lock()
+
+
+def reset_tap_endpoint_health() -> None:
+    with _tap_endpoint_lock:
+        _tap_endpoint_failures.clear()
+
+
+def _note_tap_endpoint(endpoint: str, ok: bool) -> None:
+    with _tap_endpoint_lock:
+        _tap_endpoint_failures[endpoint] = 0 if ok else _tap_endpoint_failures.get(endpoint, 0) + 1
+
+
+def _tap_endpoint_order(candidates: list[str]) -> list[str]:
+    """The endpoints in their listed order, those that keep failing moved behind the rest."""
+    with _tap_endpoint_lock:
+        failing = {c for c in candidates if _tap_endpoint_failures.get(c, 0) >= TAP_ENDPOINT_DEMOTE_AFTER}
+    return [c for c in candidates if c not in failing] + [c for c in candidates if c in failing]
 
 
 def _parse_ipac_table(text: str) -> list[dict[str, Any]]:
@@ -276,8 +306,12 @@ def _tap_query_cached(
     timeout_s: int = 45,
     busy_waits_s: tuple[float, ...] = TAP_BUSY_WAITS_S,
     sleep: Any = None,
+    fallback_urls: list[str] | None = None,
 ) -> tuple[list[dict[str, Any]], ManifestRecord, bool]:
     """Execute an ADQL sync TAP query with mirror fallback and content-addressed RawCache provenance.
+
+    `fallback_urls` are further mirrors of the same service, tried after `urls`; they are not part of the cache
+    key. An endpoint that failed `TAP_ENDPOINT_DEMOTE_AFTER` times in a row in this process is tried last.
 
     An endpoint that answers HTTP 429 (or 503 with a Retry-After header) is busy, not broken: the ESA Gaia archive
     does this for minutes at a time when its sync queue is full, and it is the only service that holds the
@@ -297,10 +331,11 @@ def _tap_query_cached(
     errors: list[str] = []
     waits = list(busy_waits_s)
     do_sleep = sleep if sleep is not None else time.sleep
+    endpoints = candidates + [u for u in (fallback_urls or []) if u not in candidates]
     while True:
         errors = []
         busy = False
-        for endpoint in candidates:
+        for endpoint in _tap_endpoint_order(endpoints):
             try:
                 fmt = "votable" if endpoint in TAP_VOTABLE_ONLY_URLS else "json"
                 resp = requests.post(
@@ -312,10 +347,13 @@ def _tap_query_cached(
                 if resp.status_code != 200:
                     if resp.status_code == 429 or (resp.status_code == 503 and headers.get("Retry-After")):
                         busy = True
+                    else:
+                        _note_tap_endpoint(endpoint, ok=False)
                     errors.append(f"{endpoint}: HTTP {resp.status_code}")
                     continue
                 if "text/html" in str(headers.get("Content-Type", "")).lower():
                     # The ESA archive answers HTTP 200 with its downtime page while it is in maintenance
+                    _note_tap_endpoint(endpoint, ok=False)
                     errors.append(f"{endpoint}: an HTML page instead of a TAP answer (service down or in maintenance)")
                     continue
                 rows = _rows_from_tap_votable(resp.content) if fmt == "votable" else _rows_from_tap_json(resp.json())
@@ -324,6 +362,7 @@ def _tap_query_cached(
                 if rows and cols and str(rows[0].get(cols[0])) == cols[0]:
                     errors.append(f"{endpoint}: non-JSON TAP echo")
                     continue
+                _note_tap_endpoint(endpoint, ok=True)
                 payload = json.dumps(rows, sort_keys=True).encode("utf-8")
                 manifest = cache.put(
                     archive=archive,
@@ -336,13 +375,15 @@ def _tap_query_cached(
                 )
                 return rows, manifest, False
             except Exception as exc:
+                if isinstance(exc, (requests.exceptions.Timeout, requests.exceptions.ConnectionError)):
+                    _note_tap_endpoint(endpoint, ok=False)
                 errors.append(f"{endpoint}: {type(exc).__name__}: {exc}")
         if not busy or not waits:
             break
         do_sleep(waits.pop(0))
 
     raise ArchiveAccessError(
-        f"TAP query to {archive} failed across {len(candidates)} endpoint(s)"
+        f"TAP query to {archive} failed across {len(endpoints)} endpoint(s)"
         + (f" after {len(busy_waits_s) - len(waits)} wait(s) on a busy service" if busy else "")
         + f": {'; '.join(errors)}",
         retryable=True,
@@ -1510,21 +1551,21 @@ def enrich_star_live_for_vetting(
     except Exception as exc:
         qs["gaia_meta"] = _failed(exc)
 
-    # 2. SIMBAD classification (CfA Harvard primary, Strasbourg CDS backup)
+    # 2. SIMBAD classification (CfA Harvard primary, Strasbourg CDS backup, IDIA mirror after both)
     try:
         q_sim = (
             f"SELECT b.main_id, b.otype_txt, DISTANCE(POINT('ICRS', b.ra, b.dec), POINT('ICRS', {ra:.6f}, {dec:.6f}))*3600.0 AS sep_arcsec "
             f"FROM basic AS b WHERE 1=CONTAINS(POINT('ICRS', b.ra, b.dec), CIRCLE('ICRS', {ra:.6f}, {dec:.6f}, 0.0014)) "
             f"ORDER BY sep_arcsec ASC"
         )
-        s_rows, m_sim, _ = _tap_query_cached(urls=SIMBAD_TAP_URLS, query=q_sim, archive="simbad", release="live", cache=cache, timeout_s=15)
+        s_rows, m_sim, _ = _tap_query_cached(urls=SIMBAD_TAP_URLS, fallback_urls=SIMBAD_TAP_FALLBACK_URLS, query=q_sim, archive="simbad", release="live", cache=cache, timeout_s=15)
         manifests.append(m_sim)
         if not s_rows:
             q_sim_id = (
                 f"SELECT b.main_id, b.otype_txt FROM basic AS b "
                 f"JOIN ident AS i ON b.oid = i.oidref WHERE i.id = 'Gaia DR3 {sid}'"
             )
-            s_rows, m_sim_id, _ = _tap_query_cached(urls=SIMBAD_TAP_URLS, query=q_sim_id, archive="simbad", release="live", cache=cache, timeout_s=15)
+            s_rows, m_sim_id, _ = _tap_query_cached(urls=SIMBAD_TAP_URLS, fallback_urls=SIMBAD_TAP_FALLBACK_URLS, query=q_sim_id, archive="simbad", release="live", cache=cache, timeout_s=15)
             manifests.append(m_sim_id)
         # Three distinct outcomes: ok + entry (simbad_type = its otype, None if SIMBAD gives none), ok + no entry
         # (simbad_type None, simbad_entry False: a real negative answer), failed (simbad_type None, status "failed: ...").
@@ -1970,7 +2011,7 @@ def enrich_star_live_for_vetting(
             f"JOIN basic AS p ON h.parent = p.oid JOIN ident AS i ON i.oidref = h.child "
             f"WHERE i.id = 'Gaia DR3 {sid}'"
         )
-        mem_rows, m_mem, _ = _tap_query_cached(urls=SIMBAD_TAP_URLS, query=q_mem, archive="simbad", release="live_membership", cache=cache, timeout_s=15)
+        mem_rows, m_mem, _ = _tap_query_cached(urls=SIMBAD_TAP_URLS, fallback_urls=SIMBAD_TAP_FALLBACK_URLS, query=q_mem, archive="simbad", release="live_membership", cache=cache, timeout_s=15)
         manifests.append(m_mem)
         parents = [{"main_id": str(r.get("main_id")), "otype": str(r.get("otype") or ""), "membership": r.get("membership")} for r in mem_rows]
         youth["association"] = {
