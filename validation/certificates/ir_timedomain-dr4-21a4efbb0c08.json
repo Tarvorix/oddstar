@@ -1,31 +1,70 @@
 {
-  "channel": "vanishing",
-  "gaia_release": "dr3",
+  "channel": "ir_timedomain",
+  "gaia_release": "dr4",
   "split": "all",
-  "config_hash": "0801f0ae8ded",
-  "git_commit": "6fa2f3eb16fc633e9db1945163285296948b9622",
-  "timestamp_utc": "2026-11-19T21:32:07.630502+00:00",
+  "config_hash": "21a4efbb0c08",
+  "git_commit": "267f3bd2b55144969c92ddede6f47b14b62e8b52",
+  "timestamp_utc": "2026-11-20T04:00:49.147778+00:00",
   "passed": true,
   "blind_recovery_rate": 1.0,
-  "blind_total": 4,
-  "blind_recovered": 4,
+  "blind_total": 6,
+  "blind_recovered": 6,
   "impostor_pass": true,
   "impostor_max_tier": "Explained",
   "impostors_evaluated": 3,
   "injection_completeness_design_point": 1.0,
   "completeness_grid": [
     {
-      "depth_margin_mag": 1.5,
-      "completeness": 0.0,
-      "n_trials": 20
-    },
-    {
-      "depth_margin_mag": 3.0,
+      "mode": "step",
+      "amp": 0.1,
       "completeness": 1.0,
       "n_trials": 20
     },
     {
-      "depth_margin_mag": 5.0,
+      "mode": "step",
+      "amp": 0.35,
+      "completeness": 1.0,
+      "n_trials": 20
+    },
+    {
+      "mode": "step",
+      "amp": 0.65,
+      "completeness": 1.0,
+      "n_trials": 20
+    },
+    {
+      "mode": "ramp",
+      "amp": 0.1,
+      "completeness": 1.0,
+      "n_trials": 20
+    },
+    {
+      "mode": "ramp",
+      "amp": 0.35,
+      "completeness": 1.0,
+      "n_trials": 20
+    },
+    {
+      "mode": "ramp",
+      "amp": 0.65,
+      "completeness": 1.0,
+      "n_trials": 20
+    },
+    {
+      "mode": "burst",
+      "amp": 0.1,
+      "completeness": 0.65,
+      "n_trials": 20
+    },
+    {
+      "mode": "burst",
+      "amp": 0.35,
+      "completeness": 1.0,
+      "n_trials": 20
+    },
+    {
+      "mode": "burst",
+      "amp": 0.65,
       "completeness": 1.0,
       "n_trials": 20
     }
@@ -36,108 +75,120 @@
   "expected_false_positives": 3.333333333333333,
   "calibration_curve": [
     {
-      "stat": 0.0,
+      "stat": 2.0624498743808086,
       "fap": 0.5
     },
     {
-      "stat": 0.0001,
+      "stat": 2.451834055131432,
       "fap": 0.25
     },
     {
-      "stat": 0.0002,
+      "stat": 2.828073097471875,
       "fap": 0.09999999999999998
     },
     {
-      "stat": 0.00030000000000000003,
+      "stat": 3.0373091837801294,
       "fap": 0.050000000000000044
     },
     {
-      "stat": 0.0004,
+      "stat": 3.39740708896953,
       "fap": 0.010000000000000009
     },
     {
-      "stat": 1.5,
+      "stat": 5.726406928916332,
       "fap": 0.0001
     },
     {
-      "stat": 3.0,
+      "stat": 7.226406928916332,
       "fap": 1e-6
     },
     {
-      "stat": 6.0,
+      "stat": 10.226406928916333,
       "fap": 1e-9
     },
     {
-      "stat": 12.0,
+      "stat": 16.226406928916333,
       "fap": 1e-12
     }
   ],
   "details": {
     "blind_recovery": [
       {
-        "source_id": "755500000000000001",
+        "source_id": "1638028353993041792",
         "flagged": true,
-        "raw_stat": 21.029218595875776
+        "raw_stat": 31.028107311461497
       },
       {
-        "source_id": "755500000000000002",
+        "source_id": "5548511859528971520",
         "flagged": true,
-        "raw_stat": 20.20102324280213
+        "raw_stat": 216.6853099912111
       },
       {
-        "source_id": "755500000000000004",
+        "source_id": "3687158017250050176",
         "flagged": true,
-        "raw_stat": 5.260280004649342
+        "raw_stat": 61.20588143736592
       },
       {
-        "source_id": "755500000000000003",
+        "source_id": "2996362101189875200",
         "flagged": true,
-        "raw_stat": 5.960280004649341
+        "raw_stat": 31.3717447625158
+      },
+      {
+        "source_id": "4066368953121417984",
+        "flagged": true,
+        "raw_stat": 112.25993474698505
+      },
+      {
+        "source_id": "6485732215620751360",
+        "flagged": true,
+        "raw_stat": 96.52548854237382
       }
     ],
     "impostor_rejection": [
       {
-        "source_id": "755500000000000001",
+        "source_id": "711100000000000001",
         "tier": "Explained",
         "failed_checks": [
-          "proper_motion"
+          "neighbour_signal"
         ],
         "expected_failed": [
-          "proper_motion"
+          "neighbour_signal"
+        ],
+        "reason": "Explained by 'neighbour_signal': Dip/IR variation tracks neighbouring star within TESS/WISE beam (explicit flag) | TESS: no sectors loaded | NEOWISE: no per-visit PM-track residual vectors",
+        "passed": true
+      },
+      {
+        "source_id": "711100000000000002",
+        "tier": "Explained",
+        "failed_checks": [
+          "evolved",
+          "known_variable",
+          "systematics_window"
+        ],
+        "expected_failed": [
+          "known_variable"
         ],
         "reason": "Not flagged above channel thresholds",
         "passed": true
       },
       {
-        "source_id": "755500000000000005",
-        "tier": "Explained",
+        "source_id": "711100000000000003",
+        "tier": "Rejected",
         "failed_checks": [
-          "known_variable"
+          "systematics_window"
         ],
         "expected_failed": [
-          "known_variable"
+          "systematics_window"
         ],
-        "reason": "Explained by 'known_variable': Explained by large-amplitude variable: variable-star catalogue lists an LPV/Mira; SIMBAD type Mira",
-        "passed": true
-      },
-      {
-        "source_id": "755500000000000006",
-        "tier": "Explained",
-        "failed_checks": [
-          "plate_defect"
-        ],
-        "expected_failed": [
-          "plate_defect"
-        ],
-        "reason": "Not flagged above channel thresholds",
+        "reason": "Failed integrity/artifact check 'systematics_window': Event aligns with documented scattered-light or scan-direction systematic window (explicit flag) | TESS: no sectors loaded | NEOWISE: no comparison-star ensemble fetched",
         "passed": true
       }
     ],
     "code_fingerprint_files": {
       "oddstar/__init__.py": "2af7d8f7316e5196abd067dcdd82791314113df68b496c3611136877b193be1e",
       "oddstar/channels/__init__.py": "af613ea2e399e30d14d7eca150d9a3f4fa5e409e0976b773c95c9f752789212e",
-      "oddstar/channels/vanishing/__init__.py": "968c8a67e142c8dee6ddfec0938c46a22a51f013eff0d857c3198f87e94a8024",
-      "oddstar/channels/vanishing/channel.py": "2b5b8101c2113c9160e15dce5f5dd6c592b072e6c3c77b0ceff9680073c2676b",
+      "oddstar/channels/ir_timedomain/__init__.py": "db31a0eb206d0dee5a43b28f2e878c3b4bbfcfd0514ef140b8a99075a99c6317",
+      "oddstar/channels/ir_timedomain/channel.py": "6ec0ccaa5a554317a5f1f7be755b2931fa120b5ab6381984dc7f4fa9f3892594",
       "oddstar/config.py": "46af545c91b0db22ac5d71dcec4529e1d1cebfe3b62cb3be2b5268481ef3df0c",
       "oddstar/dossier/plots.py": "d304dad52af137199576932c3562f600003172fbff1f4712ef4bdc8a2b472e4d",
       "oddstar/errors.py": "6e2757f307284892a5d69bf8967ee111d49bcd4c4100bf82316d02d7fb09ed30",
@@ -157,12 +208,12 @@
       "oddstar/vet/common.py": "0107f4da0f5b310f759688785f0c9347c5785db6ca6129452441ced3cb96622e",
       "oddstar/vet/engine.py": "aeb74a5b12a2a16bff0a33aeeb6890fd758709200c40f49a3bdad131efc3d945",
       "oddstar/vet/ir_checks.py": "298ccaf4a17aa5e58f088577681773aa90e9ba5bfdbdbf77a9e9c61772bcf1f6",
-      "oddstar/vet/lc_checks.py": "f8c925d6553298f2cc2d28bf8d1976b8aaa450723702374ae0e40af2a8681138",
+      "oddstar/vet/lc_checks.py": "a523bd3ff3609b767663eb57e55a50e10f595e1c33a62fc5110ed7a3732fdf54",
       "oddstar/vet/radio_checks.py": "8dbecf8d1861939d73263fc893ea2e0405b78c1e20705bc8fbd4a002ba6d3793",
       "oddstar/vet/spectral_checks.py": "f9d6171de7e05d89db987dedb1bd0521ebce4fe1cce2989aba078ea1a7a69c15",
       "oddstar/vet/underluminous_checks.py": "50f9093f9d224f15068f8b456ca535032df7e3f835bd2e5a6ab5d680f6ed74a0",
       "oddstar/vet/vanishing_checks.py": "1ad95fbc05f1e38f5f704e9422daf76b0ecb8f890ae0dbbd4ac84e5be71d6104"
     }
   },
-  "code_fingerprint": "f9092e81b99fdb7dd945147ca4cbda0095bd88f3c563061fd43b130f1eb9c054"
+  "code_fingerprint": "71cc07b9a152afd3655bbb9d06ff9ddc5cb935dec2c26da13937e2e1e12c2074"
 }
