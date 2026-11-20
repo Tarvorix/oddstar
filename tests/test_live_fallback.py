@@ -299,8 +299,11 @@ def test_gaia_mirrors_answer_when_the_esa_archive_is_in_maintenance(tmp_path: Pa
 
     # Nothing answers: the error names the maintenance page instead of a JSON decoding error
     state["aip"] = _MirrorResp(200, _AIP_VOTABLE.replace(b'value="OK"', b'value="OVERFLOW"'), "application/xml")
-    with pytest.raises(ArchiveAccessError, match=r"an HTML page instead of a TAP answer.*HTTP 500.*QUERY_STATUS=OVERFLOW"):
+    with pytest.raises(ArchiveAccessError) as err:
         _tap_query_cached(urls=live_survey.GAIA_TAP_URLS, query="SELECT c", archive="gaia", release="dr3", cache=cache)
+    # (the ESA archive has failed twice by now, so it is asked after the mirrors and named last)
+    for part in ("an HTML page instead of a TAP answer", "HTTP 500", "QUERY_STATUS=OVERFLOW"):
+        assert part in str(err.value)
 
     # An unreadable answer is never an empty one
     for bad in (b"not xml", _AIP_VOTABLE.replace(b"<TD>true</TD>", b""), _AIP_VOTABLE.replace(b"TABLEDATA", b"BINARY2"),
@@ -489,3 +492,54 @@ def test_local_region_reads_source_id_slices_when_nothing_is_cached(tmp_path: Pa
     assert all("AND g.source_id > " in q and "ORDER BY g.source_id ASC" in q and "SELECT TOP 1000 " in q for q in queries)
     assert "g.source_id > -1 AND g.source_id <= " + str(2**52 - 1) in queries[0]
     assert str(2**63 - 1) in queries[-1]
+
+
+def test_a_mirror_that_keeps_failing_is_tried_last_and_a_fallback_mirror_keeps_the_cache_key(tmp_path: Path, monkeypatch: Any) -> None:
+    from oddstar.io import live_survey as ls
+
+    cache = RawCache(tmp_path / "raw", max_cache_gb=1.0)
+    calls: list[str] = []
+    down = {"https://hangs.example/sync", "https://gone.example/sync"}
+
+    def fake_post(url: str, data: dict[str, Any] | None = None, timeout: int = 15) -> _DummyResp:
+        calls.append(url)
+        if url == "https://hangs.example/sync":
+            raise requests.exceptions.ReadTimeout("no answer")
+        if url in down:
+            return _DummyResp(404, json_data={})
+        return _DummyResp(200, json_data={"metadata": [{"name": "n"}], "data": [[len(calls)]]})
+
+    monkeypatch.setattr(requests, "post", fake_post)
+    urls = ["https://hangs.example/sync", "https://gone.example/sync"]
+    kw = {"urls": urls, "fallback_urls": ["https://third.example/sync"], "archive": "simbad", "release": "live", "cache": cache}
+
+    # the listed order while nothing is known about the endpoints, and again after one failure each
+    for n in (1, 2):
+        calls.clear()
+        _tap_query_cached(query=f"SELECT {n}", **kw)
+        assert calls == [*urls, "https://third.example/sync"]
+    # two failures in a row: the working mirror comes first and the failing ones are not asked at all
+    calls.clear()
+    _tap_query_cached(query="SELECT 3", **kw)
+    assert calls == ["https://third.example/sync"]
+
+    # the key of the answer does not name the fallback mirror: the same query without it is a cache hit
+    calls.clear()
+    rows, _, hit = _tap_query_cached(query="SELECT 3", urls=urls, archive="simbad", release="live", cache=cache)
+    assert hit is True and calls == [] and rows == [{"n": 1}]
+
+    # a mirror that works again is back in its place after one good answer
+    down.clear()
+    monkeypatch.setattr(requests, "post", lambda url, data=None, timeout=15: (calls.append(url), _DummyResp(200, json_data={"metadata": [{"name": "n"}], "data": [[7]]}))[1])
+    ls._note_tap_endpoint("https://hangs.example/sync", ok=True)
+    calls.clear()
+    _tap_query_cached(query="SELECT 4", **kw)
+    assert calls == ["https://hangs.example/sync"]
+
+    # a busy answer (HTTP 429) is not counted as a failure
+    ls.reset_tap_endpoint_health()
+    monkeypatch.setattr(requests, "post", lambda url, data=None, timeout=15: (calls.append(url), _DummyResp(429 if "hangs" in url else 200, json_data={"metadata": [{"name": "n"}], "data": [[8]]}))[1])
+    for n in (5, 6, 7):
+        calls.clear()
+        _tap_query_cached(query=f"SELECT {n}", sleep=lambda s: None, **kw)
+        assert calls[0] == "https://hangs.example/sync"

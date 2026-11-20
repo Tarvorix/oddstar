@@ -13,6 +13,8 @@ from oddstar.io import dust3d, live_survey
 def _reset_archive_state() -> Iterator[None]:
     dust3d.reset_unreachable()
     live_survey._vizier_mirror_serves.clear()
+    live_survey.reset_tap_endpoint_health()
     yield
     dust3d.reset_unreachable()
     live_survey._vizier_mirror_serves.clear()
+    live_survey.reset_tap_endpoint_health()

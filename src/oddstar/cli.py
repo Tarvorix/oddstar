@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import json
 import sys
+from collections.abc import Callable
+from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -443,9 +446,13 @@ def _cmd_search(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, 
             json.dumps({fsid: stars_by_id[fsid] for fsid in flagged_ids}, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     if is_live and flagged_ids and not args.defer_enrichment and args.channel not in ("vanishing", "radio_narrowband"):
         live_flagged: dict[str, Any] = {}
-        for fsid in flagged_ids:
-            enriched, _ = enrich_star_live_for_vetting(stars_by_id[fsid], cfg, cache)
-            live_flagged[fsid] = enriched
+        enriching = _OrderedFetch(lambda fsid: enrich_star_live_for_vetting(stars_by_id[fsid], cfg, cache)[0], flagged_ids,
+                                  max(1, int(args.fetch_workers)))
+        try:
+            for fsid in flagged_ids:
+                live_flagged[fsid] = enriching.get(fsid)
+        finally:
+            enriching.close()
         (run_dir / "live_stars.json").write_text(json.dumps(live_flagged, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
     coverage: dict[str, Any] | None = None
@@ -564,6 +571,38 @@ def _cmd_search(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, 
     )
 
 
+# Stars whose vetting data is fetched at the same time (`--fetch-workers`). One star is about a dozen archive queries
+# one after another, each waiting on a different server; three stars at a time ask no single archive for more than
+# three answers at once. Operational, not a science setting: the fetched data and the vetting are the same.
+VET_FETCH_WORKERS_DEFAULT = 3
+
+
+class _OrderedFetch:
+    """Runs `fetch(key)` for every key, `workers` at a time, and hands the results out in the caller's order.
+
+    `get(key)` returns that key's result, or raises what its fetch raised, exactly where a loop that fetched one
+    key after another would have raised it. With one worker or one key nothing runs ahead: `get` fetches on the
+    spot. `close()` drops fetches that have not started.
+    """
+
+    def __init__(self, fetch: Callable[[str], Any], keys: list[str], workers: int) -> None:
+        self._fetch = fetch
+        self._pool: ThreadPoolExecutor | None = None
+        self._pending: dict[str, Future[Any]] = {}
+        unique = list(dict.fromkeys(keys))
+        if workers > 1 and len(unique) > 1:
+            self._pool = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="vetfetch")
+            self._pending = {k: self._pool.submit(fetch, k) for k in unique}
+
+    def get(self, key: str) -> Any:
+        fut = self._pending.get(key)
+        return self._fetch(key) if fut is None else fut.result()
+
+    def close(self) -> None:
+        if self._pool is not None:
+            self._pool.shutdown(wait=False, cancel_futures=True)
+
+
 def _cmd_vet(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, root: Path) -> CLIResponse:
     run_dir = root / cfg.storage.runs_dir / args.run_id
     search_files = sorted(run_dir.glob("search_*.json"))
@@ -573,13 +612,35 @@ def _cmd_vet(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, roo
     if args.dry_run:
         return CLIResponse(ok=True, summary=f"[dry-run] Would vet flagged targets in {args.run_id}")
 
-    vet_by_star: dict[str, list[dict[str, Any]]] = {}
     ev_base = run_dir / "vet_evidence"
     live_stars_file = run_dir / "live_stars.json"
     live_stars_map = json.loads(live_stars_file.read_text(encoding="utf-8")) if live_stars_file.exists() else {}
     cache = RawCache(root / cfg.storage.raw_dir, max_cache_gb=cfg.storage.max_cache_gb) if args.live else None
-    for sf in search_files:
-        sdata = json.loads(sf.read_text(encoding="utf-8"))
+    searches = [json.loads(sf.read_text(encoding="utf-8")) for sf in search_files]
+    # Flagged stars that are fetched from the archives here: a few at a time, vetted in the order of the search
+    to_fetch = [sid for sdata in searches for sid in sdata.get("flagged_ids", [])
+                if args.live and cache is not None and sid not in live_stars_map and sid not in RADIO_CADENCES]
+    fetched = _OrderedFetch(lambda sid: fetch_single_star_live(sid, cfg, cache)[0], to_fetch, max(1, int(args.fetch_workers)))
+    try:
+        vet_by_star = _vet_searches(searches, args, cfg, cache, live_stars_map, fetched, ev_base)
+    finally:
+        fetched.close()
+
+    vet_out = run_dir / "vetting.json"
+    vet_out.write_text(json.dumps({"run_id": args.run_id, "vetting": vet_by_star}, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return CLIResponse(
+        ok=True,
+        summary=f"Vetted {len(vet_by_star)} flagged targets in {args.run_id}",
+        artifacts=[str(vet_out)],
+        data={"run_id": args.run_id, "vetted_count": len(vet_by_star)},
+        next=f"oddstar fuse {args.run_id} --json",
+    )
+
+
+def _vet_searches(searches: list[dict[str, Any]], args: argparse.Namespace, cfg: PipelineConfig, cache: RawCache | None,
+                  live_stars_map: dict[str, Any], fetched: _OrderedFetch, ev_base: Path) -> dict[str, list[dict[str, Any]]]:
+    vet_by_star: dict[str, list[dict[str, Any]]] = {}
+    for sdata in searches:
         scores_by_id = {row["source_id"]: ChannelScore.model_validate(row) for row in sdata["scores"]}
         meas_by_id = {m["source_id"]: m.get("values", {}) for m in sdata.get("measurements", [])}
         for sid in sdata.get("flagged_ids", []):
@@ -591,7 +652,7 @@ def _cmd_vet(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, roo
 
                     star = enrich_unit(json.loads(json.dumps(star)), cache, cfg=cfg)
             elif args.live and cache is not None and sid not in RADIO_CADENCES:
-                star, _ = fetch_single_star_live(sid, cfg, cache)
+                star = copy.deepcopy(fetched.get(sid))
             elif sid in RADIO_CADENCES:
                 star = dict(RADIO_CADENCES[sid])
             else:
@@ -609,16 +670,7 @@ def _cmd_vet(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, roo
             sc = scores_by_id[sid]
             vres = vet_target(star, [sc], cfg, ev_base / sid)
             vet_by_star.setdefault(sid, []).extend([v.model_dump() for v in vres])
-
-    vet_out = run_dir / "vetting.json"
-    vet_out.write_text(json.dumps({"run_id": args.run_id, "vetting": vet_by_star}, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    return CLIResponse(
-        ok=True,
-        summary=f"Vetted {len(vet_by_star)} flagged targets in {args.run_id}",
-        artifacts=[str(vet_out)],
-        data={"run_id": args.run_id, "vetted_count": len(vet_by_star)},
-        next=f"oddstar fuse {args.run_id} --json",
-    )
+    return vet_by_star
 
 
 def _cmd_fuse(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, root: Path) -> CLIResponse:
@@ -1794,8 +1846,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="optical_dips --live: fetch TESS light curves for at most N sample stars (default: all); the rest are reported as not searched",
     )
 
+    fetch_workers_help = (f"--live: flagged stars whose vetting data is fetched from the archives at the same time "
+                          f"(default {VET_FETCH_WORKERS_DEFAULT}; 1 fetches one star after another)")
+    p_search.add_argument("--fetch-workers", type=int, default=VET_FETCH_WORKERS_DEFAULT, help=fetch_workers_help)
+
     p_vet = sub.add_parser("vet", parents=[common], help="Stage 4 vetting checks on flagged targets")
     p_vet.add_argument("run_id")
+    p_vet.add_argument("--fetch-workers", type=int, default=VET_FETCH_WORKERS_DEFAULT, help=fetch_workers_help)
 
     p_fuse = sub.add_parser("fuse", parents=[common], help="Stage 5 cross-channel fusion and ranking")
     p_fuse.add_argument("run_ids", nargs="+")
