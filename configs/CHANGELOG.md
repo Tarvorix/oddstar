@@ -2,6 +2,53 @@
 
 All threshold, sample-cut, and prompt changes must be logged here under Ground Rule R4 before running validation or search.
 
+## [1.13.0] - 2026-11-19
+
+### Dip checks: the dip the search flagged must be in the light curves the checks read
+The search of 1,300 nearby stars (run `v1120-local1300-optical_dips`, config 1.12.0) flagged 68 stars; vetting
+rejected 67 and left one at Tier C: Gaia DR3 23767631757133952, box depth 0.2615, S/N 10.09, 48 h wide, TESS
+sector 42 at BTJD 2469.93. Looked at by hand, the star lies on two bad CCD columns in that sector (camera 3, CCD 3):
+the columns through its pixel hold a constant -1 and about -218 while the sky is about 150, so the aperture sum is
+negative, the QLP flux of the sector has a robust scatter of 0.21 to 0.38 per day (0.001 to 0.005 in sectors 43, 70
+and 71) and the box is noise on a flux near zero. ZTF observed the star inside the box (g 13.633 against a median of
+13.631 at the box centre, r 13.146 against 13.125) and saw no dimming; a dip of 26 per cent is 0.33 mag.
+
+The checks did not see any of this. The search reads the QLP extraction of every sector. The vetting light curves
+need the QLP and the TESScut extraction on matched cadences, and the TESScut extraction of sector 42 returned no
+cadence with positive flux, so vetting loaded sectors 43, 70 and 71 only. `pipeline_agreement`,
+`systematics_window`, `neighbour_signal` and `sso_crossing` found those three sectors quiet and passed;
+`second_survey` reported "no flagged signal to test". The fetch log line (`s42: only 0 good cadences`) reached no
+note. Of the 68 flagged stars this is the only one whose flagged sector was not vetted, and it is the one that
+came out at Tier C.
+
+The rule, written before any star was vetted with it. No threshold changes.
+
+- **`vet` and `inspect` hand the search's dip to the checks** as `lightcurves.search_dip` (sector, box centre, box
+  width, depth, S/N), when the measurement holds a dip above the channel thresholds in a real sector
+  (`search_dip_from_measurement`; a star flagged for secular fading only, or a fixture with sector 0, hands over
+  nothing, and every check then behaves as before).
+- **Coverage** (`search_dip_gap`). The box is laid over the kept 6 h bins of the same sector in the vetting light
+  curves. When less than half of it lies in kept bins (`SEARCH_DIP_MIN_BOX_COVERAGE = 0.5`: the sector was not
+  loaded, is not usable, or has no matched cadences there) the dip was not in front of the checks.
+- **The four TESS-based checks cannot pass for such a dip.** `pipeline_agreement`, `systematics_window`,
+  `neighbour_signal` and `sso_crossing` return `not_evaluated`; the note names the sector, the box, the vetted
+  sectors and the fetch log line of the missing sector, and the metrics hold `search_dip_gap`. A check that fails
+  on the sectors it has still fails.
+- **`second_survey` tests the search's box against the ground surveys** when the box is not in the vetted light
+  curves: a survey night inside the box (no padding) is compared with the box depth by the rule already used for
+  vetted events (`second_survey_simultaneous_min_depth_ratio`, `second_survey_night_dip_sigma`). A night at normal
+  brightness fails the check ("the dip is not on the sky"); no night inside the box leaves it `not_evaluated`.
+
+Effect expected on 23767631757133952: four checks `not_evaluated`, `second_survey` fails on the ZTF night at the
+box centre. The other 67 flagged stars of that run have their flagged sector among the vetted ones, so nothing
+changes for them. Not changed: the search still accepts a sector whose flux is noise on a level near zero; a rule
+for that needs a threshold and a measurement on real sectors first.
+
+### Effect on the certificates
+`oddstar/vet/lc_checks.py` is part of the certificate fingerprint, so all certificates are reissued. The
+validation harness vets fixtures without a search measurement, so no check result of the benchmark and impostor
+suites changes.
+
 ## [1.12.0] - 2026-11-19
 
 ### Spectral lines: the filter output is judged against its own baseline, and the template holds the metal lines
