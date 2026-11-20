@@ -27,7 +27,7 @@
 | `oddstar sample build <channel>` | Build parent star sample and record counts after each cut |
 | `oddstar validate <channel>` | Run all 4 validation tests and issue a frozen certificate |
 | `oddstar search <channel>` | Score the sample (blocked unless a matching certificate exists) |
-| `oddstar vet <run>` | Run all applicable artifact/impostor checks on flagged targets |
+| `oddstar vet <run>` | Run all applicable artifact/impostor checks on flagged targets. With `--live`, a flagged star without stored vetting data is fetched from the archives first (about a dozen queries, 2 to 4 minutes per star when nothing is cached); `--fetch-workers N` fetches N stars at the same time (default 3) and the stars are vetted in the order of the search |
 | `oddstar radio followup --from-run <run>` | Fetch and search the Breakthrough Listen recordings of chosen stars (Tier C or better by default, `--ids`, or `--all-covered`), one file at a time; `search radio_narrowband` itself downloads nothing |
 | `oddstar radio beams --from-run <run>` | Read the radio windows flagged outside the allocated bands from the other beams recorded at the same instant (Parkes multibeam), by HTTP range requests, no download; stores `multi_target_match` for the `multi_target` check of the next `search radio_narrowband --live` and `vet` (Tier C or better by default, or `--ids`) |
 | `oddstar spherex photometry --from-run <run>` | Measure chosen stars (Tier C or better by default, or `--ids`) on every SPHEREx 0.75 to 5 micron image that holds them: one cutout per exposure, a stored row per measurement, one file per star under `runs/<run>/spherex/` |

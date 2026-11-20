@@ -20,7 +20,9 @@ Aperiodic, asymmetric, or unusually deep optical dimming events and multi-year s
 good-quality cadences averaged into 30-minute bins, each sector divided by its median. The cache keeps the reduced series
 with the URL, size and SHA-256 of the file it came from, and remembers sectors that have no QLP file, so an interrupted run
 resumes. `--tess-max-stars N` limits the fetch; `--defer-enrichment` skips the per-star vetting fetch for flagged stars
-(`vet --live` does it later), which is how to look at the flag rate first.
+(`vet --live` does it later), which is how to look at the flag rate first. `vet --live` fetches three flagged stars at a time (`--fetch-workers`). Measured on 2026-11-19 with one star at a
+time: about 4 minutes of archive queries per star that is not cached, and up to 10 more when the ZTF service hangs
+(the fetch gives up after 600 s and records `query_failed`; a later run asks again).
 
 A star is **searched** only when at least one segment has 20 points inside the edge margins. Every other star is listed
 with its reason and excluded from the null result:
