@@ -26,7 +26,7 @@ from oddstar.vet.lc_checks import (
     search_dip_from_measurement,
     search_dip_gap,
 )
-from tests.test_lc_vetting_live import live_star, seasons_from, tess_sector
+from test_lc_vetting_live import live_star, seasons_from, tess_sector
 
 # The search's box of the regression star: sector 42, 48 h wide
 SEARCH_DIP = {"sector": 42, "btjd": 2469.93118, "depth": 0.2615, "duration_hours": 48.0, "snr": 10.09}
