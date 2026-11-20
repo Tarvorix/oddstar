@@ -20,6 +20,12 @@ Detrend edge zone: within `detrend_edge_zone_window_frac` x `detrend_window_days
 matched running median can erase or distort a dip. `analyze_tess_sector` screens that zone against the raw interior
 flux, and the detrend-based checks (pipeline_agreement, systematics_window, neighbour_signal, sso_crossing,
 second_survey) report `not_evaluated` instead of `pass` while a dip candidate lies there.
+
+The dip the search flagged (`lightcurves.search_dip`, written by `vet` and `inspect` from the search measurement):
+the search reads one extraction of every sector, the vetting light curves need both extractions on matched cadences,
+so a sector can be missing from them. When fewer than `SEARCH_DIP_MIN_BOX_COVERAGE` of the search box lies in the
+vetted bins, the four TESS-based checks cannot pass (they would be passing on sectors that do not hold the event)
+and second_survey tests the search box itself against the ground surveys.
 """
 
 from __future__ import annotations
@@ -35,6 +41,8 @@ from oddstar.schemas import VettingResult
 from oddstar.vet.common import make_vet_result, simbad_lookup, simbad_note
 
 BTJD_TO_MJD = 2457000.0 - 2400000.5
+# Share of the search's dip box that must lie inside vetted bins before a TESS-based check may pass for that dip
+SEARCH_DIP_MIN_BOX_COVERAGE = 0.5
 
 
 # ----------------------------------------------------------------------------------------- helpers
@@ -368,7 +376,7 @@ def analyze_tess_sector(sec: dict[str, Any], cfg: PipelineConfig) -> dict[str, A
     return {
         "usable": True, "summary": summary, "_t": t, "_rq": rq, "_rc": rc, "_inv": inv, "_b_lo": b_lo, "_b_hi": b_hi,
         "_b_mid": b_mid, "_dq": dq, "_dc": dc, "_co": co, "_ico": ico, "_thr_bins": thr_bins, "_event_bins": event_bins,
-        "_segs": segs,
+        "_segs": segs, "_kept": kept,
     }
 
 
@@ -391,6 +399,74 @@ def tess_dip_events(lc: dict[str, Any], cfg: PipelineConfig) -> tuple[list[dict[
     return events, n_usable
 
 
+def search_dip_from_measurement(values: dict[str, Any], cfg: PipelineConfig) -> dict[str, Any] | None:
+    """The dip an `optical_dips` search measurement flagged, in the form the checks read as `lightcurves.search_dip`.
+
+    None when the measurement holds no dip above the channel thresholds (a star flagged for secular fading only),
+    when the sector is not a real TESS sector (fixture arrays carry sector 0), or when the measurement predates the
+    stored box time. The conditions are those of `OpticalDipsChannel.score`.
+    """
+    try:
+        snr, depth = float(values["dip_snr"]), float(values["dip_depth"])
+        dur_h, bls = float(values["duration_hours"]), float(values["periodic_bls_snr"])
+        t0, sector = float(values["best_time_btjd"]), int(round(float(values["best_sector"])))
+    except (KeyError, TypeError, ValueError):
+        return None
+    if sector <= 0 or not all(math.isfinite(v) for v in (snr, depth, dur_h, bls, t0)):
+        return None
+    if (snr < _od(cfg, "dip_snr_threshold") or depth < _od(cfg, "min_dip_depth_frac") or dur_h < _od(cfg, "min_duration_hours")
+            or bls >= _od(cfg, "periodic_bls_veto_snr")):
+        return None
+    return {"sector": sector, "btjd": round(t0, 5), "depth": round(depth, 5), "duration_hours": round(dur_h, 3), "snr": round(snr, 3)}
+
+
+def search_dip_gap(lc: dict[str, Any], cfg: PipelineConfig) -> dict[str, Any] | None:
+    """The search's dip when the vetting light curves do not hold it, else None.
+
+    The box of the search (`btjd` +/- half `duration_hours`) is laid over the kept bins of the same sector in the
+    vetting light curves. Below `SEARCH_DIP_MIN_BOX_COVERAGE` the event was not in front of the checks: the sector
+    was not loaded (no second extraction, a failed fetch), is not usable, or has no matched cadences there.
+    """
+    sd = lc.get("search_dip")
+    if not isinstance(sd, dict):
+        return None
+    try:
+        sector, t0 = int(sd["sector"]), float(sd["btjd"])
+        dur_d, depth = float(sd["duration_hours"]) / 24.0, float(sd["depth"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    lo, hi = t0 - 0.5 * dur_d, t0 + 0.5 * dur_d
+    secs, _ = _analysis_sectors(lc, include_legacy=False)
+    vetted: list[int] = []
+    covered = 0.0
+    for sec in secs:
+        a = analyze_tess_sector(sec, cfg)
+        if not a or not a["usable"]:
+            continue
+        vetted.append(int(a["summary"]["sector"]))
+        if vetted[-1] != sector:
+            continue
+        k = a["_kept"]
+        overlap = np.clip(np.minimum(a["_b_hi"][k], hi) - np.maximum(a["_b_lo"][k], lo), 0.0, None)
+        covered = max(covered, float(np.sum(overlap)) / max(1e-9, hi - lo))
+    if covered >= SEARCH_DIP_MIN_BOX_COVERAGE:
+        return None
+    log = [str(line) for line in (lc.get("tess_query_log") or []) if str(line).startswith(f"s{sector}:")]
+    why = (f"only {covered:.0%} of the box lies in vetted bins" if sector in vetted
+           else f"sector {sector} is not among the vetted sectors {sorted(vetted)}")
+    note = (f"the dip the search flagged (sector {sector}, BTJD {t0:.3f}, depth {depth:.3f}, {dur_d * 24.0:.0f} h box) is not in the "
+            f"light curves loaded for vetting: {why}" + (f" (fetch log: {'; '.join(log)[:200]})" if log else ""))
+    return {"search_dip": dict(sd), "vetted_sectors": sorted(vetted), "box_coverage": round(covered, 3), "fetch_log": log, "note": note}
+
+
+def _gap_block(lc: dict[str, Any], cfg: PipelineConfig, what: str) -> tuple[dict[str, Any] | None, str]:
+    """(gap, sentence) for a check that must not pass while the search's dip is outside the vetted light curves."""
+    gap = search_dip_gap(lc, cfg)
+    if gap is None:
+        return None, ""
+    return gap, f"Not evaluated for the flagged dip: {gap['note']}, so {what}"
+
+
 # ------------------------------------------------------------------------------- pipeline_agreement
 
 
@@ -400,16 +476,19 @@ def check_pipeline_agreement(star: dict[str, Any], cfg: PipelineConfig, out_dir:
     window = _od(cfg, "detrend_window_days")
     bin_days = _od(cfg, "min_duration_hours") / 24.0
     thr = _od(cfg, "min_dip_depth_frac")
+    gap, gap_txt = _gap_block(lc, cfg, "the two extractions were not compared at the event")
     if not secs:
         return make_vet_result(out_dir, check="pipeline_agreement", status="not_evaluated",
-                               note="Independent second light-curve extraction missing" + _tess_log(lc))
+                               note="Independent second light-curve extraction missing" + _tess_log(lc)
+                                    + (f". {gap_txt}" if gap else ""),
+                               metrics={"search_dip_gap": gap} if gap else None)
     analyses = [analyze_tess_sector(s, cfg) for s in secs]
     usable = [a for a in analyses if a and a["usable"]]
     skipped = [a["summary"] for a in analyses if a and not a["usable"]]
     if not usable:
         return make_vet_result(out_dir, check="pipeline_agreement", status="not_evaluated",
                                note=f"No TESS sector has >= 4 sufficiently filled {bin_days * 24:.0f} h bins" + _tess_log(lc),
-                               metrics={"sectors_skipped": skipped})
+                               metrics={"sectors_skipped": skipped, "search_dip_gap": gap})
     per_sector = [a["summary"] for a in usable]
     bad = [p["sector"] for p in per_sector if not p["agree"]]
     best = max(per_sector, key=lambda p: p["deepest_coincident"]["depth_coincident"])
@@ -435,10 +514,12 @@ def check_pipeline_agreement(star: dict[str, Any], cfg: PipelineConfig, out_dir:
         note += "; " + _edge_note(edge_c, cfg)
     note += (". Both extractions use the same TESS FFI pixels, so agreement validates the light-curve extraction, "
              "not the astrophysical origin of the signal")
+    if gap and not bad:
+        note = f"{gap_txt}. " + note
     return make_vet_result(
         out_dir,
         check="pipeline_agreement",
-        status="fail" if bad else ("not_evaluated" if edge_c else "pass"),
+        status="fail" if bad else ("not_evaluated" if (edge_c or gap) else "pass"),
         note=note,
         metrics={
             "source": source,
@@ -453,6 +534,7 @@ def check_pipeline_agreement(star: dict[str, Any], cfg: PipelineConfig, out_dir:
             "shared_pixels_caveat": True,
             "detrend_edge_zone_days": _edge_zone_days(cfg),
             "detrend_edge_zone_candidates": edge_c,
+            "search_dip_gap": gap,
         },
     )
 
@@ -688,9 +770,16 @@ def check_systematics_window(star: dict[str, Any], cfg: PipelineConfig, out_dir:
     ir_untested = bool(neow["status"] == "not_evaluated" and "scan_systematic" not in neo
                        and _ir_variation(neo, cfg).get("active"))
     metrics["neowise_variation_untested"] = ir_untested
+    gap, gap_txt = _gap_block(lc, cfg, "its background, segment edge and centroid were not tested")
+    metrics["search_dip_gap"] = gap
     if status == "pass" and tess.get("edge_blocked"):
         status = "not_evaluated"
         notes.insert(0, "A TESS dip candidate inside the detrend edge zone is not evaluated, so the check cannot pass")
+    elif status == "pass" and gap:
+        status = "not_evaluated"
+        notes.insert(0, gap_txt)
+    elif status == "not_evaluated" and gap:
+        notes.insert(0, gap_txt)
     elif status == "pass" and ir_untested:
         status = "not_evaluated"
         notes.insert(0, "The star varies in NEOWISE and the NEOWISE frames could not be tested for systematics, so the check cannot pass")
@@ -892,9 +981,14 @@ def check_neighbour_signal(star: dict[str, Any], cfg: PipelineConfig, out_dir: P
     if lc.get("tess_neighbours"):
         metrics["tess_gaia_neighbours"] = lc["tess_neighbours"]
     status = _combine(statuses)
+    gap, gap_txt = _gap_block(lc, cfg, "the flux deficit was not located on the pixels")
+    metrics["search_dip_gap"] = gap
     if status == "pass" and tess.get("edge_blocked"):
         status = "not_evaluated"
         notes.insert(0, "A TESS dip candidate inside the detrend edge zone is not evaluated, so the check cannot pass")
+    elif status in ("pass", "not_evaluated") and gap:
+        status = "not_evaluated"
+        notes.insert(0, gap_txt)
     elif status == "not_evaluated" and not tess.get("edge_blocked"):
         notes.insert(0, "Neither TESS centroid series nor NEOWISE residual vectors available")
     return make_vet_result(out_dir, check="neighbour_signal", status=status, note=" | ".join(notes), metrics=metrics)
@@ -913,15 +1007,22 @@ def check_sso_crossing(star: dict[str, Any], cfg: PipelineConfig, out_dir: Path)
             metrics={"sso_crossing_t0": hit, "explicit_flag": True},
         )
     secs, _ = _analysis_sectors(lc, include_legacy=False)
+    gap, gap_txt = _gap_block(lc, cfg, "no Solar System body query was made at its time")
     if not secs:
         return make_vet_result(out_dir, check="sso_crossing", status="not_evaluated",
-                               note="No TESS light curve loaded, so no event time to test" + _tess_log(lc))
+                               note="No TESS light curve loaded, so no event time to test" + _tess_log(lc) + (f". {gap_txt}" if gap else ""),
+                               metrics={"search_dip_gap": gap} if gap else None)
     events, n_usable = tess_dip_events(lc, cfg)
     thr = _od(cfg, "min_dip_depth_frac")
     if n_usable == 0:
         return make_vet_result(out_dir, check="sso_crossing", status="not_evaluated",
-                               note="TESS sectors loaded but none has enough filled bins to locate an event" + _tess_log(lc))
+                               note="TESS sectors loaded but none has enough filled bins to locate an event" + _tess_log(lc)
+                                    + (f". {gap_txt}" if gap else ""),
+                               metrics={"search_dip_gap": gap} if gap else None)
     edge_c = tess_edge_zone_candidates(lc, cfg)
+    if gap and not events:
+        return make_vet_result(out_dir, check="sso_crossing", status="not_evaluated", note=gap_txt,
+                               metrics={"n_sectors": n_usable, "events": [], "detrend_edge_zone_candidates": edge_c, "search_dip_gap": gap})
     if not events:
         # The hypothesis tested here is "a Solar System body caused the flagged TESS dip". With TESS data actually
         # loaded and analysed for every fetched sector and no coincident dip above the channel threshold, there is no
@@ -962,7 +1063,7 @@ def check_sso_crossing(star: dict[str, Any], cfg: PipelineConfig, out_dir: Path)
         if relevant:
             hits.append(f"s{ev['sector']} BTJD {ev['btjd']:.3f}: {relevant[0]['name']} at {relevant[0]['sep_arcsec']}\"")
     metrics = {"radius_arcsec": radius, "observer": "C57", "events": table, "missing": missing, "query_failed": failed,
-               "detrend_edge_zone_candidates": edge_c}
+               "detrend_edge_zone_candidates": edge_c, "search_dip_gap": gap}
     if hits:
         return make_vet_result(out_dir, check="sso_crossing", status="fail",
                                note=f"Solar System body within {radius:.0f}\" at TESS event time: " + "; ".join(hits), metrics=metrics)
@@ -976,6 +1077,9 @@ def check_sso_crossing(star: dict[str, Any], cfg: PipelineConfig, out_dir: Path)
     if edge_c:
         return make_vet_result(out_dir, check="sso_crossing", status="not_evaluated", metrics=metrics,
                                note=f"SkyBoT (TESS, C57) found no relevant body at {len(table)} event(s), but " + _edge_note(edge_c, cfg))
+    if gap:
+        return make_vet_result(out_dir, check="sso_crossing", status="not_evaluated", metrics=metrics,
+                               note=f"SkyBoT (TESS, C57) found no relevant body at {len(table)} other event(s). {gap_txt}")
     return make_vet_result(
         out_dir, check="sso_crossing", status="pass",
         note=(f"SkyBoT (TESS, C57) at {len(table)} event(s): no body within {radius:.0f}\" bright enough (flux >= {min_ratio:.2f} x depth "
@@ -1344,6 +1448,14 @@ def _dip_context(lc: dict[str, Any], series: list[dict[str, Any]], cfg: Pipeline
         edge_c.extend(_sector_edge_candidates(a))
         if a["summary"]["deepest_coincident"]["coincident_exceeds_min_depth"]:
             events.append(dict(a["summary"]["deepest_coincident"], sector=a["summary"]["sector"]))
+    gap = search_dip_gap(lc, cfg)
+    if gap is not None:
+        # The search's dip is not in the vetted light curves, so the ground surveys are the only test left for it.
+        # Its box is tested as it stands (no padding): a night inside the box saw the star during the claimed dimming.
+        sd = gap["search_dip"]
+        half = 0.5 * float(sd["duration_hours"]) / 24.0
+        events.append({"sector": int(sd["sector"]), "btjd": float(sd["btjd"]), "btjd_start": float(sd["btjd"]) - half,
+                       "btjd_end": float(sd["btjd"]) + half, "depth_coincident": float(sd["depth"]), "from_search": True, "pad_days": 0.0})
     if not events:
         if edge_c:
             return {"tess_events": [], "detrend_edge_zone_candidates": edge_c, "status": "not_evaluated",
@@ -1362,8 +1474,9 @@ def _dip_context(lc: dict[str, Any], series: list[dict[str, Any]], cfg: Pipeline
             continue
         base = float(np.median(nights[:, 1]))
         for ev in events:
-            lo = ev["btjd_start"] + BTJD_TO_MJD - pad
-            hi = ev["btjd_end"] + BTJD_TO_MJD + pad
+            ev_pad = float(ev.get("pad_days", pad))
+            lo = ev["btjd_start"] + BTJD_TO_MJD - ev_pad
+            hi = ev["btjd_end"] + BTJD_TO_MJD + ev_pad
             sel = (nights[:, 0] >= lo) & (nights[:, 0] <= hi)
             if not sel.any():
                 continue
@@ -1384,8 +1497,10 @@ def _dip_context(lc: dict[str, Any], series: list[dict[str, Any]], cfg: Pipeline
             best = max(best, run)
         if best >= min_nights:
             indep.append(f"{sr['survey']} {sr['band']} ({best} consecutive nights >= {thr:.2f} fainter)")
-    ev_txt = ", ".join(f"s{e['sector']} BTJD {e['btjd']:.2f} (depth {e['depth_coincident']:.3f})" for e in events)
-    ctx: dict[str, Any] = {"tess_events": events, "simultaneous": simul, "independent_dimming": indep, "detrend_edge_zone_candidates": edge_c}
+    ev_txt = ", ".join(f"s{e['sector']} BTJD {e['btjd']:.2f} (depth {e['depth_coincident']:.3f}"
+                       + (", the search's box, not in the vetted light curves" if e.get("from_search") else "") + ")" for e in events)
+    ctx: dict[str, Any] = {"tess_events": events, "simultaneous": simul, "independent_dimming": indep, "detrend_edge_zone_candidates": edge_c,
+                           "search_dip_gap": gap}
     if contra:
         c = contra[0]
         ctx.update({"status": "fail", "note": f"TESS events {ev_txt}: simultaneous {c['survey']} {c['band']} shows depth {c['survey_depth']:.3f} "

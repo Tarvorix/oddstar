@@ -102,3 +102,29 @@ channel scores do not change.
   `second_survey_night_dip_sigma`) confirms the star dims; otherwise `not_evaluated`. The IR context is in `ir_timedomain.md`.
 - Limitation: the matched running median uses `mode="nearest"` padding (as the channel does), which absorbs a dip that runs into
   the last cadence of a segment.
+
+## The flagged dip must be in the vetted light curves (config 1.13.0)
+The search reads the QLP extraction of every sector. The vetting light curves need the QLP and the TESScut extraction
+on matched cadences, so a sector the search used can be missing from them (TESScut returned no usable cadence, a
+fetch failed). Until config 1.13.0 the checks then judged the sectors they had, found them quiet and passed.
+
+`vet` and `inspect` now hand the search's dip to the checks as `lightcurves.search_dip` (sector, box centre, box
+width, depth, S/N), taken from the search measurement when it holds a dip above the channel thresholds in a real
+sector. `search_dip_gap` lays the box over the kept 6 h bins of that sector in the vetting light curves. When less
+than half of the box (`SEARCH_DIP_MIN_BOX_COVERAGE`) lies in kept bins:
+
+- `pipeline_agreement`, `systematics_window`, `neighbour_signal` and `sso_crossing` return `not_evaluated` instead of
+  `pass`. The note names the sector, the box, the vetted sectors and the fetch log line of the missing sector; the
+  metrics hold `search_dip_gap`. A check that fails on the sectors it has still fails.
+- `second_survey` tests the box itself: a ZTF or ASAS-SN night inside the box (no padding) is compared with the box
+  depth by the rule used for vetted events. A night at normal brightness fails the check; no night inside the box
+  leaves it `not_evaluated`.
+
+The case that led to the rule: Gaia DR3 23767631757133952 in the nearby 1,300-star run (config 1.12.0), box depth
+0.26 and S/N 10.09 in sector 42, where the star lies on two bad CCD columns (aperture sum negative, QLP scatter 0.21
+to 0.38 per day against 0.001 to 0.005 in its other sectors). TESScut returned no cadence with positive flux for that
+sector, vetting loaded sectors 43, 70 and 71, four checks passed and the star was Tier C. ZTF observed it inside the
+box at normal brightness. Of the 68 flagged stars of that run it was the only one whose flagged sector was not vetted.
+
+Not covered: the search still accepts such a sector. A sector whose flux is noise on a level near zero should not be
+searched at all; that rule needs a threshold and a measurement on real sectors.

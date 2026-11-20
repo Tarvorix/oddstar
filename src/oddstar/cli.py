@@ -637,6 +637,15 @@ def _cmd_vet(args: argparse.Namespace, cfg: PipelineConfig, short_hash: str, roo
     )
 
 
+def _attach_search_dip(star: dict[str, Any], values: dict[str, Any], cfg: PipelineConfig) -> None:
+    """Hand the dip the search flagged to the checks, so they can tell whether their light curves hold it."""
+    from oddstar.vet.lc_checks import search_dip_from_measurement
+
+    sd = search_dip_from_measurement(values, cfg)
+    if sd is not None:
+        star["lightcurves"] = dict(star.get("lightcurves") or {}, search_dip=sd)
+
+
 def _vet_searches(searches: list[dict[str, Any]], args: argparse.Namespace, cfg: PipelineConfig, cache: RawCache | None,
                   live_stars_map: dict[str, Any], fetched: _OrderedFetch, ev_base: Path) -> dict[str, list[dict[str, Any]]]:
     vet_by_star: dict[str, list[dict[str, Any]]] = {}
@@ -668,6 +677,8 @@ def _vet_searches(searches: list[dict[str, Any]], args: argparse.Namespace, cfg:
             if "off_scan_hits" in mvals:
                 star["off_scan_hits"] = int(mvals["off_scan_hits"])
             sc = scores_by_id[sid]
+            if sc.channel == "optical_dips":
+                _attach_search_dip(star, mvals, cfg)
             vres = vet_target(star, [sc], cfg, ev_base / sid)
             vet_by_star.setdefault(sid, []).extend([v.model_dump() for v in vres])
     return vet_by_star
@@ -864,6 +875,9 @@ def _inspect_single_target(
             stats_by_ch[cname] = [0.0, 1.0, 2.0]
 
     ev_dir = root / cfg.storage.dossiers_dir / clean_id / "evidence"
+    for m in measurements:
+        if m.channel == "optical_dips":
+            _attach_search_dip(star, m.values, cfg)
     vetting = vet_target(star, scores, cfg, ev_dir)
 
     # Load any existing ingested reviews for this target
